@@ -119,3 +119,5 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
+
+calculated_filters.pkl
