@@ -1,0 +1,90 @@
+import fenics as fe
+from mechanics import *
+from boundary import PeriodicDomain
+from matplotlib import pyplot as plt
+
+from dataclasses import dataclass, field
+
+class Metamaterial:
+    
+    def __init__(self, E_max, E_min, nu):
+        self.nelx = None
+        self.nely = None
+        self.x    = None
+        self.prop = Properties(E_max, E_min, nu)
+        self.mesh = None
+
+        
+    def plot_mesh(self):
+        fe.plot(self.mesh)
+        plt.show()
+        
+    def create_function_spaces(self, elem_degree=1):
+        if not isinstance(self.mesh, fe.Mesh):
+            raise ValueError("self.mesh is not a valid mesh")
+        Ve = fe.VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
+        Re = fe.VectorElement('R', self.mesh.ufl_cell(), 0)
+        W  = fe.FunctionSpace(self.mesh, fe.MixedElement([Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
+
+        R = fe.FunctionSpace(self.mesh, 'DG', 0)
+        
+        self.x = fe.Function(R)
+        
+        self.W, self.R = W, R
+
+        return W, R
+
+    def homogenized_C(self, u_list, E, nu):
+        s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu) 
+                for i, u in enumerate(u_list)]
+        
+        uChom = [
+            [
+                fe.inner(s_t, linear_strain(u) + macro_strain(j))*fe.dx
+                for j, u, in enumerate(u_list)
+            ]
+            for s_t in s_list
+        ]
+        
+        Chom = [[fe.assemble(uChom[i][j]) for j in range(3)] for i in range(3)]
+        
+        return Chom, uChom
+
+    def solve(self):
+        v_, lamb_ = fe.TestFunctions(self.W)
+        dv, dlamb = fe.TrialFunctions(self.W)
+        
+        E = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x
+        nu = self.prop.nu
+        
+        m_strain = macro_strain(0)
+        F = fe.inner(linear_stress(linear_strain(dv) + m_strain, E, nu), 
+                     linear_strain(v_))*fe.dx
+        a, L = fe.lhs(F), fe.rhs(F)
+        a += fe.dot(lamb_, dv)*fe.dx + fe.dot(dlamb, v_)*fe.dx
+        
+        sols = []
+        for (j, case) in enumerate(["Exx", "Eyy", "Exy"]):
+            w = fe.Function(self.W)
+            m_strain.assign(macro_strain(j))
+            fe.solve(a == L, w, [])
+            v = fe.split(w.copy(deepcopy=True))[0]
+            sols.append(v)
+            
+        Chom = self.homogenized_C(sols, E, nu)[0]
+        
+        return sols, Chom
+
+        
+@dataclass
+class Properties:
+    E_max: float
+    E_min: float
+    nu: float
+    K: float = field(init=False)
+    lambda_: float = field(init=False)
+    mu_: float = field(init=False)
+
+    def __post_init__(self):
+        self.lambda_, self.mu_ = lame_parameters(self.E_max, self.nu, model='plane_stress')
+        self.K = self.lambda_ + 2.0*self.mu_
