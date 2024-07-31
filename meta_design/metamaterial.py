@@ -1,4 +1,5 @@
 import fenics as fe
+fe.set_log_level(40)
 from mechanics import *
 from boundary import PeriodicDomain
 from matplotlib import pyplot as plt
@@ -18,6 +19,17 @@ class Metamaterial:
     def plot_mesh(self):
         fe.plot(self.mesh)
         plt.show()
+        
+
+    def plot_density(self, ax=None):
+        if not isinstance(ax, plt.Axes):
+            fig, ax = plt.subplots()
+            return fig, ax
+        plt.sca(ax)
+        ax.clear()
+        ax.margins(x=0,y=0)
+        fe.plot(self.x, cmap='gray', vmin=0, vmax=1, title="Density")
+        
         
     def create_function_spaces(self, elem_degree=1):
         if not isinstance(self.mesh, fe.Mesh):
@@ -40,13 +52,13 @@ class Metamaterial:
         
         uChom = [
             [
-                fe.inner(s_t, linear_strain(u) + macro_strain(j))*fe.dx
+                fe.inner(s_t, linear_strain(u) + macro_strain(j))
                 for j, u, in enumerate(u_list)
             ]
             for s_t in s_list
         ]
         
-        Chom = [[fe.assemble(uChom[i][j]) for j in range(3)] for i in range(3)]
+        Chom = [[fe.assemble(uChom[i][j]*fe.dx) for j in range(3)] for i in range(3)]
         
         return Chom, uChom
 

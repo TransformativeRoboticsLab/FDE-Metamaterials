@@ -4,6 +4,7 @@ import nlopt
 import jax
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
+import matplotlib.animation as animation
 
 from metamaterial import Metamaterial
 from filter import DensityFilter
@@ -24,8 +25,35 @@ def jax_projection(x, beta=1., eta=0.5):
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
+class VolumeConstraint:
+    
+    def __init__(self, V, filt, beta, eta):
+        self.V = V
+        self.filt = filt
+        self.beta = beta
+        self.eta = eta
+        self.evals = []
+        
+    def __call__(self, x, grad):
+        # global global_state
+        
+        def fwd(x):
+            x_tilde = jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax)
+            x_bar   = jax_projection(x_tilde, self.beta, self.eta)
+            return jnp.mean(x_bar)
+        
+        volume, dvdx = jax.value_and_grad(fwd)(x)
+                
+        if grad.size > 0:
+            grad[:] = np.array(dvdx)
+            
+        print(f"Volume = {volume:.3f} <= {self.V:.3f}")
+        
+        return float(volume - self.V)
+        
+
 class PoissonRatio:
-    def __init__(self, metamaterial, filt, beta=1, eta=0.5):
+    def __init__(self, metamaterial, filt, beta, eta):
         self.metamaterial = metamaterial
         self.filt = filt
         self.beta = beta
@@ -34,34 +62,54 @@ class PoissonRatio:
         self.evals = []
         self.epoch_iter_tracker = []
         
+        # self.fig, self.ax = self.metamaterial.plot_density()
+        # plt.ion()
+        # plt.show()
+        
     def __call__(self, x, grad):
-        global global_state
+        # global global_state
         
         def filter_and_project(x):
             x_tilde = jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax)
-            x_bar   = jax_projection(x, self.beta, self.eta)
+            x_bar   = jax_projection(x_tilde, self.beta, self.eta)
             return x_bar
         
-        x_out, vjp = jax.vjp(filter_and_project, x)
+        x_out, vjp_fn = jax.vjp(filter_and_project, x)
         
-        self.metamaterial.x.vector().set_local(x_out)
+        # self.metamaterial.x.vector().set_local(x_out)
+        self.metamaterial.x.vector()[:] = x_out
         
         sols, Chom = self.metamaterial.solve()
+        
+        # global_state = (sols, Chom)
         
         E_max = self.metamaterial.prop.E_max
         E_min = self.metamaterial.prop.E_min
         nu    = self.metamaterial.prop.nu
-        baseChom, baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)
+        _, baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)
         
         val  = -Chom[2][2]
-        dvdx = -fe.derivative(baseUChom[2][2], self.metamaterial.x) * (E_max - E_min)
         
-        if grad.size > 0:
-            grad[:] = vjp(dvdx)
-            
-        return val
-        
+        self.evals.append(val)
 
+        if grad.size > 0:
+            dvdx = -fe.project(baseUChom[2][2], self.metamaterial.R).vector().get_local() * (E_max - E_min)
+            grad[:] = vjp_fn(dvdx)[0]
+            
+            
+        # if len(self.evals) % 10 == 1:
+            # self.update_plot()
+            
+        # self.ax.clear()
+        # self.metamaterial.plot_density(self.ax)
+        # plt.draw()
+        # plt.pause(1e-3)
+        
+        print(f"Epoch {self.epoch}, Step {len(self.evals)}, C_22 = {-1.*val}")
+
+        return val
+    
+    
 def main():
     nelx = 40
     nely = nelx
@@ -79,14 +127,24 @@ def main():
     filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
     
     # initial rho
-    x = jnp.array(np.random.binomial(1, vol_frac, R.dim()))
+    x = jnp.array(np.random.binomial(1, vol_frac, R.dim()), dtype=np.float32)
 
     # optimizer
-    opt = nlopt.opt(nlopt.LD_MMA, R.dim())
     f = PoissonRatio(metamaterial=metamate, filt=filt, beta=1, eta=0.5)
+    g = VolumeConstraint(V=vol_frac, filt=filt, beta=1, eta=0.5)
+
+    dim = metamate.x.vector().size()
+    opt = nlopt.opt(nlopt.LD_MMA, dim)
     opt.set_min_objective(f)
-    opt.set_lower_bounds(0.)
-    opt.set_upper_bounds(1.)
+    opt.add_inequality_constraint(g, 0.)
+    
+    opt.set_lower_bounds(np.zeros(dim))
+    opt.set_upper_bounds(np.ones(dim))
+    # opt.set_maxeval(100)
+    
+    opt.optimize(x)
+    
+    
     
     # sols, Chom = metamate.solve()
     # print(np.array(Chom))
@@ -131,4 +189,5 @@ def main():
 
 
 if __name__ == "__main__":
+    np.random.seed(1)
     main()
