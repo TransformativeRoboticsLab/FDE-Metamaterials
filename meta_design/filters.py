@@ -1,11 +1,6 @@
 import pickle, os, hashlib
-import logging
-
 import numpy as np
 from fenics import *
-# from fenics_adjoint import *
-# from pyadjoint.overloaded_function import overload_function
-# from pyadjoint import Block
 
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.sparse import csr_matrix

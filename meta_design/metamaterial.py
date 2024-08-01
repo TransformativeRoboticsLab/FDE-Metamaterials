@@ -1,10 +1,10 @@
 import fenics as fe
 fe.set_log_level(40)
+from matplotlib import pyplot as plt
+from dataclasses import dataclass, field
+
 from mechanics import *
 from boundary import PeriodicDomain
-from matplotlib import pyplot as plt
-
-from dataclasses import dataclass, field
 
 class Metamaterial:
     
@@ -14,22 +14,19 @@ class Metamaterial:
         self.x    = None
         self.prop = Properties(E_max, E_min, nu)
         self.mesh = None
-
         
     def plot_mesh(self):
         fe.plot(self.mesh)
         plt.show()
         
 
-    def plot_density(self, ax=None):
-        if not isinstance(ax, plt.Axes):
-            fig, ax = plt.subplots()
-            return fig, ax
-        plt.sca(ax)
-        ax.clear()
-        ax.margins(x=0,y=0)
-        fe.plot(self.x, cmap='gray', vmin=0, vmax=1, title="Density")
+    def plot_density(self, title=None):
+        r = fe.Function(self.R)
+        r.vector()[:] = 1. - self.x.vector()[:]
+        r.set_allow_extrapolation(True)
         
+        self.plot = fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        self.ax.margins(x=0,y=0)
         
     def create_function_spaces(self, elem_degree=1):
         if not isinstance(self.mesh, fe.Mesh):
@@ -41,7 +38,6 @@ class Metamaterial:
         R = fe.FunctionSpace(self.mesh, 'DG', 0)
         
         self.x = fe.Function(R)
-        
         self.W, self.R = W, R
 
         return W, R
