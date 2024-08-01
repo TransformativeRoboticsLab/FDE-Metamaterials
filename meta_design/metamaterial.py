@@ -25,8 +25,8 @@ class Metamaterial:
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
         
-        self.plot = fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
-        self.ax.margins(x=0,y=0)
+        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        plt.show()
         
     def create_function_spaces(self, elem_degree=1):
         if not isinstance(self.mesh, fe.Mesh):
@@ -79,9 +79,9 @@ class Metamaterial:
             v = fe.split(w.copy(deepcopy=True))[0]
             sols.append(v)
             
-        Chom = self.homogenized_C(sols, E, nu)[0]
+        Chom, uChom = self.homogenized_C(sols, E, nu)
         
-        return sols, Chom
+        return sols, Chom, uChom
 
         
 @dataclass

@@ -3,10 +3,13 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import fenics as fe
+import ufl
 
+@jax.jit
 def jax_density_filter(x, H, Hs):
     return jnp.divide(H @ x, Hs)
 
+@jax.jit
 def jax_projection(x, beta=1., eta=0.5):
     tanh_beta_eta = jnp.tanh(beta * eta)
     tanh_beta_x_minus_eta = jnp.tanh(beta * (x - eta))
@@ -17,6 +20,7 @@ def jax_projection(x, beta=1., eta=0.5):
 
     return jnp.array(numerator / denominator)
 
+@jax.jit
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
@@ -26,8 +30,8 @@ class Objective:
         self.filt = filt
         self.beta = beta
         self.eta  = eta
+        self.pen  = pen
         self.plot = plot
-        self.pen = pen
 
         self.epoch = 0
         self.evals = []
@@ -38,12 +42,13 @@ class Objective:
         self.fig, self.axes = plt.subplots(1, 3, figsize=(12,4))
         
     def __call__(self, x, grad):
+        global global_state
         
         def filter_and_project(x):
             if not self.filter_and_project:
                 return x
             x = jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax)
-            # x = jax_projection(x, self.beta, self.eta)
+            x = jax_projection(x, self.beta, self.eta)
             x = jax_simp(x, self.pen)
             return x
         
@@ -51,7 +56,9 @@ class Objective:
                 
         self.metamaterial.x.vector()[:] = x_out
         
-        sols, Chom = self.metamaterial.solve()
+        sols, Chom, uChom = self.metamaterial.solve()
+        
+        global_state = (sols, Chom, vjp_fn)
         
         # global_state = (sols, Chom)
         
@@ -60,27 +67,29 @@ class Objective:
         nu    = self.metamaterial.prop.nu
         _, baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)
         
-        # val  = -Chom[2][2]
-        val = -(Chom[0][0] + Chom[0][1] + Chom[1][0] + Chom[1][1])
+        # c  = -Chom[2][2]
+        # dc = fe.project(-baseUChom[2][2], self.metamaterial.R)
         
-        self.evals.append(val)
+        c = -Chom[0][1] / Chom[1][1] - Chom[1][0] / Chom[1][1]
+        # dc = fe.project(ufl.diff(-uChom[0][1] / uChom[1][1] - uChom[1][0] / uChom[1][1], self.metamaterial.x), self.metamaterial.R)
+        dc = fe.project(-baseUChom[0][1] / baseUChom[1][1] - baseUChom[1][0] / baseUChom[1][1], self.metamaterial.R)
+        
+        self.evals.append(c)
 
         if grad.size > 0:
             cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
-            dvdx = -(baseUChom[0][0] + baseUChom[1][0] + baseUChom[0][1] + baseUChom[1][1])
-            dvdx = fe.project(dvdx * cell_vol * (E_max - E_min) * self.pen * self.metamaterial.x ** (self.pen - 1.), self.metamaterial.R).vector().get_local()
-            grad[:] = np.array(vjp_fn(dvdx)[0])
+            grad[:] = vjp_fn(dc.vector()[:])[0] #* cell_vol
             
-        if (len(self.evals) % 10 == 1) and self.plot:
+        if (len(self.evals) % 2 == 1) and self.plot:
             fields = {'x': x,
                       'x_tilde': jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax),
                       'x_out': x_out}
             self.update_plot(fields)
             
         
-        print(f"Epoch {self.epoch}, Step {len(self.evals)}, C_22 = {-1.*val}")
+        print(f"Epoch {self.epoch}, Step {len(self.evals)}, C_22 = {c}")
 
-        return val
+        return c
     
     def update_plot(self, fields):
         if len(fields) != len(self.axes):
@@ -114,7 +123,21 @@ class Objective:
         
         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
+class IsotropicConstraint:
     
+    def __init__(self):
+        pass
+    
+    def __call__(self, x, grad):
+        global global_state
+
+        sols, Chom, vjp = global_state
+        
+        Chom = jnp.array(Chom)
+        Ciso_ii = 0.5 * (Chom[0,0] + Chom[1,1])
+        Cios_ij = Chom[0,1]
+        Ciso_jj = 0.5 * (Ciso_ii - Ciso_ij)
+
 class VolumeConstraint:
     
     def __init__(self, V, filt, beta, eta):
@@ -135,8 +158,86 @@ class VolumeConstraint:
         volume, dvdx = jax.value_and_grad(fwd)(x)
                 
         if grad.size > 0:
-            grad[:] = np.array(dvdx)
+            grad[:] = dvdx
             
         print(f"Volume = {volume:.3f} <= {self.V:.3f}")
         
         return float(volume - self.V)
+
+        
+class XiaOptimization:
+    
+    def __init__(self, metamaterial, filt, pen, vol_frac, objective='bulk', max_eval=100):
+        self.metamaterial = metamaterial
+        self.filt = filt
+        self.pen = pen
+        self.vol_frac = vol_frac
+                
+        self.evals = []
+        self.max_eval = max_eval
+        if objective == 'shear':
+            self.obj_idxs = [[2], [2]]
+        elif objective == 'bulk':
+            self.obj_idxs = [[0,1], [0, 1]]
+        else:
+            raise ValueError("Invalid objective. Must be 'shear' or 'bulk'")
+
+        
+    def optimize(self, x):
+        change = 1.
+        x_phys = np.copy(x)
+        for n in range(self.max_eval):
+            if change < 0.01:
+                break
+            
+            self.metamaterial.x.vector()[:] = x_phys**self.pen
+            sols, Chom, uChom = self.metamaterial.solve()
+
+            E_max = self.metamaterial.prop.E_max
+            E_min = self.metamaterial.prop.E_min
+            nu    = self.metamaterial.prop.nu
+            cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
+            baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+
+            c = sum(-Chom[i][j] for i in self.obj_idxs[0] for j in self.obj_idxs[1])
+            dc = sum(baseUChom[i][j] for i in self.obj_idxs[0] for j in self.obj_idxs[1])
+            
+            self.evals.append(c)
+            dc = -self.pen * (E_max - E_min) * x_phys**(self.pen - 1.) * fe.project(dc, self.metamaterial.R).vector()[:]
+            dv = np.ones_like(x) * cell_vol
+            
+            ft = 'density'
+            if ft == 'sensitivity':
+                dc = np.divide(self.filt.H @ np.multiply(x, dc), 
+                               np.multiply(np.maximum(1e-3, x), self.filt.Hs))
+            elif ft == 'density':
+                dc = self.filt.H @ np.divide(dc, self.filt.Hs)
+                dv = self.filt.H @ np.divide(dv, self.filt.Hs)
+            else:
+                raise ValueError("Invalid update type")
+            
+            l1, l2, move = 0., 1e9, 0.2
+            while l2 - l1 > 1e-9:
+                l_mid = 0.5 * (l1 + l2)
+                x_new = np.maximum(0., np.maximum(x - move, np.minimum(1., np.minimum(x + move, x * np.sqrt(-dc / dv / l_mid)))))
+                l1, l2 = (l_mid, l2) if np.mean(x_new) - self.vol_frac > 0 else (l1, l_mid)
+                if ft == 'sensitivity':
+                    x_phys = x_new
+                elif ft == 'density':
+                    x_phys = self.filt.H @ np.divide(x_new, self.filt.Hs)
+                else:
+                    raise ValueError("Invalid update type")
+                
+                if np.mean(x_phys) > self.vol_frac:
+                    l1 = l_mid
+                else:
+                    l2 = l_mid
+            
+            change = np.linalg.norm(x_new - x, np.inf)
+            
+            x = x_new
+            
+            print(f"Step {n+1:d}, Objective = {c:.4f}, Vol = {np.mean(x_phys):.4f} Change = {change:.4f}")
+            
+        return x_phys
+                
