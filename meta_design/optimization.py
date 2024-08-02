@@ -38,8 +38,9 @@ class Objective:
         self.epoch_iter_tracker = []
         self.filter_and_project = filter_and_project
         
-        plt.ion()
-        self.fig, self.axes = plt.subplots(1, 3, figsize=(12,4))
+        if self.plot:
+            plt.ion()
+            self.fig, self.axes = plt.subplots(1, 3, figsize=(12,4))
         
     def __call__(self, x, grad):
         global global_state
@@ -52,38 +53,39 @@ class Objective:
             x = jax_simp(x, self.pen)
             return x
         
-        x_out, vjp_fn = jax.vjp(filter_and_project, x)
+        x_fem, dxout_dx_fn = jax.vjp(filter_and_project, x)
                 
-        self.metamaterial.x.vector()[:] = x_out
+        self.metamaterial.x.vector()[:] = x_fem
         
         sols, Chom, uChom = self.metamaterial.solve()
         
-        global_state = (sols, Chom, vjp_fn)
-        
-        # global_state = (sols, Chom)
-        
         E_max = self.metamaterial.prop.E_max
-        E_min = self.metamaterial.prop.E_min
         nu    = self.metamaterial.prop.nu
-        _, baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)
+        # dChom_dxout is a 3x3 list of lists that are fenics expressions. In a sense this a 3x3xN matrix, where the derivatives are with respect to the Nth component of the design vector.
+        # This is achieved by applying the displacement solutions to a material of constant stiffness.
+        # Xia has a good description in their paper, eq (22), but this is only for the derivative of the FEM solve. We handle all the other parts of the chain rule with JAX.
+        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+
+        global_state = (sols, Chom, dChom_dxfem, dxout_dx_fn)
         
-        # c  = -Chom[2][2]
-        # dc = fe.project(-baseUChom[2][2], self.metamaterial.R)
+        obj = lambda C: -(C[0][1] / C[0][0] + C[1][0] / C[1][1])
+        c, dc_dChom = jax.value_and_grad(obj)(Chom)
+        dc_dChom = np.array(dc_dChom).flatten()
         
-        c = -Chom[0][1] / Chom[1][1] - Chom[1][0] / Chom[1][1]
+        # c = -Chom[0][1] / Chom[1][1] - Chom[1][0] / Chom[1][1]
         # dc = fe.project(ufl.diff(-uChom[0][1] / uChom[1][1] - uChom[1][0] / uChom[1][1], self.metamaterial.x), self.metamaterial.R)
-        dc = fe.project(-baseUChom[0][1] / baseUChom[1][1] - baseUChom[1][0] / baseUChom[1][1], self.metamaterial.R)
+        # dc = fe.project(-dChom_dxout[0][1] / dChom_dxout[1][1] - dChom_dxout[1][0] / dChom_dxout[1][1], self.metamaterial.R)
         
         self.evals.append(c)
 
         if grad.size > 0:
             cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
-            grad[:] = vjp_fn(dc.vector()[:])[0] #* cell_vol
+            grad[:] = dxout_dx_fn(dc.vector()[:])[0] #* cell_vol
             
         if (len(self.evals) % 2 == 1) and self.plot:
             fields = {'x': x,
                       'x_tilde': jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax),
-                      'x_out': x_out}
+                      'x_out': x_fem}
             self.update_plot(fields)
             
         
@@ -125,19 +127,37 @@ class Objective:
 
 class IsotropicConstraint:
     
-    def __init__(self):
-        pass
+    # def __init__(self):
+        # pass
     
     def __call__(self, x, grad):
         global global_state
 
-        sols, Chom, vjp = global_state
+        sols, Chom, dChom_dxout, dxout_dx = global_state
         
-        Chom = jnp.array(Chom)
-        Ciso_ii = 0.5 * (Chom[0,0] + Chom[1,1])
-        Cios_ij = Chom[0,1]
-        Ciso_jj = 0.5 * (Ciso_ii - Ciso_ij)
+        def fwd(Chom):
+            Chom = jnp.array(Chom)
+            Ciso = self.compute_Ciso(Chom)
+            diff = Ciso - Chom
+            return jnp.sum(diff**2) / Ciso[1,1]
+        
+        c, dc = jax.value_and_grad(fwd)(Chom)
+        
+        if grad.size > 0:
+            pass
 
+        
+
+    def compute_Ciso(self, Chom: jnp.array) -> jnp.array:
+        Ciso = jnp.zeros_like(Chom)
+        Ciso = Ciso.at[0,1].set(Chom[0,1])
+        Ciso = Ciso.at[1,0].set(Chom[1,0])
+        avg = (Chom [0,0] + Chom[1,1]) / 2.
+        Ciso = Ciso.at[0,0].set(avg)
+        Ciso = Ciso.at[1,1].set(avg)
+        Ciso = Ciso.at[2,2].set((Ciso[0,0] - Ciso[0,1]) / 2.)
+        return Ciso
+    
 class VolumeConstraint:
     
     def __init__(self, V, filt, beta, eta):
