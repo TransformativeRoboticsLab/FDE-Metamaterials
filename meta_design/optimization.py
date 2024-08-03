@@ -53,7 +53,7 @@ class Objective:
             x = jax_simp(x, self.pen)
             return x
         
-        x_fem, dxout_dx_fn = jax.vjp(filter_and_project, x)
+        x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
                 
         self.metamaterial.x.vector()[:] = x_fem
         
@@ -66,11 +66,14 @@ class Objective:
         # Xia has a good description in their paper, eq (22), but this is only for the derivative of the FEM solve. We handle all the other parts of the chain rule with JAX.
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
-        global_state = (sols, Chom, dChom_dxfem, dxout_dx_fn)
+        global_state = (sols, Chom, dChom_dxfem, dxfem_dx_vjp)
         
-        obj = lambda C: -(C[0][1] / C[0][0] + C[1][0] / C[1][1])
+        # obj = lambda C: -(C[0][1] / C[0][0] + C[1][0] / C[1][1])
+        # obj = lambda C: -C[2][2]
+        # obj = lambda C: -(C[0][0] + C[1][1] + C[0][1] + C[1][0])
+        obj = lambda C: -0.5 * (C[0][0] + C[0][1])
+            
         c, dc_dChom = jax.value_and_grad(obj)(Chom)
-        dc_dChom = np.array(dc_dChom).flatten()
         
         # c = -Chom[0][1] / Chom[1][1] - Chom[1][0] / Chom[1][1]
         # dc = fe.project(ufl.diff(-uChom[0][1] / uChom[1][1] - uChom[1][0] / uChom[1][1], self.metamaterial.x), self.metamaterial.R)
@@ -78,20 +81,24 @@ class Objective:
         
         self.evals.append(c)
 
+        # if grad.size > 0:
+        #     g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+        #     grad[:] = g
+        
         if grad.size > 0:
-            cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
-            grad[:] = dxout_dx_fn(dc.vector()[:])[0] #* cell_vol
+            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = g
             
-        if (len(self.evals) % 2 == 1) and self.plot:
+        if (len(self.evals) % 10 == 1) and self.plot:
             fields = {'x': x,
                       'x_tilde': jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax),
-                      'x_out': x_fem}
+                      'x_fem': x_fem}
             self.update_plot(fields)
             
         
         print(f"Epoch {self.epoch}, Step {len(self.evals)}, C_22 = {c}")
 
-        return c
+        return float(c)
     
     def update_plot(self, fields):
         if len(fields) != len(self.axes):
@@ -127,26 +134,28 @@ class Objective:
 
 class IsotropicConstraint:
     
-    # def __init__(self):
-        # pass
+    def __init__(self, eps=1e-5):
+        self.eps = eps
     
     def __call__(self, x, grad):
         global global_state
 
-        sols, Chom, dChom_dxout, dxout_dx = global_state
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp = global_state
         
         def fwd(Chom):
             Chom = jnp.array(Chom)
             Ciso = self.compute_Ciso(Chom)
             diff = Ciso - Chom
-            return jnp.sum(diff**2) / Ciso[1,1]
+            return jnp.sum(diff**2) / Ciso[0,0]
         
-        c, dc = jax.value_and_grad(fwd)(Chom)
+        c, dc_dChom = jax.value_and_grad(fwd)(Chom)
         
         if grad.size > 0:
-            pass
-
-        
+            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = g
+            
+        print(f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e}")
+        return float(c) - self.eps
 
     def compute_Ciso(self, Chom: jnp.array) -> jnp.array:
         Ciso = jnp.zeros_like(Chom)
@@ -157,7 +166,38 @@ class IsotropicConstraint:
         Ciso = Ciso.at[1,1].set(avg)
         Ciso = Ciso.at[2,2].set((Ciso[0,0] - Ciso[0,1]) / 2.)
         return Ciso
+
+class BulkModulusConstraint:
     
+    def __init__(self, base_E, base_nu, a):
+        self.base_E = base_E
+        self.base_nu = base_nu
+        self.base_K = self.compute_K(self.base_E, self.base_nu)
+        self.a = a
+        self.aK = self.base_K * self.a
+        
+    def __call__(self, x, grad):
+        global global_state
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp = global_state
+        
+        g = lambda C: -0.25 * (C[0][0] + C[1][1] + C[0][1] + C[1][0])
+        c, dc_dChom = jax.value_and_grad(g)(Chom)
+        
+        if grad.size > 0:
+            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = g
+
+        print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
+        return self.aK + float(c)
+            
+            
+    def compute_K(self, E, nu):
+        # computes plane stress bulk modulus from E and nu
+        K = E / (3 * (1 - 2 * nu))
+        G = E / (2 * (1 + nu))
+        K_plane = 9.*K*G / (3.*K + 4.*G)
+        return K_plane
+            
 class VolumeConstraint:
     
     def __init__(self, V, filt, beta, eta):

@@ -2,6 +2,7 @@ import fenics as fe
 fe.set_log_level(40)
 from matplotlib import pyplot as plt
 from dataclasses import dataclass, field
+import time
 
 from mechanics import *
 from boundary import PeriodicDomain
@@ -43,18 +44,13 @@ class Metamaterial:
         return W, R
 
     def project_uChom_to_matrix(self, uChom):
-        # Initialize an empty list to store the projected values
         projected_values = []
 
-        # Iterate over the 3x3 list of lists
         for i in range(3):
             for j in range(3):
-                # Project each element into the function space R
                 projected_function = fe.project(uChom[i][j], self.R)
-                # Append the projected values to the list
                 projected_values.append(projected_function.vector().get_local())
 
-        # Convert the list of projected values into a 9xN matrix
         matrix = np.array(projected_values)
 
         return matrix
@@ -70,24 +66,19 @@ class Metamaterial:
             ]
             for s_t in s_list
         ]
-        
-        Chom = [[fe.assemble(uChom[i][j]*fe.dx) for j in range(3)] for i in range(3)]
+        # Chom = [[fe.assemble(uChom[i][j]*fe.dx) for j in range(3)] for i in range(3)]
 
-        # Project uChom to a matrix
         # Must scale by cell volume because we aren't having fenics account for that in the background
         # note: this makes the assumption that the mesh is uniform
-        # note note: we could also sum up these rows to get the values for Chom, but idk if its really all that much faster than just assembling the matrix
-        cell_vol = next(fe.cells(self.mesh)).volume()
-        uChom_matrix = self.project_uChom_to_matrix(uChom) * cell_vol
-        
-        # # Sum up the values of each row in the matrix
-        # summed_values = np.sum(uChom_matrix, axis=1)
-        
-        # # Compare summed values with Chom
-        # for i in range(3):
-        #     for j in range(3):
-        #         print(f"Chom[{i}][{j}] = {Chom[i][j]}, Summed value = {summed_values[i*3 + j]}, diff={Chom[i][j] - summed_values[i*3 + j]}")
-        
+        # note note: we can also sum up these rows to get our Chom, which is the same as doing the "assembly"
+        # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
+        # if we don't need the uChom matrix, the doing fe.assemble might be faster again 
+
+
+        uChom_matrix = self.project_uChom_to_matrix(uChom) * self.cell_vol
+        # remember the matrix is symmetric so we don't care about row/column order
+        Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
+
         return Chom, uChom_matrix        
 
     def solve(self):
@@ -114,6 +105,10 @@ class Metamaterial:
         Chom, uChom = self.homogenized_C(sols, E, nu)
         
         return sols, Chom, uChom
+
+    @property
+    def cell_vol(self):
+        return next(fe.cells(self.mesh)).volume()
 
         
 @dataclass
