@@ -1,43 +1,32 @@
 import jax
 import jax.numpy as jnp
+import time
 
-def compute_Ciso(Cstar):
-    Ciso = jnp.zeros_like(Cstar)
-    Ciso = Ciso.at[0, 1].set(Cstar[0, 1])
-    Ciso = Ciso.at[1, 0].set(Cstar[1, 0])
-    avg = (Cstar[1, 1] + Cstar[2, 2]) / 2
-    Ciso = Ciso.at[1, 1].set(avg)
-    Ciso = Ciso.at[2, 2].set(avg)
-    Ciso = Ciso.at[0, 0].set((Cstar[0, 1] + avg) * 2)
-    return Ciso
+# Enable double precision
+jax.config.update("jax_enable_x64", True)
 
-def g(Cstar):
-    Ciso = compute_Ciso(Cstar)
-    diff = Ciso - Cstar
-    g_val = jnp.sum(diff ** 2) / Ciso[1, 1]
-    return g_val
+# Define a sample computation
+def sample_computation(x):
+    return jnp.sum(jnp.sin(x) ** 2 + jnp.cos(x) ** 2)
 
-# Example input
-Cstar = jnp.array([[1.0, 0.5, 0.0],
-                   [0.5, 1.5, 0.0],
-                   [0.0, 0.0, 2.0]])
+# Create input data
+size = 1000000
+x = jnp.linspace(0, 100, size)
 
-# Compute the gradient
-grad_g = jax.grad(g)(Cstar)
-print("Gradient of g with respect to Cstar:\n", grad_g)
+# Benchmark with double precision
+start_time = time.time()
+result = sample_computation(x).block_until_ready()
+double_precision_time = time.time() - start_time
+print(f"Double Precision Time: {double_precision_time:.6f} seconds")
 
-# Test for compute_Ciso function
-def test_compute_Ciso():
-    Cstar_test = jnp.array([[1.0, 0.5, 0.0],
-                            [0.5, 1.5, 0.0],
-                            [0.0, 0.0, 2.0]])
+# Disable double precision
+jax.config.update("jax_enable_x64", False)
 
-    expected_Ciso = jnp.array([[3.0, 0.5, 0.0],
-                               [0.5, 1.75, 0.0],
-                               [0.0, 0.0, 1.75]])
+# Benchmark with single precision
+start_time = time.time()
+result = sample_computation(x).block_until_ready()
+single_precision_time = time.time() - start_time
+print(f"Single Precision Time: {single_precision_time:.6f} seconds")
 
-    computed_Ciso = compute_Ciso(Cstar_test)
-    
-    assert jnp.allclose(computed_Ciso, expected_Ciso), f"Expected {expected_Ciso}, but got {computed_Ciso}"
-
-test_compute_Ciso()
+# Compare results
+print(f"Performance Impact: {double_precision_time / single_precision_time:.2f}x slowdown")

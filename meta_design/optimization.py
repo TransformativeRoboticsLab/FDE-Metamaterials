@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from typing import Callable, Any
 import numpy as np
 import jax
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-import fenics as fe
-import ufl
+from fenics import *
 
 from filters import DensityFilter
 
@@ -30,12 +30,14 @@ def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
 class Objective:
-    def __init__(self, optim_type, metamaterial, ops, plot=True, filter_and_project=True):
+    def __init__(self, optim_type, metamaterial, ops, verbose=True, plot=True, filter_and_project=True):
         self.optim_type = optim_type
         self.metamaterial = metamaterial
         self.ops = ops
         self.plot = plot
+        self.verbose = verbose
         self.plot_interval = 10
+
         
         self.epoch = 0
         self.evals = []
@@ -78,7 +80,7 @@ class Objective:
         # This is achieved by applying the displacement solutions to a material of constant stiffness (E_max).
         # Xia has a good description in their paper, eq (22), but this is only for the derivative of the FEM solve. We handle all the other parts of the chain rule with JAX.
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
-
+        
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
         if self.optim_type == 'bulk':
@@ -89,12 +91,13 @@ class Objective:
             raise ValueError("Invalid objective type")
             
         c, dc_dChom = jax.value_and_grad(obj)(Chom)
+        # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
         self.evals.append(c)
 
         
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
             
         if (len(self.evals) % self.plot_interval == 1) and self.plot:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
@@ -105,8 +108,8 @@ class Objective:
                       f'x_fem (V={np.mean(x_fem):.3f})': x_fem}
             self.update_plot(fields)
             
-        
-        print(f"===== Epoch {self.epoch}, Step {len(self.evals)} =====\nf(x) = {-c}")
+        if self.verbose == True:
+            print(f"===== Epoch {self.epoch}, Step {len(self.evals)} =====\nf(x) = {-c}")
 
         return float(c)
     
@@ -114,7 +117,7 @@ class Objective:
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
         
-        r = fe.Function(self.metamaterial.R)
+        r = Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.size == self.metamaterial.R.dim():
                 r.vector()[:] = field
@@ -136,7 +139,7 @@ class Objective:
         plt.pause(1e-3)
             
     def plot_density(self, r_in, title=None, ax=None):
-        r = fe.Function(r_in.function_space())
+        r = Function(r_in.function_space())
         r.vector()[:] = 1. - r_in.vector()[:]
         r.set_allow_extrapolation(True)
         
@@ -147,13 +150,14 @@ class Objective:
             
         ax.margins(x=0,y=0)
         
-        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
 class IsotropicConstraint:
     
-    def __init__(self, eps, ops):
+    def __init__(self, eps, ops, verbose=True):
         self.eps = eps
         self.ops = ops
+        self.verbose = verbose
     
     def __call__(self, x, grad):
 
@@ -168,11 +172,12 @@ class IsotropicConstraint:
             return jnp.sum(diff**2) / Ciso[0,0]
         
         c, dc_dChom = jax.value_and_grad(g)(Chom)
-        
+
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            
-        print(f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e}")
+            grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
+        
+        if self.verbose == True:
+            print(f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e}")
 
         return float(c) - self.eps
 
@@ -188,13 +193,14 @@ class IsotropicConstraint:
 
 class BulkModulusConstraint:
     
-    def __init__(self, base_E, base_nu, a, ops):
+    def __init__(self, base_E, base_nu, a, ops, verbose=True):
         self.base_E = base_E
         self.base_nu = base_nu
         self.base_K = self.compute_K(self.base_E, self.base_nu)
         self.a = a
         self.aK = self.base_K * self.a
         self.ops = ops
+        self.verbose = verbose
         
     def __call__(self, x, grad):
 
@@ -205,10 +211,13 @@ class BulkModulusConstraint:
         g = lambda C: -0.5 * (C[0][0] + C[1][0])
         c, dc_dChom = jax.value_and_grad(g)(Chom)
         
+        # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
+        
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
 
-        print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
+        if self.verbose == True:
+            print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
 
         return self.aK + float(c)
             
@@ -222,13 +231,15 @@ class BulkModulusConstraint:
 
 class ShearModulusConstraint:
     
-    def __init__(self, E_max, nu, ops, a=0.002):
+    def __init__(self, E_max, nu, ops, a=0.002, verbose=True):
         self.E_max = E_max
         self.nu = nu
         self.G_max = E_max / (2 * (1 + nu))
         self.a = a
         self.aG = self.G_max * self.a
+
         self.ops = ops
+        self.verbose = verbose
         
     def __call__(self, x, grad):
 
@@ -240,18 +251,20 @@ class ShearModulusConstraint:
         c, dc_dChom = jax.value_and_grad(g)(Chom)
         
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
             
-        print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
+        if self.verbose == True:
+            print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
         
         return self.aG + float(c)
             
 class VolumeConstraint:
     
-    def __init__(self, V, ops):
+    def __init__(self, V, ops, verbose=True):
         self.V = V
         self.evals = []
         self.ops = ops
+        self.verbose = verbose
         
     def __call__(self, x, grad):
         
@@ -275,7 +288,8 @@ class VolumeConstraint:
         if grad.size > 0:
             grad[:] = dvdx
             
-        print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f}")
+        if self.verbose == True: 
+            print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f}")
         
         return float(volume) - self.V
 
@@ -311,14 +325,14 @@ class XiaOptimization:
             E_max = self.metamaterial.prop.E_max
             E_min = self.metamaterial.prop.E_min
             nu    = self.metamaterial.prop.nu
-            cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
+            cell_vol = next(cells(self.metamaterial.mesh)).volume()
             baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
             c = sum(-Chom[i][j] for i in self.obj_idxs[0] for j in self.obj_idxs[1])
             dc = sum(baseUChom[i][j] for i in self.obj_idxs[0] for j in self.obj_idxs[1])
             
             self.evals.append(c)
-            dc = -self.pen * (E_max - E_min) * x_phys**(self.pen - 1.) * fe.project(dc, self.metamaterial.R).vector()[:]
+            dc = -self.pen * (E_max - E_min) * x_phys**(self.pen - 1.) * project(dc, self.metamaterial.R).vector()[:]
             dv = np.ones_like(x) * cell_vol
             
             ft = 'density'

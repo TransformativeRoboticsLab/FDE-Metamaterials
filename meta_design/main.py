@@ -1,7 +1,9 @@
-import fenics as fe
+# import fenics as fe
+from fenics import *
 import numpy as np
 import nlopt
 import jax
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
@@ -30,7 +32,7 @@ def main():
     print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
     
     metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = fe.UnitSquareMesh(nelx, nely, 'crossed')
+    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
@@ -42,11 +44,11 @@ def main():
     ops.filt = filt
 
     dim = metamate.R.dim()
-    x = np.random.uniform(0, 1, dim)
+    # x = np.random.uniform(0, 1, dim)
     # x = np.random.binomial(1, vol_frac, dim)
-    # r = fe.Function(metamate.R)
-    # r.assign(fe.interpolate(Circle(vol_frac, 1/6), metamate.R))
-    # x = r.vector()[:]
+    r = Function(metamate.R)
+    r.assign(interpolate(Circle(vol_frac, 1/6), metamate.R))
+    x = r.vector()[:]
     
     f = Objective(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=True)
     g_vol = VolumeConstraint(V=vol_frac, ops=ops)

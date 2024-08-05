@@ -1,4 +1,5 @@
 import fenics as fe
+import numpy as np
 
 class Circle(fe.UserExpression):
     

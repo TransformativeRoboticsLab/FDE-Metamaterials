@@ -1,8 +1,7 @@
-import fenics as fe
-fe.set_log_level(40)
+from fenics import *
+set_log_level(40)
 from matplotlib import pyplot as plt
 from dataclasses import dataclass, field
-import time
 
 from mechanics import *
 from boundary import PeriodicDomain
@@ -17,28 +16,28 @@ class Metamaterial:
         self.mesh = None
         
     def plot_mesh(self):
-        fe.plot(self.mesh)
+        plot(self.mesh)
         plt.show()
         
 
     def plot_density(self, title=None):
-        r = fe.Function(self.R)
+        r = Function(self.R)
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
         
-        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
         plt.show()
         
     def create_function_spaces(self, elem_degree=1):
-        if not isinstance(self.mesh, fe.Mesh):
-            raise ValueError("self.mesh is not a valid mesh")
-        Ve = fe.VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
-        Re = fe.VectorElement('R', self.mesh.ufl_cell(), 0)
-        W  = fe.FunctionSpace(self.mesh, fe.MixedElement([Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
+        # if not isinstance(self.mesh, Mesh):
+            # raise ValueError("self.mesh is not a valid mesh")
+        Ve = VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
+        Re = VectorElement('R', self.mesh.ufl_cell(), 0)
+        W  = FunctionSpace(self.mesh, MixedElement([Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
 
-        R = fe.FunctionSpace(self.mesh, 'DG', 0)
+        R = FunctionSpace(self.mesh, 'DG', 0)
         
-        self.x = fe.Function(R)
+        self.x = Function(R)
         self.W, self.R = W, R
 
         return W, R
@@ -48,7 +47,7 @@ class Metamaterial:
 
         for i in range(3):
             for j in range(3):
-                projected_function = fe.project(uChom[i][j], self.R)
+                projected_function = project(uChom[i][j], self.R)
                 projected_values.append(projected_function.vector().get_local())
 
         matrix = np.array(projected_values)
@@ -61,45 +60,45 @@ class Metamaterial:
         
         uChom = [
             [
-                fe.inner(s_t, linear_strain(u) + macro_strain(j))
+                inner(s_t, linear_strain(u) + macro_strain(j))
                 for j, u, in enumerate(u_list)
             ]
             for s_t in s_list
         ]
-        # Chom = [[fe.assemble(uChom[i][j]*fe.dx) for j in range(3)] for i in range(3)]
+        Chom = [[assemble(uChom[i][j]*dx) for j in range(3)] for i in range(3)]
 
-        # Must scale by cell volume because we aren't having fenics account for that in the background
+        # Must scale by cell volume because we aren't having ics account for that in the background
         # note: this makes the assumption that the mesh is uniform
         # note note: we can also sum up these rows to get our Chom, which is the same as doing the "assembly"
         # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
-        # if we don't need the uChom matrix, the doing fe.assemble might be faster again 
+        # if we don't need the uChom matrix, the doing assemble might be faster again 
 
 
         uChom_matrix = self.project_uChom_to_matrix(uChom) * self.cell_vol
         # remember the matrix is symmetric so we don't care about row/column order
-        Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
+        # Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
 
         return Chom, uChom_matrix        
 
     def solve(self):
-        v_, lamb_ = fe.TestFunctions(self.W)
-        dv, dlamb = fe.TrialFunctions(self.W)
+        v_, lamb_ = TestFunctions(self.W)
+        dv, dlamb = TrialFunctions(self.W)
         
         E = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x
         nu = self.prop.nu
         
         m_strain = macro_strain(0)
-        F = fe.inner(linear_stress(linear_strain(dv) + m_strain, E, nu), 
-                     linear_strain(v_))*fe.dx
-        a, L = fe.lhs(F), fe.rhs(F)
-        a += fe.dot(lamb_, dv)*fe.dx + fe.dot(dlamb, v_)*fe.dx
+        F = inner(linear_stress(linear_strain(dv) + m_strain, E, nu), 
+                     linear_strain(v_))*dx
+        a, L = lhs(F), rhs(F)
+        a += dot(lamb_, dv)*dx + dot(dlamb, v_)*dx
         
         sols = []
         for (j, case) in enumerate(["Exx", "Eyy", "Exy"]):
-            w = fe.Function(self.W)
+            w = Function(self.W)
             m_strain.assign(macro_strain(j))
-            fe.solve(a == L, w, [])
-            v = fe.split(w.copy(deepcopy=True))[0]
+            solve(a == L, w, [])
+            v = split(w.copy(deepcopy=True))[0]
             sols.append(v)
             
         Chom, uChom = self.homogenized_C(sols, E, nu)
@@ -108,7 +107,7 @@ class Metamaterial:
 
     @property
     def cell_vol(self):
-        return next(fe.cells(self.mesh)).volume()
+        return next(cells(self.mesh)).volume()
 
         
 @dataclass

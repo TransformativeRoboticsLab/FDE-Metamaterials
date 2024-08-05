@@ -1,8 +1,9 @@
 from fenics import *
-from fenics_adjoint import *
+# from fenics_adjoint import *
 import numpy as np
 import nlopt
 import jax
+jax.update.config("jax_enable_x64", True)
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation

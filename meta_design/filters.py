@@ -1,11 +1,14 @@
 import pickle, os, hashlib
 import numpy as np
 from fenics import *
+# from fenics_adjoint import *
 
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.sparse import csr_matrix
 
 from jax.experimental import sparse
+import jax
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 def filter_rho(rho: Function, H: np.array, Hs: np.array):
