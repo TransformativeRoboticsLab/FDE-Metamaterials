@@ -1,9 +1,14 @@
 import matplotlib.pyplot as plt
+from matplotlib import gridspec
+from dataclasses import dataclass, field
+from typing import Callable, Any
 import numpy as np
 import jax
 import jax.numpy as jnp
 import fenics as fe
 import ufl
+
+from filters import DensityFilter
 
 @jax.jit
 def jax_density_filter(x, H, Hs):
@@ -25,32 +30,40 @@ def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
 class Objective:
-    def __init__(self, metamaterial, filt, beta, eta, pen, plot=True, filter_and_project=True):
+    def __init__(self, optim_type, metamaterial, ops, plot=True, filter_and_project=True):
+        self.optim_type = optim_type
         self.metamaterial = metamaterial
-        self.filt = filt
-        self.beta = beta
-        self.eta  = eta
-        self.pen  = pen
+        self.ops = ops
         self.plot = plot
-
+        self.plot_interval = 10
+        
         self.epoch = 0
         self.evals = []
         self.epoch_iter_tracker = []
         self.filter_and_project = filter_and_project
         
+        
         if self.plot:
             plt.ion()
-            self.fig, self.axes = plt.subplots(1, 3, figsize=(12,4))
+            self.fig = plt.figure(figsize=(16,8))
+            grid_spec = gridspec.GridSpec(2, 4, )
+            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
+            self.ax2 = plt.subplot(grid_spec[1, :])
+            
         
     def __call__(self, x, grad):
-        global global_state
+        
+        filt = self.ops.filt
+        pen  = self.ops.pen
+        beta = self.ops.beta
+        eta  = self.ops.eta
         
         def filter_and_project(x):
             if not self.filter_and_project:
                 return x
-            x = jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax)
-            x = jax_projection(x, self.beta, self.eta)
-            x = jax_simp(x, self.pen)
+            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = jax_projection(x, beta, eta)
+            x = jax_simp(x, pen)
             return x
         
         x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
@@ -61,51 +74,48 @@ class Objective:
         
         E_max = self.metamaterial.prop.E_max
         nu    = self.metamaterial.prop.nu
-        # dChom_dxout is a 3x3 list of lists that are fenics expressions. In a sense this a 3x3xN matrix, where the derivatives are with respect to the Nth component of the design vector.
-        # This is achieved by applying the displacement solutions to a material of constant stiffness.
+        # dChom_dxfem is a 3x3 list of lists that are fenics expressions. In a sense this a 3x3xN matrix, where the derivatives are with respect to the Nth component of the design vector.
+        # This is achieved by applying the displacement solutions to a material of constant stiffness (E_max).
         # Xia has a good description in their paper, eq (22), but this is only for the derivative of the FEM solve. We handle all the other parts of the chain rule with JAX.
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
-        global_state = (sols, Chom, dChom_dxfem, dxfem_dx_vjp)
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
-        # obj = lambda C: -(C[0][1] / C[0][0] + C[1][0] / C[1][1])
-        # obj = lambda C: -C[2][2]
-        # obj = lambda C: -(C[0][0] + C[1][1] + C[0][1] + C[1][0])
-        obj = lambda C: -0.5 * (C[0][0] + C[0][1])
+        if self.optim_type == 'bulk':
+            obj = lambda C: -0.5 * (C[0][0] + C[0][1])
+        elif self.optim_type == 'shear':
+            obj = lambda C: -C[2][2]
+        else:
+            raise ValueError("Invalid objective type")
             
         c, dc_dChom = jax.value_and_grad(obj)(Chom)
         
-        # c = -Chom[0][1] / Chom[1][1] - Chom[1][0] / Chom[1][1]
-        # dc = fe.project(ufl.diff(-uChom[0][1] / uChom[1][1] - uChom[1][0] / uChom[1][1], self.metamaterial.x), self.metamaterial.R)
-        # dc = fe.project(-dChom_dxout[0][1] / dChom_dxout[1][1] - dChom_dxout[1][0] / dChom_dxout[1][1], self.metamaterial.R)
-        
         self.evals.append(c)
 
-        # if grad.size > 0:
-        #     g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-        #     grad[:] = g
         
         if grad.size > 0:
-            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[:] = g
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
             
-        if (len(self.evals) % 10 == 1) and self.plot:
-            fields = {'x': x,
-                      'x_tilde': jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax),
-                      'x_fem': x_fem}
+        if (len(self.evals) % self.plot_interval == 1) and self.plot:
+            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_bar   = jax_projection(x_tilde, beta, eta)
+            fields = {f'x (V={np.mean(x):.3f})': x,
+                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
+                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem}
             self.update_plot(fields)
             
         
-        print(f"Epoch {self.epoch}, Step {len(self.evals)}, C_22 = {c}")
+        print(f"===== Epoch {self.epoch}, Step {len(self.evals)} =====\nf(x) = {-c}")
 
         return float(c)
     
     def update_plot(self, fields):
-        if len(fields) != len(self.axes):
+        if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
         
         r = fe.Function(self.metamaterial.R)
-        for ax, (name, field) in zip(self.axes, fields.items()):
+        for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.size == self.metamaterial.R.dim():
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
@@ -113,6 +123,13 @@ class Objective:
                 pass
             ax.set_xticks([])
             ax.set_yticks([])
+            
+        self.ax2.clear()
+        f_arr = np.asarray(self.evals)
+        self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')  
+        self.ax2.grid(True)
+        self.ax2.set_xlim(left=0, right=len(self.evals) + 2) 
+        
             
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
@@ -134,34 +151,36 @@ class Objective:
 
 class IsotropicConstraint:
     
-    def __init__(self, eps=1e-5):
+    def __init__(self, eps, ops):
         self.eps = eps
+        self.ops = ops
     
     def __call__(self, x, grad):
-        global global_state
 
-        sols, Chom, dChom_dxfem, dxfem_dx_vjp = global_state
+        Chom = self.ops.Chom
+        dChom_dxfem = self.ops.dChom_dxfem
+        dxfem_dx_vjp = self.ops.dxfem_dx_vjp
         
-        def fwd(Chom):
-            Chom = jnp.array(Chom)
-            Ciso = self.compute_Ciso(Chom)
-            diff = Ciso - Chom
+        def g(C):
+            C = jnp.array(C)
+            Ciso = self.compute_Ciso(C)
+            diff = Ciso - C
             return jnp.sum(diff**2) / Ciso[0,0]
         
-        c, dc_dChom = jax.value_and_grad(fwd)(Chom)
+        c, dc_dChom = jax.value_and_grad(g)(Chom)
         
         if grad.size > 0:
-            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[:] = g
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
             
         print(f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e}")
+
         return float(c) - self.eps
 
-    def compute_Ciso(self, Chom: jnp.array) -> jnp.array:
-        Ciso = jnp.zeros_like(Chom)
-        Ciso = Ciso.at[0,1].set(Chom[0,1])
-        Ciso = Ciso.at[1,0].set(Chom[1,0])
-        avg = (Chom [0,0] + Chom[1,1]) / 2.
+    def compute_Ciso(self, C):
+        Ciso = jnp.zeros_like(C)
+        Ciso = Ciso.at[0,1].set(C[0,1])
+        Ciso = Ciso.at[1,0].set(C[1,0])
+        avg = (C[0,0] + C[1,1]) / 2.
         Ciso = Ciso.at[0,0].set(avg)
         Ciso = Ciso.at[1,1].set(avg)
         Ciso = Ciso.at[2,2].set((Ciso[0,0] - Ciso[0,1]) / 2.)
@@ -169,25 +188,28 @@ class IsotropicConstraint:
 
 class BulkModulusConstraint:
     
-    def __init__(self, base_E, base_nu, a):
+    def __init__(self, base_E, base_nu, a, ops):
         self.base_E = base_E
         self.base_nu = base_nu
         self.base_K = self.compute_K(self.base_E, self.base_nu)
         self.a = a
         self.aK = self.base_K * self.a
+        self.ops = ops
         
     def __call__(self, x, grad):
-        global global_state
-        sols, Chom, dChom_dxfem, dxfem_dx_vjp = global_state
+
+        Chom = self.ops.Chom
+        dChom_dxfem = self.ops.dChom_dxfem
+        dxfem_dx_vjp = self.ops.dxfem_dx_vjp
         
-        g = lambda C: -0.25 * (C[0][0] + C[1][1] + C[0][1] + C[1][0])
+        g = lambda C: -0.5 * (C[0][0] + C[1][0])
         c, dc_dChom = jax.value_and_grad(g)(Chom)
         
         if grad.size > 0:
-            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[:] = g
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
         print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
+
         return self.aK + float(c)
             
             
@@ -197,34 +219,67 @@ class BulkModulusConstraint:
         G = E / (2 * (1 + nu))
         K_plane = 9.*K*G / (3.*K + 4.*G)
         return K_plane
+
+class ShearModulusConstraint:
+    
+    def __init__(self, E_max, nu, ops, a=0.002):
+        self.E_max = E_max
+        self.nu = nu
+        self.G_max = E_max / (2 * (1 + nu))
+        self.a = a
+        self.aG = self.G_max * self.a
+        self.ops = ops
+        
+    def __call__(self, x, grad):
+
+        Chom = self.ops.Chom
+        dChom_dxfem = self.ops.dChom_dxfem
+        dxfem_dx_vjp = self.ops.dxfem_dx_vjp
+        
+        g = lambda C: -C[2][2]
+        c, dc_dChom = jax.value_and_grad(g)(Chom)
+        
+        if grad.size > 0:
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            
+        print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
+        
+        return self.aG + float(c)
             
 class VolumeConstraint:
     
-    def __init__(self, V, filt, beta, eta):
+    def __init__(self, V, ops):
         self.V = V
-        self.filt = filt
-        self.beta = beta
-        self.eta = eta
         self.evals = []
+        self.ops = ops
         
     def __call__(self, x, grad):
-        # global global_state
         
-        def fwd(x):
-            x_tilde = jax_density_filter(x, self.filt.H_jax, self.filt.Hs_jax)
-            x_bar   = jax_projection(x_tilde, self.beta, self.eta)
-            return jnp.mean(x_bar)
+        # x_fem = self.ops.x_fem
+        filt = self.ops.filt
+        beta = self.ops.beta
+        eta = self.ops.eta
+
+        # we only constrain the volume of the projected density field per Wang et al. 2011. Right now x_fem could have a SIMP applied to it, so we do our our filter and projection here. If we remove the SIMP in the Objective function in the future we could use this commented out code b/c x_fem final step would be just the projection
+        # x_fem = self.ops.x_fem
+        # volume, dvdx = jax.value_and_grad(lambda x: jnp.mean(x))(x_fem)
+
+
+        def g(x):
+            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = jax_projection(x, beta, eta)
+            return jnp.mean(x)
         
-        volume, dvdx = jax.value_and_grad(fwd)(x)
+        volume, dvdx = jax.value_and_grad(g)(x)
                 
         if grad.size > 0:
             grad[:] = dvdx
             
-        print(f"Volume = {volume:.3f} <= {self.V:.3f}")
+        print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f}")
         
-        return float(volume - self.V)
+        return float(volume) - self.V
 
-        
+
 class XiaOptimization:
     
     def __init__(self, metamaterial, filt, pen, vol_frac, objective='bulk', max_eval=100):
@@ -300,4 +355,22 @@ class XiaOptimization:
             print(f"Step {n+1:d}, Objective = {c:.4f}, Vol = {np.mean(x_phys):.4f} Change = {change:.4f}")
             
         return x_phys
-                
+
+@dataclass
+class OptimizationState:
+    sols: list = field(default_factory=list)
+    Chom: np.array = field(default_factory=lambda: np.zeros((3, 3)))
+    dChom_dxfem: np.array = field(default_factory=lambda: np.zeros((3, 3, 1)))
+    dxfem_dx_vjp: Callable[[np.ndarray], np.ndarray] = None
+    xfem: np.array = field(default_factory=lambda: np.zeros(1))
+    beta: float = 1.
+    eta:  float = 0.5
+    pen:  float = 3.
+    filt: DensityFilter = None
+
+    def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem):
+        self.sols = sols
+        self.Chom = Chom
+        self.dChom_dxfem = dChom_dxfem
+        self.dxfem_dx_vjp = dxfem_dx_vjp
+        self.x_fem = x_fem

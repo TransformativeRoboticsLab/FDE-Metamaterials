@@ -9,8 +9,8 @@ import time
 
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint
-from helpers import Circle
+from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
+from helpers import Circle, print_summary
 
 def main():
     nelx = 50
@@ -19,44 +19,63 @@ def main():
     E_min = 1e-9
     nu = 0.3
     vol_frac = 0.35
-    beta = 1
-    eta = 0.35
+    start_beta, n_betas = 8, 8
+    betas = [start_beta * 2 ** i for i in range(n_betas)]
+    # print(betas)
+    eta = 0.5
     pen = 3.
-    max_eval = 200
+    epoch_duration = 50
+    a = 2e-3
+    optim_type = 'shear'
+    print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
     
     metamate = Metamaterial(E_max, E_min, nu)
     metamate.mesh = fe.UnitSquareMesh(nelx, nely, 'crossed')
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
+    
+    ops = OptimizationState()
+    ops.beta = start_beta
+    ops.eta = eta
+    ops.pen = pen
+    ops.filt = filt
 
     dim = metamate.R.dim()
-    # x = np.random.uniform(0, 1, dim)
-    x = np.random.binomial(1, vol_frac, dim)
+    x = np.random.uniform(0, 1, dim)
+    # x = np.random.binomial(1, vol_frac, dim)
     # r = fe.Function(metamate.R)
     # r.assign(fe.interpolate(Circle(vol_frac, 1/6), metamate.R))
     # x = r.vector()[:]
     
-    f = Objective(metamaterial=metamate, filt=filt, beta=beta, eta=eta, pen=pen, plot=True)
-    g_vol  = VolumeConstraint(V=vol_frac, filt=filt, beta=beta, eta=eta)
-    g_iso  = IsotropicConstraint(eps=1e-5)
-    g_bulk = BulkModulusConstraint(E_max, nu, a=0.002) # a = 0.02%
-
+    f = Objective(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=True)
+    g_vol = VolumeConstraint(V=vol_frac, ops=ops)
+    g_iso = IsotropicConstraint(eps=1e-5, ops=ops)
+    g_blk = BulkModulusConstraint(E_max, nu, a=a, ops=ops) # a = 0.02%
+    g_shr = ShearModulusConstraint(E_max, nu, a=a, ops=ops)
 
     opt = nlopt.opt(nlopt.LD_MMA, dim)
     opt.set_min_objective(f)
-    opt.add_inequality_constraint(g_vol,  1e-8)
-    opt.add_inequality_constraint(g_iso,  1e-8)
-    opt.add_inequality_constraint(g_bulk, 1e-8)
+    opt.add_inequality_constraint(g_vol, 0.)
+    opt.add_inequality_constraint(g_iso, 0.)
+    if optim_type == 'bulk':
+        opt.add_inequality_constraint(g_shr, 0.)
+    elif optim_type == 'shear':
+        opt.add_inequality_constraint(g_blk, 0.)
+
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
-    opt.set_maxeval(max_eval)
-    
-    start_time = time.time()
-    opt.optimize(x)
-    end_time = time.time()
-    duration = end_time - start_time
-    print(f"Optimization took {duration} seconds")
+    opt.set_maxeval(epoch_duration)
+
+    # progressively up the projection
+    for beta in betas:
+        ops.beta = beta
+        f.epoch += 1
+        x_opt = opt.optimize(x)
+        
+        x = x_opt
+
+    plt.show(block=True)
 
 
 if __name__ == "__main__":
