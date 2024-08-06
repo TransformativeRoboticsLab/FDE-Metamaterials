@@ -79,7 +79,7 @@ class DensityFilter:
         # calculating filters is expensive, so we cache them
         if os.path.exists('calculated_filters.pkl'):
             with open('calculated_filters.pkl', 'rb') as f:
-                DensityFilter.calculated_filters = pickle.load(f)
+                self.calculated_filters = pickle.load(f)
                 
         # Calculate midpoints and hash them to use as a key
         midpoints = [cell.midpoint().array()[:] for cell in cells(self.mesh)]
@@ -87,10 +87,9 @@ class DensityFilter:
         midpoints_hash = hashlib.sha256(midpoints_str.encode()).hexdigest()
         self.key = (midpoints_hash, radius, distance_method)
         
-        if self.key in DensityFilter.calculated_filters:
+        if self.key in self.calculated_filters:
             print("Loading filter from cache")
-            self.H, self.Hs, self.H_jax, self.Hs_jax = DensityFilter.calculated_filters[self.key]
- 
+            self.H, self.Hs, self.H_jax, self.Hs_jax = self.calculated_filters[self.key]
         else:
             print("Calculating filter for the first time")
             self._calculate_filter()
@@ -108,10 +107,10 @@ class DensityFilter:
         self.H_jax = sparse.bcoo_fromdense(self.H.todense())
         self.Hs_jax = jnp.array(self.Hs)        
         
-        DensityFilter.calculated_filters[self.key] = (self.H, self.Hs, self.H_jax, self.Hs_jax)
+        self.calculated_filters[self.key] = (self.H, self.Hs, self.H_jax, self.Hs_jax)
         
         with open('calculated_filters.pkl', 'wb') as f:
-            pickle.dump(DensityFilter.calculated_filters, f)
+            pickle.dump(self.calculated_filters, f)
         
     def _calculate_flat_distances(self):
         midpoints = [cell.midpoint().array()[:] for cell in cells(self.mesh)]
