@@ -11,7 +11,6 @@ from tqdm import tqdm
 from metamaterial import Metamaterial
 from filters import DensityFilter
 from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
-from helpers import Circle, print_summary
 
 # we have the ability to pass in an objective function.
 # we do this because on the back end only the objective actually solves the FEM problem, and then passes around the information to the constraints because none of that is going to change.
@@ -27,11 +26,9 @@ def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
         perturb[i] = epsilon
         x_plus = x + perturb
         x_minus = x - perturb
-        if obj is not None:
-            obj(x_plus, np.array([]))
+        obj(x_plus, np.array([])) if obj is not None else None
         f_plus = func(x_plus, np.array([]))
-        if obj is not None:
-            obj(x_minus, np.array([]))
+        obj(x_minus, np.array([])) if obj is not None else None
         f_minus = func(x_minus, np.array([]))
         grad_fd[i] = (f_plus - f_minus) / (2. * epsilon)
         perturb[i] = 0
@@ -53,18 +50,16 @@ def main():
     E_max = 1.
     E_min = 1e-9
     nu = 0.3
-    vol_frac = 0.35
-    start_beta, n_betas = 8, 8
-    betas = [start_beta * 2 ** i for i in range(n_betas)]
-    # print(betas)
+    vol_frac = 0.5
+    start_beta, n_betas = 1, 8
     eta = 0.5
     pen = 3.
-    epoch_duration = 50
     a = 2e-3
     optim_type = 'shear'
 
     metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
@@ -92,21 +87,29 @@ def main():
     grad_g_blk = np.zeros_like(x)
     grad_g_shr = np.zeros_like(x)
     
-    # Check gradients using finite differences
-    print("Checking Objective Gradient:")
-    finite_difference_checker(f, x, grad_f)
+    # compute gradients from the functions themselves
+    f(x, grad_f)
+    g_vol(x, grad_g_vol)
+    g_iso(x, grad_g_iso)
+    g_blk(x, grad_g_blk)
+    g_shr(x, grad_g_shr)
     
-    print("\nChecking Isotropic Constraint Gradient:")
-    finite_difference_checker(g_iso, x, grad_g_iso, obj=f)
+    
+    # Check gradients using finite differences
+    # print("Checking Objective Gradient:")
+    # finite_difference_checker(f, x, grad_f)
+    
+    # print("\nChecking Isotropic Constraint Gradient:")
+    # finite_difference_checker(g_iso, x, grad_g_iso, obj=f)
     
     print("\nChecking Bulk Modulus Constraint Gradient:")
     finite_difference_checker(g_blk, x, grad_g_blk, obj=f)
     
-    print("\nChecking Shear Modulus Constraint Gradient:")
-    finite_difference_checker(g_shr, x, grad_g_shr, obj=f)
+    # print("\nChecking Shear Modulus Constraint Gradient:")
+    # finite_difference_checker(g_shr, x, grad_g_shr, obj=f)
     
-    print("\nChecking Volume Constraint Gradient:")
-    finite_difference_checker(g_vol, x, grad_g_vol)
+    # print("\nChecking Volume Constraint Gradient:")
+    # finite_difference_checker(g_vol, x, grad_g_vol)
     
     
 
