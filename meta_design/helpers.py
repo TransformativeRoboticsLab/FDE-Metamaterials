@@ -1,16 +1,18 @@
 import fenics as fe
 import numpy as np
 
-class Circle(fe.UserExpression):
+class Ellipse(fe.UserExpression):
     
-    def __init__(self, V, rad):
+    def __init__(self, V, a, b):
         super().__init__()
         self.V = V
-        self.rad = rad
+        self.a = a
+        self.b = b
         
     def eval(self, values, x):
-        xc, yc, r = 0.5, 0.5, self.rad
-        values[0] = 0.5*self.V if (x[0] - xc)**2 + (x[1] - yc)**2 < r**2 else self.V
+        xc, yc, a, b = 0.5, 0.5, self.a, self.b
+        values[0] = 0.5*self.V if ((x[0] - xc)/a)**2 + ((x[1] - yc)/b)**2 < 1 else self.V
+        # values[0] = 0.5*self.V if (x[0] - xc)**2 + (x[1] - yc)**2 < r**2 else self.V
 
         
 def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a):
