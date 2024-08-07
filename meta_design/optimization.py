@@ -149,6 +149,18 @@ class Objective:
             fig, ax = plt.subplots()
             
         ax.margins(x=0,y=0)
+
+        # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
+        # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
+        cell_type = r_in.function_space().ufl_cell().cellname()
+        if cell_type == 'quadrilateral':
+            r_vec = r.vector()[:]
+            # assume square space
+            nely = np.sqrt(r_vec.size).astype(int)
+            nelx = nely
+            plt.imshow(r_vec.reshape((nely, nelx)), cmap='gray', vmin=0, vmax=1)
+            ax.set_title(title)
+            return
         
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 

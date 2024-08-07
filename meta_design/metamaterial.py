@@ -15,17 +15,32 @@ class Metamaterial:
         self.prop = Properties(E_max, E_min, nu)
         self.mesh = None
         
-    def plot_mesh(self):
+    def plot_mesh(self, labels=False, ):
+        if self.mesh.ufl_cell().cellname() == 'quadrilateral':
+            print("Quadrilateral mesh plotting not supported")
+            plt.figure()
+            return
+        
         plot(self.mesh)
-        plt.show()
+        if labels:
+            mids = [cell.midpoint() for cell in cells(self.mesh)] 
+            ids = [cell.index() for cell in cells(self.mesh)]
+            for mid, id in zip(mids, ids):
+                plt.text(mid.x(), mid.y(), str(id))
+                
+            plt.scatter([m.x() for m in mids], [m.y() for m in mids], marker='x', color='red')
+
+        plt.show(block=True)
         
 
-    def plot_density(self, title=None):
+    def plot_density(self, title='Mesh'):
+        # if isinstance(self.mesh.)
         r = Function(self.R)
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
         
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+
         plt.show()
         
     def create_function_spaces(self, elem_degree=1):
