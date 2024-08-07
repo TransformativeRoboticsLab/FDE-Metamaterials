@@ -4,7 +4,7 @@ from fenics import *
 # from fenics_adjoint import *
 
 from sklearn.metrics.pairwise import euclidean_distances
-from scipy.sparse import csr_matrix
+from scipy.sparse import coo_matrix
 
 from jax.experimental import sparse
 import jax
@@ -93,6 +93,8 @@ class DensityFilter:
         else:
             print("Calculating filter for the first time")
             self._calculate_filter()
+
+        self.calculated_filters = None
             
     def filter(self, rho: Function):
         # r = Function(rho.function_space(), name="Rho_filtered")
@@ -102,10 +104,11 @@ class DensityFilter:
     def _calculate_filter(self):
         distances = self._distance_fn()
         H = np.maximum(0., self.radius - distances)
+        H[H < 1e-6] = 0.
         self.Hs = H.sum(1)
-        self.H = csr_matrix(H)
-        self.H_jax = sparse.bcoo_fromdense(self.H.todense())
         self.Hs_jax = jnp.array(self.Hs)        
+        self.H = coo_matrix(H)
+        self.H_jax = sparse.BCOO.from_scipy_sparse(self.H)
         
         self.calculated_filters[self.key] = (self.H, self.Hs, self.H_jax, self.Hs_jax)
         
