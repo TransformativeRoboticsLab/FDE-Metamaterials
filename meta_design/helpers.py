@@ -33,3 +33,11 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     a: {a}
     """
     print(summary)
+
+    
+def beta_function(vol_frac, size):
+    # we use a reduced volume frac to ensure that the mean is actually below the desired frac. We want to ensure we start in a feasible region of the problem.
+    reduced_vol_frac = 0.95 * (vol_frac * (1. - vol_frac) / 0.1 - 1.)
+    a = vol_frac * reduced_vol_frac
+    b = (1. - vol_frac) * reduced_vol_frac
+    return np.random.beta(a, b, size)
