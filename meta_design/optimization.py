@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Any
 import numpy as np
 import jax
+from jax.experimental import sparse
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from fenics import *
@@ -110,6 +111,7 @@ class Objective:
             
         if self.verbose == True:
             print(f"===== Epoch {self.epoch}, Step {len(self.evals)} =====\nf(x) = {-c}")
+            print(f'C =\n{np.asarray(Chom)}')
 
         return float(c)
     
@@ -123,7 +125,7 @@ class Objective:
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
             else:
-                pass
+                raise ValueError("Field size does not match function space")
             ax.set_xticks([])
             ax.set_yticks([])
             
@@ -229,7 +231,9 @@ class BulkModulusConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
 
         if self.verbose == True:
-            print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
+            # print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
+            s = f"Bulk Modulus Constraint: {self.aK + float(c)} <= 0 ==={'Satisfied' if self.aK + float(c) <= 0 else 'Not Satisfied'}==="
+            print(s)
 
         return self.aK + float(c)
             
@@ -266,7 +270,9 @@ class ShearModulusConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
             
         if self.verbose == True:
-            print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
+            # print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
+            s = f"Shear Modulus Constraint: {self.aG + float(c):.2e} <= 0 ==={'Satisfied' if val <= 0 else 'Not Satisfied'}==="
+            print(s)
         
         return self.aG + float(c)
             

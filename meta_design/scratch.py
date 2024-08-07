@@ -1,32 +1,33 @@
 import jax
 import jax.numpy as jnp
-import time
+from jax.experimental import sparse
+import numpy as np
+from sklearn.metrics.pairwise import euclidean_distances
 
-# Enable double precision
-jax.config.update("jax_enable_x64", True)
+from scipy.sparse import csr_matrix
 
-# Define a sample computation
-def sample_computation(x):
-    return jnp.sum(jnp.sin(x) ** 2 + jnp.cos(x) ** 2)
 
-# Create input data
-size = 1000000
-x = jnp.linspace(0, 100, size)
+# generate a nelx by nely mesh
+nelx = 100
+nely = nelx
+rad = 0.5
 
-# Benchmark with double precision
-start_time = time.time()
-result = sample_computation(x).block_until_ready()
-double_precision_time = time.time() - start_time
-print(f"Double Precision Time: {double_precision_time:.6f} seconds")
+mesh = np.random.uniform(0., 1., (nelx, nely))
+# determine centers of each mesh if a side is unit length
+print("Finding midpoints")
+mids = np.array([[(i + 0.5)/nelx, (j + 0.5)/nely] for i in range(nelx) for j in range(nely)])
 
-# Disable double precision
-jax.config.update("jax_enable_x64", False)
+print("Finding distances")
+distances = euclidean_distances(mids.reshape(-1,1))
+# print(distances)
 
-# Benchmark with single precision
-start_time = time.time()
-result = sample_computation(x).block_until_ready()
-single_precision_time = time.time() - start_time
-print(f"Single Precision Time: {single_precision_time:.6f} seconds")
+print("Calculating H")
+H = np.maximum(0., rad - distances)
+H[H < 1e-6] = 0.
+print("Calculating Hs")
+Hs = H.sum(axis=1)
+print("Convering Hs to sparse")
+H_sp = csr_matrix(H)
 
-# Compare results
-print(f"Performance Impact: {double_precision_time / single_precision_time:.2f}x slowdown")
+H_jax = sparse.BCOO.fromdense(H)
+# print(H)
