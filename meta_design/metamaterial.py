@@ -57,7 +57,7 @@ class Metamaterial:
 
         return W, R
 
-    def project_uChom_to_matrix(self, uChom):
+    def _project_uChom_to_matrix(self, uChom):
         projected_values = []
 
         for i in range(3):
@@ -89,7 +89,7 @@ class Metamaterial:
         # if we don't need the uChom matrix, the doing assemble might be faster again 
 
 
-        uChom_matrix = self.project_uChom_to_matrix(uChom) * self.cell_vol
+        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol
         # remember the matrix is symmetric so we don't care about row/column order
         # Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
 
