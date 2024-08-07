@@ -94,7 +94,7 @@ class Objective:
         c, dc_dChom = jax.value_and_grad(obj)(Chom)
         # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
-        self.evals.append(c)
+        self.evals.append(-c)
 
         
         if grad.size > 0:
@@ -191,7 +191,8 @@ class IsotropicConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
         
         if self.verbose == True:
-            print(f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e}")
+            s = f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e} ==={'Satisfied' if c - self.eps <= 0 else 'Not Satisfied'}==="
+            print(s)
 
         return float(c) - self.eps
 
@@ -232,7 +233,7 @@ class BulkModulusConstraint:
 
         if self.verbose == True:
             # print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
-            s = f"Bulk Modulus Constraint: {self.aK + float(c)} <= 0 ==={'Satisfied' if self.aK + float(c) <= 0 else 'Not Satisfied'}==="
+            s = f"Bulk Modulus Constraint: {float(-c):.2e} >= {self.aK:.2e} ==={'Satisfied' if self.aK + float(c) <= 0 else 'Not Satisfied'}==="
             print(s)
 
         return self.aK + float(c)
@@ -271,7 +272,7 @@ class ShearModulusConstraint:
             
         if self.verbose == True:
             # print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
-            s = f"Shear Modulus Constraint: {self.aG + float(c):.2e} <= 0 ==={'Satisfied' if val <= 0 else 'Not Satisfied'}==="
+            s = f"Shear Modulus Constraint: {float(-c):.2e} >= {self.aG:.2e} ==={'Satisfied' if self.aG + float(c) <= 0 else 'Not Satisfied'}==="
             print(s)
         
         return self.aG + float(c)
@@ -307,7 +308,7 @@ class VolumeConstraint:
             grad[:] = dvdx
             
         if self.verbose == True: 
-            print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f}")
+            print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f} ==={'Satisfied' if volume - self.V <= 0 else 'Not Satisfied'}===")
         
         return float(volume) - self.V
 
