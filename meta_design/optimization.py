@@ -116,8 +116,11 @@ class Objective:
             self.update_plot(fields)
             
         if self.verbose == True:
-            print(f"===== Epoch {self.epoch}, Step {len(self.evals)} =====\nf(x) = {-c}")
-            print(f'C =\n{np.asarray(Chom)}')
+            print("-" * 30)
+            print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}")
+            print("-" * 30)
+            print(f"f(x) = {c:.4f}")
+            print(f"Constraints:")
 
         return float(c)
     
@@ -197,8 +200,7 @@ class IsotropicConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
         
         if self.verbose == True:
-            s = f"Isotropic Constraint = {c:.2e} <= {self.eps:.2e} ==={'Satisfied' if c - self.eps <= 0 else 'Not Satisfied'}==="
-            print(s)
+            print(f"- Isotropic Constraint: {c:.2e} (Target ≤{self.eps:}) [{'Satisfied' if c <= self.eps else 'Not Satisfied'}]")
 
         return float(c) - self.eps
 
@@ -241,9 +243,8 @@ class BulkModulusConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
 
         if self.verbose == True:
-            # print(f"Bulk Modulus Constraint: {-c:.2e} >= {self.aK:.2e}")
-            s = f"Bulk Modulus Constraint: {float(-c):.2e} >= {self.aK:.2e} ==={'Satisfied' if self.aK + float(c) <= 0 else 'Not Satisfied'}==="
-            print(s)
+            print(f"- Bulk Modulus: {-c:.2e} (Target ≥{self.aK:.2e}) [{'Satisfied' if -c >= self.aK else 'Not Satisfied'}]")
+#≤
 
         return self.aK + float(c)
             
@@ -280,9 +281,7 @@ class ShearModulusConstraint:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
             
         if self.verbose == True:
-            # print(f"Shear Modulus Constraint: {-c:.2e} >= {self.aG:.2e}")
-            s = f"Shear Modulus Constraint: {float(-c):.2e} >= {self.aG:.2e} ==={'Satisfied' if self.aG + float(c) <= 0 else 'Not Satisfied'}==="
-            print(s)
+            print(f"- Shear Modulus: {-c:.2e} (Target ≥{self.aG:.2e}) [{'Satisfied' if -c >= self.aG else 'Not Satisfied'}]")
         
         return self.aG + float(c)
             
@@ -317,7 +316,7 @@ class VolumeConstraint:
             grad[:] = dvdx
             
         if self.verbose == True: 
-            print(f"Volume Constraint: {volume:.3f} <= {self.V:.3f} ==={'Satisfied' if volume - self.V <= 0 else 'Not Satisfied'}===")
+            print(f"- Volume: {volume:.3f} (Target ≤{self.V}) [{'Satisfied' if volume <= self.V else 'Not Satisfied'}]")
         
         return float(volume) - self.V
 
