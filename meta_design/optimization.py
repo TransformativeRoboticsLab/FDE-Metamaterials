@@ -19,7 +19,7 @@ def jax_density_filter(x, H, Hs):
 def jax_projection(x, beta=1., eta=0.5):
     tanh_beta_eta = jnp.tanh(beta * eta)
     tanh_beta_x_minus_eta = jnp.tanh(beta * (x - eta))
-    tanh_beta_one_minus_eta = jnp.tanh(beta * (1 - eta))
+    tanh_beta_one_minus_eta = jnp.tanh(beta * (1. - eta))
 
     numerator = tanh_beta_eta + tanh_beta_x_minus_eta
     denominator = tanh_beta_eta + tanh_beta_one_minus_eta
@@ -85,13 +85,19 @@ class Objective:
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
         if self.optim_type == 'bulk':
-            obj = lambda C: -0.5 * (C[0][0] + C[0][1])
+            # obj = lambda C: -0.5 * (C[0][0] + C[0][1])
+            def obj(C):
+                return -(C[0][0] - 2. * C[2][2])
         elif self.optim_type == 'shear':
             obj = lambda C: -C[2][2]
+        elif self.optim_type == 'pr':
+            def obj(C):
+                S = jnp.linalg.inv(C)
+                return -S[0][1]/S[0][0]
         else:
             raise ValueError("Invalid objective type")
             
-        c, dc_dChom = jax.value_and_grad(obj)(Chom)
+        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
         # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
         self.evals.append(-c)
@@ -223,8 +229,11 @@ class BulkModulusConstraint:
         dChom_dxfem = self.ops.dChom_dxfem
         dxfem_dx_vjp = self.ops.dxfem_dx_vjp
         
-        g = lambda C: -0.5 * (C[0][0] + C[1][0])
-        c, dc_dChom = jax.value_and_grad(g)(Chom)
+        # g = lambda C: -0.5 * (C[0][0] + C[1][0])
+        def g(C):
+            S = jnp.linalg.inv(C)
+            return 1. / (S[0][0] + S[0][1])
+        c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
         
         # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         

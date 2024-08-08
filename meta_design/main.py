@@ -17,7 +17,7 @@ from helpers import Ellipse, print_summary, beta_function
 RAND_SEED = 0
 
 def main():
-    nelx = 50
+    nelx = 100
     nely = nelx
     E_max = 1.
     E_min = 1e-9
@@ -30,12 +30,12 @@ def main():
     pen = 3.
     epoch_duration = 50
     a = 2e-3
-    optim_type = 'bulk'
+    optim_type = 'pr'
     print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
     
     metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
@@ -63,16 +63,18 @@ def main():
 
     opt = nlopt.opt(nlopt.LD_MMA, dim)
     opt.set_min_objective(f)
-    opt.add_inequality_constraint(g_vol, 0.)
-    opt.add_inequality_constraint(g_iso, 0.)
+    opt.add_inequality_constraint(g_vol, 1e-4)
+    opt.add_inequality_constraint(g_iso, 1e-6)
     if optim_type == 'bulk':
-        opt.add_inequality_constraint(g_shr, 0.)
+        opt.add_inequality_constraint(g_shr, 1e-4)
     elif optim_type == 'shear':
-        opt.add_inequality_constraint(g_blk, 0.)
+        opt.add_inequality_constraint(g_blk, 1e-4)
+    elif optim_type == 'pr':
+        opt.add_inequality_constraint(g_blk, 1e-4)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
-    opt.set_maxeval(epoch_duration)
+    opt.set_maxeval(400)
 
     # progressively up the projection
     for beta in betas:
@@ -81,6 +83,8 @@ def main():
         x_opt = opt.optimize(x)
         
         x = x_opt
+        
+        opt.set_maxeval(epoch_duration)
 
     plt.show(block=True)
 

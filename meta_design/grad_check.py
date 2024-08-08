@@ -45,7 +45,7 @@ def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
     return grad_fd, diff, rel_diff
 
 def main():
-    nelx = 10
+    nelx = 20
     nely = nelx
     E_max = 1.
     E_min = 1e-9
@@ -55,7 +55,7 @@ def main():
     eta = 0.5
     pen = 3.
     a = 2e-3
-    optim_type = 'shear'
+    optim_type = 'pr'
 
     metamate = Metamaterial(E_max, E_min, nu)
     # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
@@ -96,14 +96,14 @@ def main():
     
     
     # Check gradients using finite differences
-    # print("Checking Objective Gradient:")
-    # finite_difference_checker(f, x, grad_f)
+    print("Checking Objective Gradient:")
+    finite_difference_checker(f, x, grad_f)
     
     # print("\nChecking Isotropic Constraint Gradient:")
     # finite_difference_checker(g_iso, x, grad_g_iso, obj=f)
     
-    print("\nChecking Bulk Modulus Constraint Gradient:")
-    finite_difference_checker(g_blk, x, grad_g_blk, obj=f)
+    # print("\nChecking Bulk Modulus Constraint Gradient:")
+    # finite_difference_checker(g_blk, x, grad_g_blk, obj=f)
     
     # print("\nChecking Shear Modulus Constraint Gradient:")
     # finite_difference_checker(g_shr, x, grad_g_shr, obj=f)
