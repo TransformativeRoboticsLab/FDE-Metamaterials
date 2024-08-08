@@ -85,12 +85,12 @@ class Objective:
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
         if self.optim_type == 'bulk':
-            # obj = lambda C: -0.5 * (C[0][0] + C[0][1])
             def obj(C):
-                return -(C[0][0] - 2. * C[2][2])
+                S = jnp.linalg.inv(C)
+                return -1. / (S[0][0] + S[0][1]) / 2.
         elif self.optim_type == 'shear':
             obj = lambda C: -C[2][2]
-        elif self.optim_type == 'pr':
+        elif self.optim_type == 'npr':
             def obj(C):
                 S = jnp.linalg.inv(C)
                 return -S[0][1]/S[0][0]
@@ -100,7 +100,7 @@ class Objective:
         c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
         # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
-        self.evals.append(-c)
+        self.evals.append(c)
 
         
         if grad.size > 0:
@@ -234,10 +234,8 @@ class BulkModulusConstraint:
         # g = lambda C: -0.5 * (C[0][0] + C[1][0])
         def g(C):
             S = jnp.linalg.inv(C)
-            return 1. / (S[0][0] + S[0][1])
+            return -1. / (S[0][0] + S[0][1]) / 2.
         c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
-        
-        # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
         if grad.size > 0:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
@@ -274,7 +272,10 @@ class ShearModulusConstraint:
         dChom_dxfem = self.ops.dChom_dxfem
         dxfem_dx_vjp = self.ops.dxfem_dx_vjp
         
-        g = lambda C: -C[2][2]
+        # g = lambda C: -C[2][2]
+        def g(C):
+            S = jnp.linalg.inv(C)
+            return -1/S[2][2]
         c, dc_dChom = jax.value_and_grad(g)(Chom)
         
         if grad.size > 0:
@@ -300,7 +301,7 @@ class VolumeConstraint:
         beta = self.ops.beta
         eta = self.ops.eta
 
-        # we only constrain the volume of the projected density field per Wang et al. 2011. Right now x_fem could have a SIMP applied to it, so we do our our filter and projection here. If we remove the SIMP in the Objective function in the future we could use this commented out code b/c x_fem final step would be just the projection
+        # we only constrain the volume of the projected density field per Wang et al. 2011. Right now x_fem sometimes I have a SIMP applied to it, so we do our our filter and projection here. If we remove the SIMP in the Objective function in the future we could use this commented out code b/c x_fem final step would be just the projection
         # x_fem = self.ops.x_fem
         # volume, dvdx = jax.value_and_grad(lambda x: jnp.mean(x))(x_fem)
 

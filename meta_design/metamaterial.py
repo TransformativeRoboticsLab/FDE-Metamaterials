@@ -3,7 +3,8 @@ set_log_level(40)
 from matplotlib import pyplot as plt
 from dataclasses import dataclass, field
 
-from mechanics import *
+from mechanics import linear_strain, linear_stress, macro_strain, lame_parameters
+import numpy as np
 from boundary import PeriodicDomain
 
 class Metamaterial:
