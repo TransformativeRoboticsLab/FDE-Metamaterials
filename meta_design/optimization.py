@@ -30,7 +30,7 @@ def jax_projection(x, beta=1., eta=0.5):
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
-class Objective:
+class AndreassenOptimization:
     def __init__(self, optim_type, metamaterial, ops, verbose=True, plot=True, filter_and_project=True):
         self.optim_type = optim_type
         self.metamaterial = metamaterial
@@ -90,15 +90,15 @@ class Objective:
                 return -1. / (S[0][0] + S[0][1]) / 2.
         elif self.optim_type == 'shear':
             obj = lambda C: -C[2][2]
-        elif self.optim_type == 'npr':
+        elif 'pr' in self.optim_type:
             def obj(C):
                 S = jnp.linalg.inv(C)
+                S = -S if self.optim_type == 'ppr' else S
                 return -S[0][1]/S[0][0]
         else:
             raise ValueError("Invalid objective type")
             
         c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
-        # dc_dxfem = np.asarray(dc_dChom).flatten() @ dChom_dxfem
         
         self.evals.append(c)
 
