@@ -17,7 +17,7 @@ from helpers import Ellipse, print_summary, beta_function
 RAND_SEED = 0
 
 def main():
-    nelx = 20
+    nelx = 50
     nely = nelx
     E_max = 1.
     E_min = 1e-9
@@ -63,20 +63,20 @@ def main():
 
     opt = nlopt.opt(nlopt.LD_MMA, dim)
     opt.set_min_objective(f)
-    opt.add_inequality_constraint(g_vol, 1e-4)
-    opt.add_inequality_constraint(g_iso, 1e-6)
+    opt.add_inequality_constraint(g_vol, 0.)
+    opt.add_inequality_constraint(g_iso, 0.)
     if optim_type == 'bulk':
-        opt.add_inequality_constraint(g_shr, 1e-4)
+        opt.add_inequality_constraint(g_shr, 0.)
     elif optim_type == 'shear':
-        opt.add_inequality_constraint(g_blk, 1e-4)
+        opt.add_inequality_constraint(g_blk, 0.)
     elif optim_type == 'npr':
-        opt.add_inequality_constraint(g_blk, 1e-4)
+        opt.add_inequality_constraint(g_blk, 0.)
     elif optim_type == 'ppr':
-        opt.add_inequality_constraint(g_shr, 1e-4)
+        opt.add_inequality_constraint(g_shr, 0.)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
-    opt.set_maxeval(50)
+    opt.set_maxeval(1000)
 
     # progressively up the projection
     for beta in betas:
