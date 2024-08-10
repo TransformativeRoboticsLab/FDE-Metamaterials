@@ -30,6 +30,186 @@ def jax_projection(x, beta=1., eta=0.5):
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
+class Epigraph:
+    """
+    A class representing a minimax optimization problem.
+    We reformulate the problem as a nonlinear optimization problem by adding a slack variable t as the objective function.
+    
+    min_x max{f1, f2, f3}
+    s.t. g(x) <= 0
+    
+    becomes
+    
+    min_{x, t} t
+    s.t. f1 <= t
+         f2 <= t
+         f3 <= t
+         g(x) <= 0
+         
+    The objective function is simply the slack variable t.
+    The gradiant of the objective function is then all zeros with a 1 at the end of the vector.
+    """
+    def __call__(self, x, grad):
+        """
+        Evaluates the objective function of the minimax problem.
+
+        Parameters:
+        - x: The input vector.
+        - grad: The gradient vector.
+
+        Returns:
+        - The objective function value.
+        """
+        t = x[-1]
+        
+        if grad.size > 0:
+            grad[:] = 0.
+            grad[-1] = 1.
+        
+        return t
+    
+class ExtremalConstraints:
+    """
+    A class representing the original objective functions of the minimax problem.
+    """
+    
+    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=False, plot_interval = 20):
+        self.v = v
+        self.extremal_mode = extremal_mode
+        self.metamaterial = metamaterial
+        self.ops = ops
+        self.verbose = verbose
+        self.plot_interval = plot_interval
+        self.evals = []
+        
+        self.epoch = 0
+        
+        self.n_constraints = 2
+        self.eps = 1.
+
+        plt.ion()
+        self.fig = plt.figure(figsize=(16,8))
+        grid_spec = gridspec.GridSpec(2, 4, )
+        self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
+        self.ax2 = plt.subplot(grid_spec[1, :])
+        
+        print(f"""
+MinimaxConstraint initialized with:
+v:
+{v}
+extremal_mode: {self.extremal_mode}
+starting beta: {self.ops.beta}
+verbose: {self.verbose}
+plot_delay: {self.plot_interval}
+""")
+
+    def __call__(self, results, x, grad, dummy_run=False):
+        
+        d = x.size
+        x, t = x[:-1], x[-1]
+        
+        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        
+        def filter_and_project(x):
+            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = jax_projection(x, beta, eta)
+            return x
+        
+        x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
+        
+        self.metamaterial.x.vector()[:] = x_fem
+        sols, Chom, _ = self.metamaterial.solve()
+        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
+        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+        
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
+        
+        def obj(C):
+            vCv = jnp.dot(jnp.dot(jnp.asarray(C), self.v), self.v)
+            return jnp.array([vCv[0,0]/vCv[1,1], vCv[0,0]/vCv[2,2]])
+        
+        # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        c = np.asarray(obj(Chom))
+        dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
+        
+        if grad.size > 0:
+            for n in range(self.n_constraints):
+                grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
+                grad[n,-1] = -self.eps
+                
+        results[:] = np.copy(c)
+        
+        if dummy_run:
+            return
+        
+        self.evals.append([t, *c])
+        print("-" * 30)
+        print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}")
+        print("-" * 30)
+        # print(f"g(x) = {c:.4f}")
+        print(c)
+        
+        if (len(self.evals) % self.plot_interval == 1):
+            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_bar   = jax_projection(x_tilde, beta, eta)
+            fields = {f'x (V={np.mean(x):.3f})': x,
+                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
+                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem}
+            self.update_plot(fields)
+
+    def update_plot(self, fields):
+        if len(fields) != len(self.ax1):
+            raise ValueError("Number of fields must match number of axes")
+        
+        r = Function(self.metamaterial.R)
+        for ax, (name, field) in zip(self.ax1, fields.items()):
+            if field.size == self.metamaterial.R.dim():
+                r.vector()[:] = field
+                self.plot_density(r, title=f"{name}", ax=ax)
+            else:
+                raise ValueError("Field size does not match function space")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+        self.ax2.clear()
+        f_arr = np.asarray(self.evals)
+        self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')  
+        self.ax2.grid(True)
+        self.ax2.set_xlim(left=0, right=len(self.evals) + 2) 
+        
+            
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(1e-3)
+            
+    def plot_density(self, r_in, title=None, ax=None):
+        r = Function(r_in.function_space())
+        r.vector()[:] = 1. - r_in.vector()[:]
+        r.set_allow_extrapolation(True)
+        
+        if isinstance(ax, plt.Axes):
+            plt.sca(ax)
+        else:
+            fig, ax = plt.subplots()
+            
+        ax.margins(x=0,y=0)
+
+        # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
+        # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
+        cell_type = r_in.function_space().ufl_cell().cellname()
+        if cell_type == 'quadrilateral':
+            r_vec = r.vector()[:]
+            # assume square space
+            nely = np.sqrt(r_vec.size).astype(int)
+            nelx = nely
+            plt.imshow(r_vec.reshape((nely, nelx)), cmap='gray', vmin=0, vmax=1)
+            ax.set_title(title)
+            return
+        
+        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        
+
 class AndreassenOptimization:
     def __init__(self, optim_type, metamaterial, ops, verbose=True, plot=True, filter_and_project=True):
         self.optim_type = optim_type
@@ -409,6 +589,8 @@ class OptimizationState:
     eta:  float = 0.5
     pen:  float = 3.
     filt: DensityFilter = None
+    epoch: int = 0
+    epoch_iter_tracker: list = field(default_factory=list)
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem):
         self.sols = sols
