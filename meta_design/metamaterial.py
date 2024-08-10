@@ -34,15 +34,16 @@ class Metamaterial:
         plt.show(block=True)
         
 
-    def plot_density(self, title='Mesh'):
+    def plot_density(self):
         # if isinstance(self.mesh.)
         r = Function(self.R)
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
         
+        title = f"Density - Average {np.mean(self.x.vector()[:]):.3f}"
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
-        plt.show()
+        plt.show(block=True)
         
     def create_function_spaces(self, elem_degree=1):
         # if not isinstance(self.mesh, Mesh):
