@@ -37,7 +37,7 @@ class AndreassenOptimization:
         self.ops = ops
         self.plot = plot
         self.verbose = verbose
-        self.plot_interval = 10
+        self.plot_interval = 20
 
         
         self.epoch = 0

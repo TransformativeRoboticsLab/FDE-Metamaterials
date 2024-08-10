@@ -11,7 +11,7 @@ import time
 
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
+from optimization import AndreassenOptimization, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
 from helpers import Ellipse, print_summary, beta_function
 
 RAND_SEED = 0
@@ -28,14 +28,14 @@ def main():
     # print(betas)
     eta = 0.5
     pen = 3.
-    epoch_duration = 50
+    epoch_duration = 100
     a = 2e-3
     optim_type = 'npr' # shear, bulk, npr, ppr
     print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
     
     metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
@@ -50,12 +50,12 @@ def main():
     np.random.seed(RAND_SEED)
     # x = np.random.uniform(0, 1, dim)
     x = beta_function(vol_frac, dim)
-    # x = np.random.binomial(1, vol_frac, dim)
+    # x = np.random.binomial(1, vol_frac*0.95, dim)
     # r = Function(metamate.R)
     # r.assign(interpolate(Ellipse(vol_frac, 1/3, 1/6), metamate.R))
     # x = r.vector()[:]
     
-    f = Objective(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=True)
+    f = AndreassenOptimization(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=True, filter_and_project=True)
     g_vol = VolumeConstraint(V=vol_frac, ops=ops)
     g_iso = IsotropicConstraint(eps=1e-5, ops=ops)
     g_blk = BulkModulusConstraint(E_max, nu, a=a, ops=ops) # a = 0.02%
@@ -65,18 +65,14 @@ def main():
     opt.set_min_objective(f)
     opt.add_inequality_constraint(g_vol, 0.)
     opt.add_inequality_constraint(g_iso, 0.)
-    if optim_type == 'bulk':
+    if optim_type in ['bulk', 'ppr']:
         opt.add_inequality_constraint(g_shr, 0.)
-    elif optim_type == 'shear':
+    elif optim_type in ['shear', 'npr']:
         opt.add_inequality_constraint(g_blk, 0.)
-    elif optim_type == 'npr':
-        opt.add_inequality_constraint(g_blk, 0.)
-    elif optim_type == 'ppr':
-        opt.add_inequality_constraint(g_shr, 0.)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
-    opt.set_maxeval(1000)
+    opt.set_maxeval(2000)
 
     # progressively up the projection
     for beta in betas:
