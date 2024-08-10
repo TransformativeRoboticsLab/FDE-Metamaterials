@@ -104,7 +104,8 @@ class Metamaterial:
         E = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x
         nu = self.prop.nu
         
-        m_strain = macro_strain(0)
+        m_strain = Constant(((0., 0.),
+                             (0., 0.)))
         F = inner(linear_stress(linear_strain(dv) + m_strain, E, nu), 
                      linear_strain(v_))*dx
         a, L = lhs(F), rhs(F)

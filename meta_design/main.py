@@ -51,7 +51,8 @@ def main():
     print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
     
     metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    metamate.mesh = RectangleMesh(Point(0, 0), Point(1, 1), nelx, nely, diagonal='crossed')
     # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
@@ -70,12 +71,15 @@ def main():
     x = np.random.choice([0., 1.], metamate.R.dim())
     x = np.append(x, 1.)
     metamate.x.vector()[:] = x[:-1]
-    metamate.plot_density()
+    # metamate.plot_density()
     # r = Function(metamate.R)
     # r.assign(interpolate(Ellipse(vol_frac, 1/3, 1/6), metamate.R))
     # x = r.vector()[:]
     
-    v = np.eye(3)
+    # v = np.eye(3)
+    v = np.array([[0., 1., 0.],
+                  [1., 0., 0.],
+                  [0., 0., 1.]])
     f = Epigraph()
     g = ExtremalConstraints(v=v, extremal_mode=1, metamaterial=metamate, ops=ops)
 

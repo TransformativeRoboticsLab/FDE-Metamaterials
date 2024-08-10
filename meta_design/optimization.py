@@ -73,7 +73,7 @@ class ExtremalConstraints:
     A class representing the original objective functions of the minimax problem.
     """
     
-    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=False, plot_interval = 20):
+    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=False, plot_interval = 10):
         self.v = v
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
@@ -119,35 +119,40 @@ plot_delay: {self.plot_interval}
         
         self.metamaterial.x.vector()[:] = x_fem
         sols, Chom, _ = self.metamaterial.solve()
+        print(np.asarray(Chom))
         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
         
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
         def obj(C):
-            vCv = jnp.dot(jnp.dot(jnp.asarray(C), self.v), self.v)
+            s = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+            C = s @ C @ s
+            C = C / jnp.linalg.norm(C, ord='fro')
+            vCv = self.v.T @ C @ self.v
+            # print(vCv)
             return jnp.array([vCv[0,0]/vCv[1,1], vCv[0,0]/vCv[2,2]])
         
         # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
-        c = np.asarray(obj(Chom))
+        c = np.asarray(obj(jnp.asarray(Chom)))
         dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
         
         if grad.size > 0:
             for n in range(self.n_constraints):
                 grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
-                grad[n,-1] = -self.eps
+                grad[n,-1] = -1.
                 
-        results[:] = np.copy(c)
+        results[:] = c
         
         if dummy_run:
             return
         
         self.evals.append([t, *c])
         print("-" * 30)
-        print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}")
+        print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}, Eta = {self.ops.eta}")
         print("-" * 30)
         # print(f"g(x) = {c:.4f}")
-        print(c)
+        print(t, c)
         
         if (len(self.evals) % self.plot_interval == 1):
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
