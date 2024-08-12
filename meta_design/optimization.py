@@ -148,11 +148,12 @@ plot_delay: {self.plot_interval}
             return
         
         self.evals.append([t, *c])
-        print("-" * 30)
-        print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}, Eta = {self.ops.eta}")
-        print("-" * 30)
-        # print(f"g(x) = {c:.4f}")
-        print(t, c)
+        if self.verbose:
+            print("-" * 30)
+            print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}, Eta = {self.ops.eta}")
+            print("-" * 30)
+            # print(f"g(x) = {c:.4f}")
+            print(t, c)
         
         if (len(self.evals) % self.plot_interval == 1):
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
