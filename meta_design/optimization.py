@@ -182,7 +182,7 @@ plot_delay: {self.plot_interval}
         self.evals.append([t, *c])
         if self.verbose:
             print("-" * 30)
-            print(f"Epoch {self.epoch}, Step {len(self.evals)}, Beta = {self.ops.beta}, Eta = {self.ops.eta}")
+            print(f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
             # print(f"g(x) = {c:.4f}")
             print(t, c)
@@ -215,8 +215,10 @@ plot_delay: {self.plot_interval}
         self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')  
         self.ax2.grid(True)
         self.ax2.set_xlim(left=0, right=len(self.evals) + 2) 
-        self.ax2.set_yscale('log')
-        
+        if np.min(f_arr) > 0:
+            self.ax2.set_yscale('log')
+        else:
+            self.ax2.set_ylim(-2, 2)
             
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
