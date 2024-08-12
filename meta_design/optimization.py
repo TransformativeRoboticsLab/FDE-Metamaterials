@@ -447,7 +447,7 @@ class VectorConstraint:
         if grad.size > 0:
             for n in range(self.n_constraints):
                 grad[n,:-1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
-                grad[n,-1] = self.dbdt[n]
+                grad[n,-1] = -self.dbdt[n]
                     
     @property
     def n_constraints(self):
