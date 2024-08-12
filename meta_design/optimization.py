@@ -395,6 +395,99 @@ class AndreassenOptimization:
             return
         
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        
+
+class VectorConstraint:
+    '''
+    This is a generalized class that will handle vector constraints for nlopt.
+    It can also be used for a scalar constraint with vector of length 1.
+    
+    A constraint is formulated as g_k(x) <= b_k(x).
+    We rearrange to give nlopt the form g_k(x) - b_k(x) <= 0.
+    The simplified case is where b_k(x) = 0.
+    This is the assumed default b/c we set dbdt = 0. on initialization.
+
+    One thing we may wish to do is in a minimax problem we can bound using the optimization variable `t`.
+    The interface for constraints and bounds takes this into account, but it could be more general in the future.
+    e.g. right now the bounds functions are assumed to only take t, but something like b_k(Chom, x, t) and discarding unused inputs is viable.
+
+    We use a global Chom, r and vjp here because it prevents us from having to rerun the forward pass again for the constraint.
+    If we wrapped everything into one large class this could just be a class attribute that gets passed around.
+    '''
+    def __init__(self, ops, eps=1e-6, verbose=False):
+        self.ops = ops
+        self.constraints = []
+        self.eps = eps
+        self.verbose = verbose
+        self.dbdt = np.zeros(self.n_constraints)
+        self.bounds = None
+            
+    def __call__(self, results, x, grad, dummy_run=False):
+
+        x, t = x[:-1], x[-1]
+        
+        Chom = jnp.asarray(self.ops.Chom)
+        dChom_dxfem = self.ops.dChom_dxfem
+        dxfem_dx_vjp = self.ops.dxfem_dx_vjp
+        
+        # values
+        gs = np.array([g(Chom) for g in self.constraints])
+        bs = np.array([b(t) for b in self.bounds])
+        dg_dChoms = [jax.jacrev(g)(Chom) for g in self.constraints]
+                
+        results[:] = gs - bs
+        
+        if dummy_run:
+            return
+        
+        if self.verbose:
+            print(f"{self.__str__()} value(s): {gs}")
+            print(f"{self.__str__()} bound(s): {bs}")
+        
+        if grad.size > 0:
+            for n in range(self.n_constraints):
+                grad[n,:-1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
+                grad[n,-1] = self.dbdt[n]
+                    
+    @property
+    def n_constraints(self):
+        return len(self.constraints)
+    
+    def __str__(self):
+        return "MinimaxConstraints"
+
+class MaterialSymmetryConstraints(VectorConstraint):
+    """
+    Enforcing material symmetry can be done in a number of ways.
+    For example, Andreassen et al. used one scalar constraint on the whole homogenized matrix, but here we implement each constraint as a separate function.
+    
+    The terminology and constraints are based on Trageser and Seleson paper.
+    https://csmd.ornl.gov/highlight/anisotropic-two-dimensional-plane-strain-and-plane-stress-models-classical-linear
+    """
+    def __init__(self, symmetry_order='oblique', **kwargs):
+        super().__init__(**kwargs)
+        self.symmetry_order = symmetry_order
+        
+        self.symmetry_types_ = ['oblique', 'rectangular', 'square', 'isotropic']
+        
+        if self.symmetry_order not in self.symmetry_types_:
+            raise ValueError(f"Material symmetry must be one of {self.symmetry_types_}")
+        
+        if self.symmetry_order in self.symmetry_types_[1:]:
+            self.constraints.extend([lambda C: (C[0, 2]/jnp.trace(C))**2, 
+                                     lambda C: (C[1, 2]/jnp.trace(C))**2])
+        if self.symmetry_order in self.symmetry_types_[2:]:
+            self.constraints.append(lambda C: (1. - C[1, 1]/C[0, 0])**2)
+        if self.symmetry_order == 'isotropic':
+            self.constraints.append(lambda C: (1. - C[0, 1]/C[0, 0] - C[2, 2]/C[0, 0])**2)
+        
+        # self.bounds = self.n_constraints * [lambda t: self.eps]
+        # self.dbdt = np.zeros(self.n_constraints)
+        self.bounds = self.n_constraints * [lambda t: self.eps * t]
+        self.dbdt = np.ones(self.n_constraints) * self.eps
+        
+    def __str__(self):
+        return f"MaterialSymmetryConstraints_{self.symmetry_order}"       
 
 class IsotropicConstraint:
     
@@ -629,7 +722,7 @@ class OptimizationState:
     xfem: np.array = field(default_factory=lambda: np.zeros(1))
     beta: float = 1.
     eta:  float = 0.5
-    pen:  float = 3.
+    pen:  float = 3. # holdover from other optimization types that use SIMP
     filt: DensityFilter = None
     epoch: int = 0
     epoch_iter_tracker: list = field(default_factory=list)
