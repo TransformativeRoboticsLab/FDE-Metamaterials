@@ -63,8 +63,7 @@ class Epigraph:
         t = x[-1]
         
         if grad.size > 0:
-            grad[:] = 0.
-            grad[-1] = 1.
+            grad[:-1], grad[-1] = 0., 1.
         
         return t
     
@@ -499,7 +498,7 @@ class ShearModulusConstraint:
         def g(C):
             S = jnp.linalg.inv(C)
             return -1/S[2][2]
-        c, dc_dChom = jax.value_and_grad(g)(Chom)
+        c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
         
         if grad.size > 0:
             grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
