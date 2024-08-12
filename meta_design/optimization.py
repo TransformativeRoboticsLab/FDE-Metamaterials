@@ -142,7 +142,7 @@ plot_delay: {self.plot_interval}
                 grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
                 grad[n,-1] = -1.
                 
-        results[:] = c
+        results[:] = c - t
         
         if dummy_run:
             return
