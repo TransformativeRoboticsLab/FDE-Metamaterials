@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
+from optimization import VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState, Epigraph, ExtremalConstraints, AndreassenOptimization
 
 # we have the ability to pass in an objective function.
 # we do this because on the back end only the objective actually solves the FEM problem, and then passes around the information to the constraints because none of that is going to change.
@@ -19,21 +19,34 @@ from optimization import Objective, VolumeConstraint, IsotropicConstraint, BulkM
 # this is because we pertube the input x every time, but the constraint actually just ignore that information anyway
 # hence we have to call the objective function with the perturbed x, and then call the constraint (where the x doesn't matter)
 def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
-    grad_fd = np.zeros_like(x)
+    grad_fd = np.zeros_like(grad_analytical)
     perturb = np.zeros_like(x)
-
-    for i in tqdm(range(len(x)), desc="Checking gradient"):
+    r_plus = np.zeros(2)
+    r_minus = np.zeros(2)
+    
+    for i in tqdm(range(grad_fd.shape[1]), desc="Checking gradient"):
         perturb[i] = epsilon
         x_plus = x + perturb
         x_minus = x - perturb
         obj(x_plus, np.array([])) if obj is not None else None
-        f_plus = func(x_plus, np.array([]))
+        
+        
+        f_plus = func(r_plus, x_plus, np.array([]))
+        
         obj(x_minus, np.array([])) if obj is not None else None
-        f_minus = func(x_minus, np.array([]))
-        grad_fd[i] = (f_plus - f_minus) / (2. * epsilon)
+        
+        f_minus = func(r_minus, x_minus, np.array([]))
+        
+        # grad_fd[i] = (f_plus - f_minus) / (2. * epsilon)
+        grad_fd[:,i] = (r_plus - r_minus) / (2. * epsilon)
         perturb[i] = 0
 
     diff = np.linalg.norm(grad_analytical - grad_fd)
+    fig, ax = plt.subplots()
+    ax.plot(grad_analytical.flatten(), label='Analytical')
+    ax.plot(grad_fd.flatten(), label='Finite Difference')
+    plt.legend()
+    plt.show()
     rel_diff = diff / (np.linalg.norm(grad_analytical) + np.linalg.norm(grad_fd))
 
     # print(f"Finite Difference Gradient: {grad_fd}")
@@ -45,7 +58,7 @@ def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
     return grad_fd, diff, rel_diff
 
 def main():
-    nelx = 20
+    nelx = 11
     nely = nelx
     E_max = 1.
     E_min = 1e-9
@@ -75,11 +88,16 @@ def main():
     x = np.random.uniform(1e-3, 1, dim)
     print(f"Checking {dim:d} dimensional gradient\n")
 
-    f = Objective(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=False, verbose=False, filter_and_project=False)
+    f = AndreassenOptimization(optim_type=optim_type, metamaterial=metamate, ops=ops, plot=False, verbose=False, filter_and_project=False)
     g_vol = VolumeConstraint(V=vol_frac, ops=ops, verbose=False)
     g_iso = IsotropicConstraint(eps=1e-5, ops=ops, verbose=False)
     g_blk = BulkModulusConstraint(E_max, nu, a=a, ops=ops, verbose=False)
     g_shr = ShearModulusConstraint(E_max, nu, a=a, ops=ops, verbose=False)
+    epi = Epigraph()
+    v = np.array([[0., 1., 0.],
+                  [1., 0., 0.],
+                  [0., 0., 1.]])
+    extrem = ExtremalConstraints(v=v, extremal_mode=2, metamaterial=metamate, ops=ops, verbose=False, plot=False, )
 
     grad_f = np.zeros_like(x)
     grad_g_vol = np.zeros_like(x)
@@ -94,10 +112,25 @@ def main():
     g_blk(x, grad_g_blk)
     g_shr(x, grad_g_shr)
     
+    x = np.append(x, 1.)
+    r = np.zeros(2)
+    grad_epi = np.zeros_like(x)
+    grad_extrem = np.zeros((2, x.size))
+
+    extrem(r, x, grad_extrem)
+    print("Checking Extremal Gradient:")
+    finite_difference_checker(extrem, x, grad_extrem)
+    
+    # epi(x, grad_epi)
+    # print("Checking Epigraph Gradient:")
+    # finite_difference_checker(epi, x, grad_epi)
+    
+    
+    
     
     # Check gradients using finite differences
-    print("Checking Objective Gradient:")
-    finite_difference_checker(f, x, grad_f)
+    # print("Checking Objective Gradient:")
+    # finite_difference_checker(f, x, grad_f)
     
     # print("\nChecking Isotropic Constraint Gradient:")
     # finite_difference_checker(g_iso, x, grad_g_iso, obj=f)
