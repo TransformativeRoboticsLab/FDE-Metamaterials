@@ -73,7 +73,7 @@ class ExtremalConstraints:
     A class representing the original objective functions of the minimax problem.
     """
     
-    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=False, plot_interval = 10):
+    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=True, plot_interval = 10, plot=True):
         self.v = v
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
@@ -87,11 +87,14 @@ class ExtremalConstraints:
         self.n_constraints = 2
         self.eps = 1.
 
-        plt.ion()
-        self.fig = plt.figure(figsize=(16,8))
-        grid_spec = gridspec.GridSpec(2, 4, )
-        self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
-        self.ax2 = plt.subplot(grid_spec[1, :])
+        if plot:
+            plt.ion()
+            self.fig = plt.figure(figsize=(16,8))
+            grid_spec = gridspec.GridSpec(2, 4, )
+            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
+            self.ax2 = plt.subplot(grid_spec[1, :])
+        else:
+            self.fig = None
         
         print(f"""
 MinimaxConstraint initialized with:
@@ -155,7 +158,7 @@ plot_delay: {self.plot_interval}
             # print(f"g(x) = {c:.4f}")
             print(t, c)
         
-        if (len(self.evals) % self.plot_interval == 1):
+        if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
             x_bar   = jax_projection(x_tilde, beta, eta)
             fields = {f'x (V={np.mean(x):.3f})': x,
@@ -183,6 +186,7 @@ plot_delay: {self.plot_interval}
         self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')  
         self.ax2.grid(True)
         self.ax2.set_xlim(left=0, right=len(self.evals) + 2) 
+        self.ax2.set_yscale('log')
         
             
         self.fig.canvas.draw()
