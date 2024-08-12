@@ -428,7 +428,8 @@ class BulkModulusConstraint:
         c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
         
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
+            grad[:-1] = dxfem_dx_vjp(np.asarray(dc_dChom).flatten() @ dChom_dxfem)[0]
+            grad[-1] = 0.
 
         if self.verbose == True:
             print(f"- Bulk Modulus: {-c:.2e} (Target ≥{self.aK:.2e}) [{'Satisfied' if -c >= self.aK else 'Not Satisfied'}]")
