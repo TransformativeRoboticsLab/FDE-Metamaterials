@@ -15,6 +15,37 @@ from optimization import AndreassenOptimization, VolumeConstraint, IsotropicCons
 from helpers import Ellipse, print_summary, beta_function
 
 RAND_SEED = 1
+ISQR2 = 1. / np.sqrt(2.)
+v_dict = {
+    "BULK": np.array([[ISQR2, -ISQR2, 0.],
+                      [ISQR2,  ISQR2, 0.],
+                      [0.,     0.,    1.]]),
+    "IBULK": np.array([[-ISQR2, ISQR2, 0.],
+                     [ ISQR2, ISQR2, 0.],
+                     [ 0.,    0.,    1.]]),
+    "VERT": np.array([[0., 1., 0.],
+                      [1., 0., 0.],
+                      [0., 0., 1.]]),
+    "VERT2": np.array([[0., ISQR2, -ISQR2],
+                       [1., 0.,     0.],
+                       [0., ISQR2,  ISQR2]]),
+    "SHEAR": np.array([[0., -ISQR2, ISQR2],
+                       [0.,  ISQR2, ISQR2],
+                       [1.,  0.,    0.]]),
+    "SHEARXY": np.array([[0., 1., 0.],
+                         [0., 0., 1.],
+                         [1., 0., 0.]]),
+    "HSA": np.array([[0.,     0.,    1.],
+                    [ISQR2, -ISQR2, 0.],
+                    [ISQR2,  ISQR2, 0.]]),
+    "HSA2": np.array([[0.,     0.,    1.],
+                     [ISQR2,  ISQR2, 0.],
+                      [-ISQR2, ISQR2, 0.]]),
+    "IHSA": np.array([[1., 0., 0.],
+                      [0., ISQR2, -ISQR2],
+                      [0., ISQR2,  ISQR2]]),
+    "EYE": np.eye(3),
+}
 
 # when an epoch changes or we change beta the constraint values can jump
 # and because the constraints can also be clamped by t we need to make sure
@@ -40,19 +71,16 @@ def main():
     E_min = 1e-9
     nu = 0.3
     vol_frac = 0.5
-    start_beta, n_betas = 1, 8
+    start_beta, n_betas = 8, 4
     betas = [start_beta * 2 ** i for i in range(n_betas)]
-    # print(betas)
     eta = 0.5
-    pen = 3.
-    epoch_duration = 100
+    epoch_duration = 50
     a = 2e-3
-    optim_type = 'npr' # shear, bulk, npr, ppr
-    print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta, pen, epoch_duration, a)
+    basis_v = 'BULK'
     
     metamate = Metamaterial(E_max, E_min, nu)
-    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    metamate.mesh = RectangleMesh(Point(0, 0), Point(1, 1), nelx, nely, diagonal='crossed')
+    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    # metamate.mesh = RectangleMesh(Point(0, 0), Point(1, 1), nelx, nely, diagonal='crossed')
     # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
@@ -61,14 +89,13 @@ def main():
     ops = OptimizationState()
     ops.beta = start_beta
     ops.eta = eta
-    ops.pen = pen
     ops.filt = filt
 
     np.random.seed(RAND_SEED)
-    # x = np.random.uniform(0, 1, dim)
+    x = np.random.uniform(0, 1, metamate.R.dim())
     # x = beta_function(vol_frac, metamate.R.dim())
     # x = np.random.binomial(1, vol_frac, metamate.R.dim())
-    x = np.random.choice([0., 1.], metamate.R.dim())
+    # x = np.random.choice([0., 1.], metamate.R.dim())
     x = np.append(x, 1.)
     metamate.x.vector()[:] = x[:-1]
     # metamate.plot_density()
@@ -76,16 +103,16 @@ def main():
     # r.assign(interpolate(Ellipse(vol_frac, 1/3, 1/6), metamate.R))
     # x = r.vector()[:]
     
-    # v = np.eye(3)
-    v = np.array([[0., 1., 0.],
-                  [1., 0., 0.],
-                  [0., 0., 1.]])
+    v = v_dict[basis_v]
+    extremal_mode = 1
     f = Epigraph()
-    g = ExtremalConstraints(v=v, extremal_mode=1, metamaterial=metamate, ops=ops)
+    g = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
+    g_blk = BulkModulusConstraint(E_max, nu, a=a, ops=ops)
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
     opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+    # opt.add_inequality_constraint(g_blk, 0.)
     
     lb = np.zeros(x.size)
     lb[-1] = 1e-6
@@ -93,9 +120,10 @@ def main():
     ub = np.ones(x.size)
     ub[-1] = np.inf
     opt.set_upper_bounds(ub)
-    opt.set_maxeval(50)
-    # opt.set_param('inner_maxeval', 1_000)
-    # opt.set_param('dual_maxeval',  1_000)
+    opt.set_maxeval(100)
+    opt.set_param('inner_maxeval', 1_000)
+    opt.set_param('dual_maxeval',  1_000)
+    # opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
     for beta in betas:
@@ -103,11 +131,9 @@ def main():
         ops.epoch += 1
         update_t(x, [g])
         x_opt = opt.optimize(x)
-        
         x = np.copy(x_opt)
-        
         opt.set_maxeval(epoch_duration)
-
+        
     plt.show(block=True)
 
 
