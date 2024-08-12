@@ -126,48 +126,46 @@ plot_delay: {self.plot_interval}
         
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
+        # def obj(C):
+        #     # works well for bimodes, work OK for unimodes. 
+        #     # for some reason bimodes will enforce symmetry implicitly, but unimodes will not.
+        #     m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+        #     C = m @ C @ m
+        #     S = jnp.linalg.inv(C)
+            
+        #     if self.extremal_mode == 2:
+        #         C, S = S, C
+            
+        #     vCv = self.v.T @ C @ self.v
+        #     c1, c2, c3 = vCv[0,0], vCv[1,1], vCv[2,2]
+        #     vSv = self.v.T @ S @ self.v
+        #     s1, s2, s3 = vSv[0,0], vSv[1,1], vSv[2,2]
+        #     # print(c1, s2, s3)
+        #     return jnp.array([c1/c2, c1/c3, 1e-3])
+        #     # return jnp.array([e1, 1.4 - e2, 1.4 - e3])
+        #     # return jnp.array([c1**2 / c2 / c3, 1e-5, 1e-5])
+        
+        # Poisson's ratio test
+        # def obj(C):
+        #     S = jnp.linalg.inv(C)
+        #     nu1 = -S[0][1] / S[1][1]
+        #     nu2 = -S[1][0] / S[0][0]
+        #     return jnp.array([nu1, nu2])
+        
+        # nullspace obj
+        # this is really good at setting the eigenvectors for bimode isotropic
+        # didn't do so well for unimode isotropic
         def obj(C):
+            m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+            C = m @ C @ m
+            S = jnp.linalg.inv(C)
             if self.extremal_mode == 2:
-                C = jnp.linalg.inv(C)
-            elif self.extremal_mode == 1:
-                pass
-            else:
-                raise ValueError("Invalid extremal mode")
-            
-            s = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-            C = s @ C @ s
-            C = C / jnp.linalg.norm(C, ord='fro')
-            vCv = self.v.T @ C @ self.v
-            # print(vCv)
-            return jnp.array([vCv[0,0]/vCv[1,1], vCv[0,0]/vCv[2,2]])
+                C, S = S, C
+            Cv = (C @ self.v) / jnp.linalg.norm(C, ord='fro')
+            Sv = (S @ self.v) / jnp.linalg.norm(S, ord='fro')
+            e1, e2, e3 = Cv[:,0], Sv[:,1], Sv[:,2]
+            return jnp.array([jnp.sqrt(e1.T @ e1), jnp.sqrt(e2.T @ e2), jnp.sqrt(e3.T @ e3)])
         
-        # def obj(C):
-        #     m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
-        #     C = m @ C @ m
-        #     S = jnp.linalg.inv(C)
-        #     S /= jnp.linalg.norm(S, ord='fro')
-        #     C /= jnp.linalg.norm(C, ord='fro')
-        #     ws, vs = jnp.linalg.eigh(S)
-        #     wc, vc = jnp.linalg.eigh(C)
-        #     return jnp.array([wc[0], ws[1], ws[2]])
-        
-        # def obj(C):
-        #     m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
-        #     C = m @ C @ m
-        #     S = jnp.linalg.inv(C)
-        #     C /= jnp.linalg.norm(C, ord='fro')
-        #     S /= jnp.linalg.norm(S, ord='fro')
-            
-        #     C, S = (S, C) if self.extremal_mode == 2 else (C, S)
-        #     Cv = C @ self.v
-        #     Sv = S @ self.v
-        #     e1 = Cv[:,0]
-        #     e2 = Sv[:,1]
-        #     e3 = Sv[:,2]
-        #     # print(e1, e2, e3)
-        #     return jnp.array([e1.T @ e1, e2.T @ e2, e3.T @ e3])
-        
-        # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
         c = np.asarray(obj(jnp.asarray(Chom)))
         dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
         
