@@ -122,19 +122,51 @@ plot_delay: {self.plot_interval}
         
         self.metamaterial.x.vector()[:] = x_fem
         sols, Chom, _ = self.metamaterial.solve()
-        print(np.asarray(Chom))
         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
         
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
         
         def obj(C):
+            if self.extremal_mode == 2:
+                C = jnp.linalg.inv(C)
+            elif self.extremal_mode == 1:
+                pass
+            else:
+                raise ValueError("Invalid extremal mode")
+            
             s = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = s @ C @ s
             C = C / jnp.linalg.norm(C, ord='fro')
             vCv = self.v.T @ C @ self.v
             # print(vCv)
             return jnp.array([vCv[0,0]/vCv[1,1], vCv[0,0]/vCv[2,2]])
+        
+        # def obj(C):
+        #     m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+        #     C = m @ C @ m
+        #     S = jnp.linalg.inv(C)
+        #     S /= jnp.linalg.norm(S, ord='fro')
+        #     C /= jnp.linalg.norm(C, ord='fro')
+        #     ws, vs = jnp.linalg.eigh(S)
+        #     wc, vc = jnp.linalg.eigh(C)
+        #     return jnp.array([wc[0], ws[1], ws[2]])
+        
+        # def obj(C):
+        #     m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+        #     C = m @ C @ m
+        #     S = jnp.linalg.inv(C)
+        #     C /= jnp.linalg.norm(C, ord='fro')
+        #     S /= jnp.linalg.norm(S, ord='fro')
+            
+        #     C, S = (S, C) if self.extremal_mode == 2 else (C, S)
+        #     Cv = C @ self.v
+        #     Sv = S @ self.v
+        #     e1 = Cv[:,0]
+        #     e2 = Sv[:,1]
+        #     e3 = Sv[:,2]
+        #     # print(e1, e2, e3)
+        #     return jnp.array([e1.T @ e1, e2.T @ e2, e3.T @ e3])
         
         # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
         c = np.asarray(obj(jnp.asarray(Chom)))
