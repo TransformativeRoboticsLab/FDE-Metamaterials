@@ -80,11 +80,9 @@ class ExtremalConstraints:
         self.verbose = verbose
         self.plot_interval = plot_interval
         self.evals = []
-        
-        self.epoch = 0
-        
-        self.n_constraints = 2
-        self.eps = 1.
+                
+        self.n_constraints = 3
+        self.eps = 1. # scaling factor on t
 
         if plot:
             plt.ion()
@@ -185,7 +183,8 @@ plot_delay: {self.plot_interval}
             print(f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
             # print(f"g(x) = {c:.4f}")
-            print(t, c)
+            # print(t, c)
+            print(f"t: {t:.3f} g(x): {c}")
         
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)

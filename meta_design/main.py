@@ -9,10 +9,36 @@ from matplotlib import pyplot as plt
 import matplotlib.animation as animation
 import time
 
+from mechanics import calculate_elastic_constants, anisotropy_index
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import AndreassenOptimization, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState, Epigraph, ExtremalConstraints
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints
 from helpers import Ellipse, print_summary, beta_function
+
+
+import numpy as np
+np.set_printoptions(precision=3)
+np.set_printoptions(suppress=True)
+
+def uniform_density(dim):
+    return np.random.uniform(0, 1, dim)
+
+def beta_density(vol_frac, dim):
+    return beta_function(vol_frac, dim)
+
+def binomial_density(vol_frac, dim):
+    return np.random.binomial(1, vol_frac, dim)
+
+density_functions = {
+    'uniform': lambda dim: uniform_density(dim),
+    'beta': lambda vol_frac, dim: beta_density(vol_frac, dim),
+    'binomial': lambda vol_frac, dim: binomial_density(vol_frac, dim)
+}
+
+def init_density(density_seed_type, vol_frac, dim):
+    if density_seed_type not in density_functions:
+        raise ValueError(f"Invalid density_seed_type: {density_seed_type}")
+    return density_functions[density_seed_type](vol_frac, dim) if density_seed_type != 'uniform' else density_functions[density_seed_type](dim)
 
 RAND_SEED = 1
 ISQR2 = 1. / np.sqrt(2.)
@@ -52,7 +78,7 @@ v_dict = {
 # that we start the epoch in a feasible state. 
 # Basically t could be too low for the constraints to be satisfied and the 
 # optimizer will spend cycles trying to get t up to a feasible value.
-# We avoid this by jumping t to a feasible value at the start of each epoch.
+# We avoid this by jumping t to a feasible value at the start of each epoch
 def update_t(x, gs):
     print(f"Updating t...\nOld t value {x[-1]:.3e}")
     new_t = -np.inf
@@ -64,79 +90,98 @@ def update_t(x, gs):
     x[-1] = new_t
     print(f"New t value: {x[-1]:.3e}")
 
+    
+def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
+    metamaterial = Metamaterial(E_max, E_min, nu)
+    if 'tri' in mesh_cell_type:
+        metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    elif 'quad' in mesh_cell_type:
+        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+    else:
+        raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
+    metamaterial.create_function_spaces()
+    return metamaterial
+
 def main():
+    # inputs
     nelx = 50
     nely = nelx
     E_max = 1.
-    E_min = 1e-9
+    E_min = 1e-3
     nu = 0.3
-    vol_frac = 0.5
+    vol_frac = 0.1
     start_beta, n_betas = 8, 4
     betas = [start_beta * 2 ** i for i in range(n_betas)]
+    betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     eta = 0.5
     epoch_duration = 50
     a = 2e-3
     basis_v = 'BULK'
+    density_seed_type = 'binomial'
+    extremal_mode = 1
+    mesh_cell_type = 'quad' # triangle, quadrilateral
     
-    metamate = Metamaterial(E_max, E_min, nu)
-    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    # metamate.mesh = RectangleMesh(Point(0, 0), Point(1, 1), nelx, nely, diagonal='crossed')
-    # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
-    metamate.create_function_spaces()
+    metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
     
+    # density filter setup
     filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
     
-    ops = OptimizationState()
-    ops.beta = start_beta
-    ops.eta = eta
-    ops.filt = filt
+    # global optimization state
+    ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
 
+    # seeding the initial density
     np.random.seed(RAND_SEED)
-    x = np.random.uniform(0, 1, metamate.R.dim())
-    # x = beta_function(vol_frac, metamate.R.dim())
-    # x = np.random.binomial(1, vol_frac, metamate.R.dim())
-    # x = np.random.choice([0., 1.], metamate.R.dim())
-    x = np.append(x, 1.)
-    metamate.x.vector()[:] = x[:-1]
-    # metamate.plot_density()
-    # r = Function(metamate.R)
-    # r.assign(interpolate(Ellipse(vol_frac, 1/3, 1/6), metamate.R))
-    # x = r.vector()[:]
+    x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    x = np.append(x, 0.) # append t value for epigraph form
     
-    v = v_dict[basis_v]
-    extremal_mode = 1
+
+    # setup optimization
     f = Epigraph()
-    g = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    g_blk = BulkModulusConstraint(E_max, nu, a=a, ops=ops)
+    g = ExtremalConstraints(v=v_dict[basis_v], extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
+    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order='isotropic', verbose=True)
+    active_constraints = [g, ]
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
-    opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-    # opt.add_inequality_constraint(g_blk, 0.)
+    for g in active_constraints:
+        opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
     
-    lb = np.zeros(x.size)
-    lb[-1] = 1e-6
-    opt.set_lower_bounds(lb)
-    ub = np.ones(x.size)
-    ub[-1] = np.inf
-    opt.set_upper_bounds(ub)
-    opt.set_maxeval(100)
+    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
+    opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
+    opt.set_maxeval(100) # initial epoch, because we like to converge to a design first and then do our beta increases
     opt.set_param('inner_maxeval', 1_000)
     opt.set_param('dual_maxeval',  1_000)
-    # opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
-    for beta in betas:
-        ops.beta = beta
-        ops.epoch += 1
-        update_t(x, [g])
-        x_opt = opt.optimize(x)
-        x = np.copy(x_opt)
+    for n, beta in enumerate(betas, 1):
+        ops.beta, ops.epoch = beta, n
+        update_t(x, active_constraints)
+        x = np.copy(opt.optimize(x))
+        ops.epoch_iter_tracker.append(len(g.evals))
         opt.set_maxeval(epoch_duration)
+        
+        if n == n_betas:
+            active_constraints.append(g_sym)
+            opt.add_inequality_mconstraint(g_sym, np.zeros(g_sym.n_constraints))
+            opt.set_maxeval(100)
+            
+        
+    metamate.x.vector()[:] = x[:-1]
+    final_C = np.asarray(metamate.solve()[1])
+    print('Final C:\n', final_C)
+    final_S = np.linalg.inv(final_C)
+    final_nu = -final_S[0, 1] / final_S[0, 0]
+    print('Final Poisson Ratio:', final_nu)
+    w, v = np.linalg.eigh(final_C)
+    print('Final Eigenvalues:\n', w)
+    print('Final Eigenvalue Ratios:\n', w / np.max(w))
+    print('Final Eigenvectors:\n', v)
+
+    print('Final ASU:', anisotropy_index(final_C, input_style='standard')[-1])
+    print('Final Elastic Constants:', calculate_elastic_constants(final_C, input_style='standard'))
         
     plt.show(block=True)
 
 
 if __name__ == "__main__":
-    np.random.seed(1)
     main()
