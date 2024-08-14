@@ -1,30 +1,23 @@
 import numpy as np
-from mechanics import calculate_elastic_constants, anisotropy_index
-nu = 0.3
-S = np.array([[1., -nu, 0],
-              [-nu, 1., 0],
-              [0, 0, 2*(1+nu)]])
 
-print('S',S)
-C = np.linalg.inv(S)
-print('C',C)
+# np.random.seed(0)
+ws = []
+ws_normed = []
+ws_inf = []
+for _ in range(10000):
+    C = np.random.uniform(0., 100., (3,3))
+    C = (C @ C.T)/2.
 
-# C = np.array([[1/(1-nu**2), nu/(1-nu**2), 0],
-#               [nu/(1-nu**2), 1/(1-nu**2), 0],
-#               [0, 0, 1/(2*(1+nu))]])
-m = np.diag([1., 1., np.sqrt(2)])
-C = m @ C @ m
-w, v = np.linalg.eigh(C)
-print('w\n',w)
-print('v\n',v)
+    C_normed = C / np.linalg.norm(C, ord='fro')
     
-    
-    
-F = np.array([[ 0.07313379, -0.01411028,  0.01486252],
- [-0.01411028,  0.0609288,  -0.00069366],
- [ 0.01486252, -0.00069366,  0.0377074 ]])
+    C_infnormed = C / np.linalg.norm(C, ord=np.inf)
 
-print(calculate_elastic_constants(F, input_style='standard'))
-print('ASU:', anisotropy_index(F, input_style='standard')[-1])
- 
- 
+    w = np.linalg.eigvals(C)
+    w_normed = np.linalg.eigvals(C_normed)
+    ws.append(w)
+    ws_normed.append(w_normed)
+    ws_inf.append(np.linalg.eigvals(C_infnormed))
+    
+print(np.mean(np.max(ws, axis=1)))
+print(np.mean(np.max(ws_normed, axis=1)))
+print(np.mean(np.max(ws_inf, axis=1)))

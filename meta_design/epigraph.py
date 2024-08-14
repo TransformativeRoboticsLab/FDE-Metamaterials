@@ -12,12 +12,12 @@ import time
 from mechanics import calculate_elastic_constants, anisotropy_index
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, EnergyConstraint, BulkModulusConstraint
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, OffDiagonalConstraint, EpigraphBulkModulusConstraint, EigenvectorConstraint
 from helpers import Ellipse, print_summary, beta_function
 
 
 import numpy as np
-np.set_printoptions(precision=3)
+# np.set_printoptions(precision=3)
 # np.set_printoptions(suppress=True)
 
 def uniform_density(dim):
@@ -107,12 +107,12 @@ def main():
     nelx = 50
     nely = nelx
     E_max = 1.
-    E_min = 1e-9
+    E_min = 1e-3
     nu = 0.3
     vol_frac = 0.1
-    start_beta, n_betas = 1, 6
+    start_beta, n_betas = 1, 4
     betas = [start_beta * 2 ** i for i in range(n_betas)]
-    # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
+    betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     eta = 0.5
     epoch_duration = 50
     a = 2e-3
@@ -132,33 +132,52 @@ def main():
     # seeding the initial density
     np.random.seed(RAND_SEED)
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    x = np.append(x, 0.) # append t value for epigraph form
     
-    f = EnergyConstraint(v=v_dict[basis_v], extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    g = BulkModulusConstraint(E_max, nu, a=a, ops=ops)
-    
+
+    # setup optimization
+    v = v_dict[basis_v]
+    f = Epigraph()
+    g_ext = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
+    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order='isotropic', verbose=True)
+    g_dia = OffDiagonalConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    g_blk = EpigraphBulkModulusConstraint(E_max, nu, a, ops)
+    g_eig = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    active_constraints = [g_ext, ]
+
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
-    opt.add_inequality_constraint(g, 1e-6)
+    for g in active_constraints:
+        opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+    # opt.add_inequality_constraint(g_blk, 0.)
+    # opt.add_inequality_constraint(g_eig, 0.)
     
-    opt.set_lower_bounds(np.zeros(x.size))
-    opt.set_upper_bounds(np.ones(x.size))
-    opt.set_maxeval(epoch_duration) # initial epoch, because we like to converge to a design first and then do our beta increases
+    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
+    opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
+    opt.set_maxeval(100) # initial epoch, because we like to converge to a design first and then do our beta increases
     opt.set_param('inner_maxeval', 1_000)
     opt.set_param('dual_maxeval',  1_000)
 
     # progressively up the projection
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
+        update_t(x, active_constraints)
         x = np.copy(opt.optimize(x))
-        ops.epoch_iter_tracker.append(len(f.evals))
-        # opt.set_maxeval(epoch_duration)
+        ops.epoch_iter_tracker.append(len(g_ext.evals))
+        opt.set_maxeval(epoch_duration)
+        
+        # if n == n_betas:
+        #     active_constraints.append(g_dia)
+        #     opt.add_inequality_mconstraint(g_dia, np.zeros(g_dia.n_constraints))
+        #     opt.set_maxeval(200)
             
-    f.update_plot(x)
-    metamate.x.vector()[:] = x[:]
+        
+    metamate.x.vector()[:] = x[:-1]
     final_C = np.asarray(metamate.solve()[1])
     print('Final C:\n', final_C)
+    print('Final vCv:\n', v_dict[basis_v].T @ final_C @ v_dict[basis_v])
     final_S = np.linalg.inv(final_C)
-    final_nu = -final_S[0, 1] / final_S[0, 0]
+    final_nu = -final_S[0, 1] / final_S[1, 1]
     print('Final Poisson Ratio:', final_nu)
     w, v = np.linalg.eigh(final_C)
     print('Final Eigenvalues:\n', w)
