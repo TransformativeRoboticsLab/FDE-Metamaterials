@@ -4,6 +4,7 @@ import numpy as np
 import nlopt
 import jax
 jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as jnp
 from matplotlib import pyplot as plt
 import matplotlib.animation as animation
@@ -17,11 +18,11 @@ from helpers import Ellipse, print_summary, beta_function
 
 
 import numpy as np
-# np.set_printoptions(precision=3)
+np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
 
 def uniform_density(dim):
-    return np.random.uniform(0, 1, dim)
+    return np.random.uniform(0., 1., dim)
 
 def beta_density(vol_frac, dim):
     return beta_function(vol_frac, dim)
@@ -41,6 +42,10 @@ def init_density(density_seed_type, vol_frac, dim):
     return density_functions[density_seed_type](vol_frac, dim) if density_seed_type != 'uniform' else density_functions[density_seed_type](dim)
 
 RAND_SEED = 1
+print(f"Random Seed: {RAND_SEED}")
+np.random.seed(RAND_SEED)
+nlopt.srand(RAND_SEED)
+
 ISQR2 = 1. / np.sqrt(2.)
 v_dict = {
     "BULK": np.array([[ISQR2, -ISQR2, 0.],
@@ -109,17 +114,19 @@ def main():
     E_max = 1.
     E_min = 1e-3
     nu = 0.3
-    vol_frac = 0.1
-    start_beta, n_betas = 1, 4
+    vol_frac = 0.5
+    start_beta, n_betas = 8, 6
     betas = [start_beta * 2 ** i for i in range(n_betas)]
-    betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
+    # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
+    print(f"Betas: {betas}")
     eta = 0.5
     epoch_duration = 50
     a = 2e-3
     basis_v = 'BULK'
     density_seed_type = 'binomial'
     extremal_mode = 1
-    mesh_cell_type = 'quad' # triangle, quadrilateral
+    mesh_cell_type = 'tri' # triangle, quadrilateral
+    symmetry_order = 'isotropic'
     
     metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
     
@@ -130,7 +137,6 @@ def main():
     ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
 
     # seeding the initial density
-    np.random.seed(RAND_SEED)
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
     x = np.append(x, 0.) # append t value for epigraph form
     
@@ -138,25 +144,23 @@ def main():
     # setup optimization
     v = v_dict[basis_v]
     f = Epigraph()
-    g_ext = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order='isotropic', verbose=True)
-    g_dia = OffDiagonalConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
-    g_blk = EpigraphBulkModulusConstraint(E_max, nu, a, ops)
-    g_eig = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    g_ext = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops, plot_interval=10)
+    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order=symmetry_order, verbose=True)
+    # g_dia = OffDiagonalConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
+    # g_blk = EpigraphBulkModulusConstraint(E_max, nu, a, ops)
+    # g_eig = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
     active_constraints = [g_ext, ]
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
     for g in active_constraints:
         opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-    # opt.add_inequality_constraint(g_blk, 0.)
-    # opt.add_inequality_constraint(g_eig, 0.)
     
-    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
+    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), 0.))
     opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
-    opt.set_maxeval(100) # initial epoch, because we like to converge to a design first and then do our beta increases
-    opt.set_param('inner_maxeval', 1_000)
-    opt.set_param('dual_maxeval',  1_000)
+    opt.set_maxeval(epoch_duration) # initial epoch, because we like to converge to a design first and then do our beta increases
+    # opt.set_param('inner_maxeval', 1_000)
+    # opt.set_param('dual_maxeval',  1_000)
 
     # progressively up the projection
     for n, beta in enumerate(betas, 1):
@@ -164,13 +168,11 @@ def main():
         update_t(x, active_constraints)
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(g_ext.evals))
-        opt.set_maxeval(epoch_duration)
         
-        # if n == n_betas:
-        #     active_constraints.append(g_dia)
-        #     opt.add_inequality_mconstraint(g_dia, np.zeros(g_dia.n_constraints))
-        #     opt.set_maxeval(200)
-            
+        if n == n_betas - 1:
+            active_constraints.append(g_sym)
+            opt.add_inequality_mconstraint(g_sym, np.zeros(g_sym.n_constraints))
+            opt.set_maxeval(2*epoch_duration)
         
     metamate.x.vector()[:] = x[:-1]
     final_C = np.asarray(metamate.solve()[1])

@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from fenics import *
 
 from filters import DensityFilter
+from image import bitmapify
 
 @jax.jit
 def jax_density_filter(x, H, Hs):
@@ -216,14 +217,14 @@ class ExtremalConstraints:
         self.plot_interval = plot_interval
         self.evals = []
                 
-        self.n_constraints = 3
+        self.n_constraints = 4
         self.eps = 1.
 
         if plot:
             plt.ion()
-            self.fig = plt.figure(figsize=(16,8))
-            grid_spec = gridspec.GridSpec(2, 4, )
-            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
+            self.fig = plt.figure(figsize=(24, 8))
+            grid_spec = gridspec.GridSpec(2, 6, )
+            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), plt.subplot(grid_spec[0, 5])]
             self.ax2 = plt.subplot(grid_spec[1, :])
         else:
             self.fig = None
@@ -258,21 +259,22 @@ plot_delay: {self.plot_interval}
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
         
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-
+            
         # def obj(C):
         #     m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-        #     C = m @ C @ m
-        #     C /= jnp.linalg.norm(C, ord='fro')
+        #     C = self.v @ m @ C @ m @ self.v.T
+        #     C /= jnp.linalg.norm(C, ord=2)
         #     w = jnp.linalg.eigvalsh(C)
         #     return jnp.array([w[0], 1.-w[1], 1.-w[2]])
         
         def obj(C):
-            # works well for bimodes, work OK for unimodes. 
-            # for some reason bimodes will enforce symmetry implicitly, but unimodes will not.
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
-            C /= jnp.linalg.norm(C, ord='fro')
-            # S = jnp.linalg.inv(C)
+            C /= jnp.linalg.norm(C, ord=2)
+            # print(np.linalg.eigvalsh(C))
+            S = jnp.linalg.inv(C)
+            S /= jnp.linalg.norm(S, ord=2)
+            # print(np.linalg.eigvalsh(S))
             
             if self.extremal_mode == 2:
                 C, S = S, C
@@ -284,7 +286,7 @@ plot_delay: {self.plot_interval}
             # s1, s2, s3 = vSv[0,0], vSv[1,1], vSv[2,2]
             # print(c1, s2, s3)
             # return jnp.array([c1**2 / c2 / c3, off_diag])
-            return jnp.array([c1, 1.-c2, 1.-c3])
+            return jnp.array([c1, (1-c2), (1-c3), jnp.sum((vCv - jnp.diag(jnp.diag(vCv)))**2)])
         
         # Poisson's ratio test
         # def obj(C):
@@ -333,10 +335,16 @@ plot_delay: {self.plot_interval}
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
             x_bar   = jax_projection(x_tilde, beta, eta)
+            img_resolution = 200
+            r_img = self.metamaterial.x.copy(deepcopy=True)
+            x_img = np.flip(bitmapify(r_img, (1., 1.), (img_resolution, img_resolution)), axis=0)
+
             fields = {f'x (V={np.mean(x):.3f})': x,
                       f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
                       f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
-                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem}
+                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem,
+                      f'x_img': x_img,
+                      f'Tiling': np.tile(x_img, (3,3))}
             self.update_plot(fields)
 
     def update_plot(self, fields):
@@ -349,7 +357,8 @@ plot_delay: {self.plot_interval}
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
             else:
-                raise ValueError("Field size does not match function space")
+                ax.imshow(255 - field, cmap='gray')
+                ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])
             
@@ -362,6 +371,9 @@ plot_delay: {self.plot_interval}
             self.ax2.set_yscale('log')
         else:
             self.ax2.set_ylim(-2, 2)
+            
+        for iter_val in self.ops.epoch_iter_tracker:
+            self.ax2.axvline(x=iter_val, color='black', linestyle='--', alpha=0.5, linewidth=3.)
             
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
@@ -569,7 +581,8 @@ class VectorConstraint:
 
         x, t = x[:-1], x[-1]
         
-        Chom = jnp.asarray(self.ops.Chom)
+        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+        Chom = m @ jnp.asarray(self.ops.Chom) @ m
         dChom_dxfem = self.ops.dChom_dxfem
         dxfem_dx_vjp = self.ops.dxfem_dx_vjp
         
@@ -655,7 +668,7 @@ class OffDiagonalConstraint(VectorConstraint):
     def g1(self, C):
         m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
         C = m @ C @ m
-        C /= jnp.linalg.norm(C, ord='fro')
+        C /= jnp.linalg.norm(C, ord=2)
         vCv = self.v.T @ C @ self.v
         return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
 
@@ -680,8 +693,8 @@ class MaterialSymmetryConstraints(VectorConstraint):
             raise ValueError(f"Material symmetry must be one of {self.symmetry_types_}")
         
         if self.symmetry_order in self.symmetry_types_[1:]:
-            self.constraints.extend([lambda C: (C[0, 2]/jnp.trace(C))**2, 
-                                     lambda C: (C[1, 2]/jnp.trace(C))**2])
+            self.constraints.extend([lambda C: (C[0, 2]/C[0, 0])**2, 
+                                     lambda C: (C[1, 2]/C[1, 1])**2])
         if self.symmetry_order in self.symmetry_types_[2:]:
             self.constraints.append(lambda C: (1. - C[1, 1]/C[0, 0])**2)
         if self.symmetry_order == 'isotropic':

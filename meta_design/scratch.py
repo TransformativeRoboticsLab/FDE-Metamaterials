@@ -8,7 +8,7 @@ for _ in range(10000):
     C = np.random.uniform(0., 100., (3,3))
     C = (C @ C.T)/2.
 
-    C_normed = C / np.linalg.norm(C, ord='fro')
+    C_normed = C / np.linalg.norm(C, ord=2)
     
     C_infnormed = C / np.linalg.norm(C, ord=np.inf)
 

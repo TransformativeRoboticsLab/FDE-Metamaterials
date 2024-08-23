@@ -121,12 +121,12 @@ def main():
     # finite_difference_checker(epi, x, grad_epi)
 
     g_ext(np.ones(g_ext.n_constraints), x, grad_extrem)
-    # print("Checking Extremal Gradient:")
-    # finite_difference_checker(g_ext, x, grad_extrem)
+    print("Checking Extremal Gradient:")
+    finite_difference_checker(g_ext, x, grad_extrem)
     
-    g_sym(np.ones(g_sym.n_constraints), x, grad_g_sym)
-    print("Checking Symmetry Gradient:")
-    finite_difference_checker(g_sym, x, grad_g_sym, obj=g_ext)
+    # g_sym(np.ones(g_sym.n_constraints), x, grad_g_sym)
+    # print("Checking Symmetry Gradient:")
+    # finite_difference_checker(g_sym, x, grad_g_sym, obj=g_ext)
     
     
     

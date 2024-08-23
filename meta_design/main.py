@@ -107,7 +107,7 @@ def main():
     nelx = 50
     nely = nelx
     E_max = 1.
-    E_min = 1e-9
+    E_min = 1e-3
     nu = 0.3
     vol_frac = 0.1
     start_beta, n_betas = 1, 6
@@ -117,14 +117,14 @@ def main():
     epoch_duration = 50
     a = 2e-3
     basis_v = 'BULK'
-    density_seed_type = 'binomial'
+    density_seed_type = 'uniform'
     extremal_mode = 1
-    mesh_cell_type = 'quad' # triangle, quadrilateral
+    mesh_cell_type = 'tri' # triangle, quadrilateral
     
     metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
     
     # density filter setup
-    filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
+    filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
     
     # global optimization state
     ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
