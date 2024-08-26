@@ -217,7 +217,7 @@ class ExtremalConstraints:
         self.plot_interval = plot_interval
         self.evals = []
                 
-        self.n_constraints = 4
+        self.n_constraints = 3
         self.eps = 1.
 
         if plot:
@@ -280,13 +280,14 @@ plot_delay: {self.plot_interval}
                 C, S = S, C
             
             vCv = self.v.T @ C @ self.v
+            Cv = C @ self.v
             c1, c2, c3 = vCv[0,0], vCv[1,1], vCv[2,2]
             # off_diag = jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
             # vSv = self.v.T @ S @ self.v
             # s1, s2, s3 = vSv[0,0], vSv[1,1], vSv[2,2]
             # print(c1, s2, s3)
             # return jnp.array([c1**2 / c2 / c3, off_diag])
-            return jnp.array([c1, (1-c2), (1-c3), jnp.sum((vCv - jnp.diag(jnp.diag(vCv)))**2)])
+            return jnp.array([c1, (1-c2), (1-c3)])
         
         # Poisson's ratio test
         # def obj(C):
@@ -313,15 +314,16 @@ plot_delay: {self.plot_interval}
         c = np.asarray(obj(jnp.asarray(Chom)))
         dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
         
+        results[:] = c - t
+        
+        if dummy_run:
+            return
+
         if grad.size > 0:
             for n in range(self.n_constraints):
                 grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
                 grad[n,-1] = -1.
                 
-        results[:] = c - t
-        
-        if dummy_run:
-            return
         
         self.evals.append([t, *c])
         if self.verbose:
@@ -612,6 +614,7 @@ class VectorConstraint:
     def __str__(self):
         return "MinimaxConstraints"
     
+    
 class EigenvectorConstraint:
     
     def __init__(self, v, ops, eps=1e-3, verbose=True):
@@ -619,41 +622,44 @@ class EigenvectorConstraint:
         self.ops = ops
         self.eps = eps
         self.verbose = verbose
-        
-    def __call__(self, x, grad):
+
+        self.n_constraints = 3
+
+    def __call__(self, results, x, grad, dummy_run=False):
         
         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
         
-        # def obj(C):
-        #     m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-        #     C = m @ C @ m
-        #     C /= jnp.linalg.norm(C, ord='fro')
-        #     eig_vs = jnp.linalg.eigh(C)[1]
-        #     print('My v:', self.v)
-        #     print('Eigenvectors:',  jnp.asarray(eig_vs))
-        #     return jnp.linalg.norm(eig_vs - self.v)
-
         def obj(C):
+            from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
-            C /= jnp.linalg.norm(C, ord='fro')
             
-            vCv = self.v.T @ C @ self.v
-            r = C @ self.v[:,0] - vCv[0,0] * self.v[:,0]
-            return jnp.linalg.norm(r)
+            v1, v2, v3 = self.v[:,0], self.v[:,1], self.v[:,2]
+            # Rayleigh quotients
+            r1, r2, r3 = v1.T @ C @ v1, v2.T @ C @ v2, v3.T @ C @ v3
+            Cv1, Cv2, Cv3 = C @ v1, C @ v2, C @ v3
+            x1, x2, x3 = Cv1 - r1*v1, Cv2 - r2*v2, Cv3 - r3*v3
+            
+            return jnp.array([norm(x1), norm(x2), norm(x3)])
         
-        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        c = obj(np.asarray(Chom))
+        dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
+
+        results[:] = c - self.eps
+        
+        if dummy_run:
+            return
         
         if grad.size > 0:
-            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[-1] = 0.
-            
-        if self.verbose:
-            print(f"- Eigenvector Constraint: {c:.2e} (Target ≤{self.eps:}) [{'Satisfied' if c <= self.eps else 'Not Satisfied'}]")
+            for n in range(self.n_constraints):
+                grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
+                grad[n,-1] = 0.
 
-            
-        return float(c) - self.eps
-        
+
+        if self.verbose:
+            print(f"Eigenvector Constraint:")
+            print(f"Residuals: {c} (Target ≤{self.eps:})")
         
 
 class OffDiagonalConstraint(VectorConstraint):

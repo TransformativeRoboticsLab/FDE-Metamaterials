@@ -112,10 +112,10 @@ def main():
     nelx = 50
     nely = nelx
     E_max = 1.
-    E_min = 1e-3
+    E_min = 1e-9
     nu = 0.3
     vol_frac = 0.5
-    start_beta, n_betas = 8, 6
+    start_beta, n_betas = 1, 6
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
@@ -123,7 +123,7 @@ def main():
     epoch_duration = 50
     a = 2e-3
     basis_v = 'BULK'
-    density_seed_type = 'binomial'
+    density_seed_type = 'uniform'
     extremal_mode = 1
     mesh_cell_type = 'tri' # triangle, quadrilateral
     symmetry_order = 'isotropic'
@@ -145,11 +145,8 @@ def main():
     v = v_dict[basis_v]
     f = Epigraph()
     g_ext = ExtremalConstraints(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops, plot_interval=10)
-    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order=symmetry_order, verbose=True)
-    # g_dia = OffDiagonalConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
-    # g_blk = EpigraphBulkModulusConstraint(E_max, nu, a, ops)
-    # g_eig = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
-    active_constraints = [g_ext, ]
+    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    active_constraints = [g_ext, g_vec]
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
@@ -161,6 +158,7 @@ def main():
     opt.set_maxeval(epoch_duration) # initial epoch, because we like to converge to a design first and then do our beta increases
     # opt.set_param('inner_maxeval', 1_000)
     # opt.set_param('dual_maxeval',  1_000)
+    opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
     for n, beta in enumerate(betas, 1):
@@ -169,10 +167,10 @@ def main():
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(g_ext.evals))
         
-        if n == n_betas - 1:
-            active_constraints.append(g_sym)
-            opt.add_inequality_mconstraint(g_sym, np.zeros(g_sym.n_constraints))
-            opt.set_maxeval(2*epoch_duration)
+        # if n == n_betas - 1:
+        #     active_constraints.append(g_sym)
+        #     opt.add_inequality_mconstraint(g_sym, np.zeros(g_sym.n_constraints))
+        #     opt.set_maxeval(2*epoch_duration)
         
     metamate.x.vector()[:] = x[:-1]
     final_C = np.asarray(metamate.solve()[1])
