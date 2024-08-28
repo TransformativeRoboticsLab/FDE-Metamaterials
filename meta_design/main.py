@@ -42,6 +42,10 @@ def init_density(density_seed_type, vol_frac, dim):
     return density_functions[density_seed_type](vol_frac, dim) if density_seed_type != 'uniform' else density_functions[density_seed_type](dim)
 
 RAND_SEED = 1
+print(f"Random Seed: {RAND_SEED}")
+np.random.seed(RAND_SEED)
+nlopt.srand(RAND_SEED)
+
 ISQR2 = 1. / np.sqrt(2.)
 v_dict = {
     "BULK": np.array([[ISQR2, -ISQR2, 0.],
@@ -111,11 +115,12 @@ def main():
     E_min = 1e-9
     nu = 0.3
     vol_frac = 0.1
-    start_beta, n_betas = 1, 6
+    start_beta, n_betas = 8, 3
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
+    print(f"Betas: {betas}")
     eta = 0.5
-    epoch_duration = 50
+    epoch_duration = 100
     basis_v = 'BULK'
     density_seed_type = 'uniform'
     extremal_mode = 1
@@ -130,12 +135,11 @@ def main():
     ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
 
     # seeding the initial density
-    np.random.seed(RAND_SEED)
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
     
     v = v_dict[basis_v]
     f = EnergyConstraint(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
     
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
@@ -143,9 +147,7 @@ def main():
     
     opt.set_lower_bounds(np.zeros(x.size))
     opt.set_upper_bounds(np.ones(x.size))
-    opt.set_maxeval(epoch_duration) # initial epoch, because we like to converge to a design first and then do our beta increases
-    # opt.set_param('inner_maxeval', 1_000)
-    # opt.set_param('dual_maxeval',  1_000)
+    opt.set_maxeval(epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
@@ -153,21 +155,12 @@ def main():
         ops.beta, ops.epoch = beta, n
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(f.evals))
-        # opt.set_maxeval(epoch_duration)
-
-        if n == 1:
-            # g_vec.eps = 1e-5
-            opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
-            # opt.set_maxeval(epoch_duration)
             
     metamate.x.vector()[:] = x[:]
-    metamate.plot_density()
+    # metamate.plot_density()
     
     final_C = np.asarray(metamate.solve()[1])
     print('Final C:\n', final_C)
-    final_S = np.linalg.inv(final_C)
-    final_nu = -final_S[0, 1] / final_S[0, 0]
-    print('Final Poisson Ratio:', final_nu)
     w, v = np.linalg.eigh(final_C)
     print('Final Eigenvalues:\n', w)
     print('Final Eigenvalue Ratios:\n', w / np.max(w))

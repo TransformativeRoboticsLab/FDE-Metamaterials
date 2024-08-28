@@ -1,59 +1,59 @@
+from boundary import PeriodicDomain
+import numpy as np
+from mechanics import linear_strain, linear_stress, macro_strain, lame_parameters
+from dataclasses import dataclass, field
+from matplotlib import pyplot as plt
 from fenics import *
 set_log_level(40)
-from matplotlib import pyplot as plt
-from dataclasses import dataclass, field
 
-from mechanics import linear_strain, linear_stress, macro_strain, lame_parameters
-import numpy as np
-from boundary import PeriodicDomain
 
 class Metamaterial:
-    
-    def __init__(self, E_max, E_min, nu):
-        self.nelx = None
-        self.nely = None
-        self.x    = None
+    def __init__(self, E_max, E_min, nu, x=None, nelx=None, nely=None, mesh=None):
         self.prop = Properties(E_max, E_min, nu)
-        self.mesh = None
-        
+        self.nelx = nelx
+        self.nely = nely
+        self.x = x
+        self.mesh = mesh
+
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
             print("Quadrilateral mesh plotting not supported")
             plt.figure()
             return
-        
+
         plot(self.mesh)
         if labels:
-            mids = [cell.midpoint() for cell in cells(self.mesh)] 
+            mids = [cell.midpoint() for cell in cells(self.mesh)]
             ids = [cell.index() for cell in cells(self.mesh)]
             for mid, id in zip(mids, ids):
                 plt.text(mid.x(), mid.y(), str(id))
-                
-            plt.scatter([m.x() for m in mids], [m.y() for m in mids], marker='x', color='red')
+
+            plt.scatter([m.x() for m in mids], [m.y()
+                        for m in mids], marker='x', color='red')
 
         plt.show(block=True)
-        
 
     def plot_density(self):
         # if isinstance(self.mesh.)
         r = Function(self.R)
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
-        
+
         title = f"Density - Average {np.mean(self.x.vector()[:]):.3f}"
         plt.figure()
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
         plt.show(block=True)
-        
+
     def create_function_spaces(self, elem_degree=1):
         # if not isinstance(self.mesh, Mesh):
-            # raise ValueError("self.mesh is not a valid mesh")
+        # raise ValueError("self.mesh is not a valid mesh")
         Ve = VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
         Re = VectorElement('R', self.mesh.ufl_cell(), 0)
-        W  = FunctionSpace(self.mesh, MixedElement([Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
+        W = FunctionSpace(self.mesh, MixedElement(
+            [Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
 
         R = FunctionSpace(self.mesh, 'DG', 0)
-        
+
         self.x = Function(R)
         self.W, self.R = W, R
 
@@ -65,16 +65,17 @@ class Metamaterial:
         for i in range(3):
             for j in range(3):
                 projected_function = project(uChom[i][j], self.R)
-                projected_values.append(projected_function.vector().get_local())
+                projected_values.append(
+                    projected_function.vector().get_local())
 
         matrix = np.array(projected_values)
 
         return matrix
 
     def homogenized_C(self, u_list, E, nu):
-        s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu) 
-                for i, u in enumerate(u_list)]
-        
+        s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu)
+                  for i, u in enumerate(u_list)]
+
         uChom = [
             [
                 inner(s_t, linear_strain(u) + macro_strain(j))
@@ -88,29 +89,28 @@ class Metamaterial:
         # note: this makes the assumption that the mesh is uniform
         # note note: we can also sum up these rows to get our Chom, which is the same as doing the "assembly"
         # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
-        # if we don't need the uChom matrix, the doing assemble might be faster again 
-
+        # if we don't need the uChom matrix, the doing assemble might be faster again
 
         uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol
         # remember the matrix is symmetric so we don't care about row/column order
         # Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
 
-        return Chom, uChom_matrix        
+        return Chom, uChom_matrix
 
     def solve(self):
         v_, lamb_ = TestFunctions(self.W)
         dv, dlamb = TrialFunctions(self.W)
-        
+
         E = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x
         nu = self.prop.nu
-        
+
         m_strain = Constant(((0., 0.),
                              (0., 0.)))
-        F = inner(linear_stress(linear_strain(dv) + m_strain, E, nu), 
-                     linear_strain(v_))*dx
+        F = inner(linear_stress(linear_strain(dv) + m_strain, E, nu),
+                  linear_strain(v_))*dx
         a, L = lhs(F), rhs(F)
         a += dot(lamb_, dv)*dx + dot(dlamb, v_)*dx
-        
+
         sols = []
         for (j, case) in enumerate(["Exx", "Eyy", "Exy"]):
             w = Function(self.W)
@@ -118,16 +118,16 @@ class Metamaterial:
             solve(a == L, w, [])
             v = split(w.copy(deepcopy=True))[0]
             sols.append(v)
-            
+
         Chom, uChom = self.homogenized_C(sols, E, nu)
-        
+
         return sols, Chom, uChom
 
     @property
     def cell_vol(self):
         return next(cells(self.mesh)).volume()
 
-        
+
 @dataclass
 class Properties:
     E_max: float
@@ -138,5 +138,6 @@ class Properties:
     mu_: float = field(init=False)
 
     def __post_init__(self):
-        self.lambda_, self.mu_ = lame_parameters(self.E_max, self.nu, model='plane_stress')
+        self.lambda_, self.mu_ = lame_parameters(
+            self.E_max, self.nu, model='plane_stress')
         self.K = self.lambda_ + 2.0*self.mu_
