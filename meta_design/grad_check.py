@@ -10,8 +10,39 @@ from tqdm import tqdm
 
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState, Epigraph, ExtremalConstraints, AndreassenOptimization, MaterialSymmetryConstraints
+from optimization import VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState, Epigraph, ExtremalConstraints, AndreassenOptimization, MaterialSymmetryConstraints, InvariantsConstraint, jax_density_filter, jax_projection
 
+ISQR2 = 1. / np.sqrt(2.)
+v_dict = {
+    "BULK": np.array([[ISQR2, -ISQR2, 0.],
+                      [ISQR2,  ISQR2, 0.],
+                      [0.,     0.,    1.]]),
+    "IBULK": np.array([[-ISQR2, ISQR2, 0.],
+                     [ ISQR2, ISQR2, 0.],
+                     [ 0.,    0.,    1.]]),
+    "VERT": np.array([[0., 1., 0.],
+                      [1., 0., 0.],
+                      [0., 0., 1.]]),
+    "VERT2": np.array([[0., ISQR2, -ISQR2],
+                       [1., 0.,     0.],
+                       [0., ISQR2,  ISQR2]]),
+    "SHEAR": np.array([[0., -ISQR2, ISQR2],
+                       [0.,  ISQR2, ISQR2],
+                       [1.,  0.,    0.]]),
+    "SHEARXY": np.array([[0., 1., 0.],
+                         [0., 0., 1.],
+                         [1., 0., 0.]]),
+    "HSA": np.array([[0.,     0.,    1.],
+                    [ISQR2, -ISQR2, 0.],
+                    [ISQR2,  ISQR2, 0.]]),
+    "HSA2": np.array([[0.,     0.,    1.],
+                     [ISQR2,  ISQR2, 0.],
+                      [-ISQR2, ISQR2, 0.]]),
+    "IHSA": np.array([[1., 0., 0.],
+                      [0., ISQR2, -ISQR2],
+                      [0., ISQR2,  ISQR2]]),
+    "EYE": np.eye(3),
+}
 # we have the ability to pass in an objective function.
 # we do this because on the back end only the objective actually solves the FEM problem, and then passes around the information to the constraints because none of that is going to change.
 # basically we do not need to resolve the FEM problem for every constraint
@@ -39,9 +70,11 @@ def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
         perturb[i] = 0
 
     diff = np.linalg.norm(grad_analytical - grad_fd)
-    fig, ax = plt.subplots()
-    ax.plot(grad_analytical.flatten(), label='Analytical')
-    ax.plot(grad_fd.flatten(), label='Finite Difference')
+    fig, ax = plt.subplots(2,1, figsize=(10,10))
+    ax[0].plot(grad_analytical.flatten(), label='Analytical')
+    ax[0].plot(grad_fd.flatten(), label='Finite Difference')
+    plt.legend()
+    ax[1].plot(np.abs(grad_analytical - grad_fd).flatten()/grad_analytical.flatten(), label='Relative Difference')
     plt.legend()
     plt.show()
     rel_diff = diff / (np.linalg.norm(grad_analytical) + np.linalg.norm(grad_fd))
@@ -55,7 +88,7 @@ def finite_difference_checker(func, x, grad_analytical, epsilon=1e-5, obj=None):
     return grad_fd, diff, rel_diff
 
 def main():
-    nelx = 11
+    nelx = 10
     nely = nelx
     E_max = 1.
     E_min = 1e-9
@@ -68,11 +101,11 @@ def main():
     optim_type = 'pr'
 
     metamate = Metamaterial(E_max, E_min, nu)
-    # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+    metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+    # metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
-    filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
+    filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
     
     ops = OptimizationState()
     ops.beta = start_beta
@@ -106,15 +139,15 @@ def main():
     
     # Epigraph forms
     epi = Epigraph()
-    v = np.array([[0., 1., 0.],
-                  [1., 0., 0.],
-                  [0., 0., 1.]])
+    v = v_dict['BULK']
     g_ext = ExtremalConstraints(v=v, extremal_mode=2, metamaterial=metamate, ops=ops, verbose=False, plot=False, )
     g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-3, symmetry_order='rectangular', verbose=False)
+    g_inv = InvariantsConstraint(ops=ops, verbose=False)
     x = np.append(x, 1.)
     grad_epi = np.zeros_like(x)
     grad_extrem = np.zeros((g_ext.n_constraints, x.size))
     grad_g_sym = np.zeros((g_sym.n_constraints, x.size))
+    grad_g_inv = np.zeros((g_inv.n_constraints, x.size))
 
     # epi(x, grad_epi)
     # print("Checking Epigraph Gradient:")
@@ -123,6 +156,10 @@ def main():
     g_ext(np.ones(g_ext.n_constraints), x, grad_extrem)
     print("Checking Extremal Gradient:")
     finite_difference_checker(g_ext, x, grad_extrem)
+
+    g_inv(np.ones(g_inv.n_constraints), x, grad_g_inv)
+    print("Checking Invariants Gradient:")
+    finite_difference_checker(g_inv, x, grad_g_inv, obj=g_ext)
     
     # g_sym(np.ones(g_sym.n_constraints), x, grad_g_sym)
     # print("Checking Symmetry Gradient:")

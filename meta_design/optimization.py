@@ -1,5 +1,6 @@
 import jax.interpreters
 import matplotlib.pyplot as plt
+from matplotlib.colorbar import Colorbar
 from matplotlib import gridspec
 from dataclasses import dataclass, field
 from typing import Callable, Any
@@ -51,6 +52,7 @@ class Epigraph:
     The objective function is simply the slack variable t.
     The gradiant of the objective function is then all zeros with a 1 at the end of the vector.
     """
+
     def __call__(self, x, grad):
         """
         Evaluates the objective function of the minimax problem.
@@ -84,9 +86,9 @@ class EnergyConstraint:
 
         if plot:
             plt.ion()
-            self.fig = plt.figure(figsize=(16,8))
-            grid_spec = gridspec.GridSpec(2, 3, )
-            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2])]
+            self.fig = plt.figure(figsize=(24, 8))
+            grid_spec = gridspec.GridSpec(2, 6, )
+            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), plt.subplot(grid_spec[0, 5])]
             self.ax2 = plt.subplot(grid_spec[1, :])
         else:
             self.fig = None
@@ -113,20 +115,28 @@ class EnergyConstraint:
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
             S = jnp.linalg.inv(C)
+            C /= jnp.linalg.norm(C, ord=2)
+            S /= jnp.linalg.norm(S, ord=2)
             
             if self.extremal_mode == 2:
                 C, S = S, C
-                
+
             vCv = self.v.T @ C @ self.v
+            vSv = self.v.T @ S @ self.v
             c1, c2, c3 = vCv[0,0], vCv[1,1], vCv[2,2]
-            return c1**2/c2/c3
+            s1, s2, s3 = vSv[0,0], vSv[1,1], vSv[2,2]
+            # return c1/c2 + c1/c3
+            # return c1**2/c2/c3
+            return (c1*s2*s3)**(1/3)
+            # return c2*c3/c1**2
         
         c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
 
         self.evals.append(c)
         
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[:] = g
             
             
         if self.verbose:
@@ -136,18 +146,24 @@ class EnergyConstraint:
             print(f"Energy: {c:.4f}")
         
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
-            self.update_plot(x)
+            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_bar   = jax_projection(x_tilde, beta, eta)
+            img_resolution = 200
+            r_img = self.metamaterial.x.copy(deepcopy=True)
+            x_img = np.flip(bitmapify(r_img, (1., 1.), (img_resolution, img_resolution)), axis=0)
+
+            fields = {f'x (V={np.mean(x):.3f})': x,
+                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
+                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                    #    'grad': g,
+                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem,
+                       'x_img': x_img,
+                       'Tiling': np.tile(x_img, (3,3))}
+            self.update_plot(fields)
             
         return float(c)
 
-    def update_plot(self, x):
-        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
-        x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-        x_bar   = jax_projection(x_tilde, beta, eta)
-        fields = {f'x (V={np.mean(x):.3f})': x,
-                    f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                    f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar}
-
+    def update_plot(self, fields):
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
         
@@ -155,9 +171,14 @@ class EnergyConstraint:
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.size == self.metamaterial.R.dim():
                 r.vector()[:] = field
-                self.plot_density(r, title=f"{name}", ax=ax)
+                cmap = 'gray' if 'x' in name else 'viridis'
+                cb = 'x' not in name
+                vmin = 0 if 'x' in name else None
+                vmax = 1 if 'x' in name else None
+                self.plot_density(r, title=f"{name}", ax=ax, cmap=cmap, colorbar=cb, vmin=vmin, vmax=vmax)
             else:
-                raise ValueError("Field size does not match function space")
+                ax.imshow(255 - field, cmap='gray')
+                ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])
             
@@ -171,21 +192,27 @@ class EnergyConstraint:
         else:
             self.ax2.set_ylim(-2, 2)
             
+        for iter_val in self.ops.epoch_iter_tracker:
+            self.ax2.axvline(x=iter_val, color='black', linestyle='--', alpha=0.5, linewidth=3.)
+            
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         plt.pause(1e-3)
             
-    def plot_density(self, r_in, title=None, ax=None):
+    def plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
         r = Function(r_in.function_space())
-        r.vector()[:] = 1. - r_in.vector()[:]
+        r.vector()[:] = r_in.vector()[:]
+        if cmap=='gray':
+            r.vector()[:] = 1. - r.vector()[:]
         r.set_allow_extrapolation(True)
         
         if isinstance(ax, plt.Axes):
             plt.sca(ax)
         else:
             fig, ax = plt.subplots()
+        ax.clear()
             
-        ax.margins(x=0,y=0)
+        # ax.margins(x=0,y=0)
 
         # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
         # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
@@ -199,9 +226,8 @@ class EnergyConstraint:
             ax.set_title(title)
             return
         
-        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        p = plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
         
-            
 
 class ExtremalConstraints:
     """
@@ -217,7 +243,7 @@ class ExtremalConstraints:
         self.plot_interval = plot_interval
         self.evals = []
                 
-        self.n_constraints = 3
+        self.n_constraints = 4
         self.eps = 1.
 
         if plot:
@@ -268,51 +294,39 @@ plot_delay: {self.plot_interval}
         #     return jnp.array([w[0], 1.-w[1], 1.-w[2]])
         
         def obj(C):
+            from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
-            C /= jnp.linalg.norm(C, ord=2)
-            # print(np.linalg.eigvalsh(C))
+            C /= norm(C, ord=2)
             S = jnp.linalg.inv(C)
-            S /= jnp.linalg.norm(S, ord=2)
-            # print(np.linalg.eigvalsh(S))
+            # S /= norm(S, ord=2)
             
-            if self.extremal_mode == 2:
-                C, S = S, C
+            # if self.extremal_mode == 2:
+            #     C, S = S, C
             
-            vCv = self.v.T @ C @ self.v
-            Cv = C @ self.v
-            c1, c2, c3 = vCv[0,0], vCv[1,1], vCv[2,2]
-            # off_diag = jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
-            # vSv = self.v.T @ S @ self.v
-            # s1, s2, s3 = vSv[0,0], vSv[1,1], vSv[2,2]
-            # print(c1, s2, s3)
-            # return jnp.array([c1**2 / c2 / c3, off_diag])
-            return jnp.array([c1, (1-c2), (1-c3)])
+            v1, v2, v3 = self.v[:,0], self.v[:,1], self.v[:,2] 
+            Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
+            Sv1, Sv2, Sv3 = S@v1, S@v2, S@v3
+            c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
+            s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
+            # Minimize/Maximize the Rayleigh Quotients
+            # return jnp.array([c1, 1-c2, 1-c3]), jnp.array([c1, c2, c3])
+
+            # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
+            return jnp.array([norm(Cv1), 1-norm(Cv2), 1-norm(Cv3), jnp.sqrt((c2-c3)**2)]), jnp.array([c1, c2, c3])
+
+            # Minimize the ratio of Rayleigh Quotients
+            # return jnp.array([c1/c2, c1/c3, jnp.sqrt(c1**2/c2/c3)]), jnp.array([c1, c2, c3])
         
-        # Poisson's ratio test
-        # def obj(C):
-        #     S = jnp.linalg.inv(C)
-        #     nu1 = -S[0][1] / S[1][1]
-        #     nu2 = -S[1][0] / S[0][0]
-        #     return jnp.array([nu1, nu2])
+            # NOTE: If I use (1-s1), s2, and s3 with a unimodal BULK vector input (which is the most stubborn optimization criteria I have found) the optimization stalls and doesn't converge; however, if s3 > s2 by some scalar factor, it begins converging quickly. Are these two factors at odds with eachother? Even once s3 gets doesn to ~s2 then the optimization stalls again. I discovered this by accident, but it's interesting to note. This might also explain why the other vector bases like VERT will converge quickly, because they inherently produce different values for s1, s2, and s3. It kinda seems like s2 and s3 are at odds. What does this mean? 
+            # A 1-sn value is a value that is closer to the maximum value of the eigenvalues of the tensor. This means that when using the compliance matrix S, the vn vector should be most compliant (e.g. less stiff)
+            # Additionally, it seems that the bulk modulus Rayleigh quotient just simply doesn't have a strong enough gradient to converge (at least when normalized by the spectral norm).
+            # return jnp.array([(1-s1), -s2, s3]), jnp.array([s1, s2, s3])
+            # return jnp.array([s1, 1-s2, 1-s3]), jnp.array([s1, s2, s3])
+            
         
-        # nullspace obj
-        # this is really good at setting the eigenvectors for bimode isotropic
-        # didn't do so well for unimode isotropic
-        # def obj(C):
-        #     from jax.numpy.linalg import norm
-        #     m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
-        #     C = m @ C @ m
-        #     S = jnp.linalg.inv(C)
-        #     if self.extremal_mode == 2:
-        #         C, S = S, C
-        #     Cv = (C / jnp.linalg.norm(C, ord='fro')) @ self.v
-        #     Sv = (S / jnp.linalg.norm(S, ord='fro')) @ self.v
-        #     r1, r2, r3 = Cv[:,0], Sv[:,1], Sv[:,2]
-        #     return jnp.array([norm(r1), norm(r2), norm(r3)])
-        
-        c = np.asarray(obj(jnp.asarray(Chom)))
-        dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
+        c, cs = obj(jnp.asarray(Chom))
+        dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[0].reshape((self.n_constraints,9))
         
         results[:] = c - t
         
@@ -333,6 +347,7 @@ plot_delay: {self.plot_interval}
             # print(f"g(x) = {c:.4f}")
             # print(t, c)
             print(f"t: {t:.3f} g(x): {c}")
+            print(f"Actual Values: {cs}")
         
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
@@ -344,6 +359,7 @@ plot_delay: {self.plot_interval}
             fields = {f'x (V={np.mean(x):.3f})': x,
                       f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
                       f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                    #   f'grad': grad[0,:-1],
                       f'x_fem (V={np.mean(x_fem):.3f})': x_fem,
                       f'x_img': x_img,
                       f'Tiling': np.tile(x_img, (3,3))}
@@ -629,10 +645,14 @@ class EigenvectorConstraint:
         
         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
         
+        t = x[-1]
+        
         def obj(C):
             from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
+
+            C /= norm(C)
             
             v1, v2, v3 = self.v[:,0], self.v[:,1], self.v[:,2]
             # Rayleigh quotients
@@ -642,12 +662,57 @@ class EigenvectorConstraint:
             
             return jnp.array([norm(x1), norm(x2), norm(x3)])
         
-        # c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
         c = obj(np.asarray(Chom))
         dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
 
-        results[:] = c - self.eps
+        results[:] = c - t*self.eps
         
+        if dummy_run:
+            return
+        
+        if grad.size > 0:
+            for n in range(self.n_constraints):
+                grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
+                grad[n,-1] = -self.eps
+                # grad[n,:] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
+
+
+        if self.verbose:
+            print(f"Eigenvector Constraint:")
+            print(f"Residuals: {c} (Target ≤{self.eps:.1e}*t)")
+        
+class InvariantsConstraint:
+    
+    def __init__(self, ops, verbose=True):
+        self.ops = ops
+        self.verbose = verbose
+        # Invariant bounds:
+        # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
+        self.eps = np.array([-.3, 1e-1])
+
+        self.n_constraints = 2
+
+        assert self.eps.size == self.n_constraints, "Epsilons must be the same length as the number of constraints"
+
+    def __call__(self, results, x, grad, dummy_run=False):
+
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+        
+        t = x[-1]
+        
+        def obj(C):
+            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+            C = m @ C @ m
+            I1 = jnp.trace(C)
+            I2 = 0.5 * (jnp.trace(C)**2 - jnp.trace(C @ C))
+            I3 = jnp.linalg.det(C)
+            return jnp.array([-I1, I3])
+
+        c = obj(jnp.asarray(Chom))
+        dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints,9))
+        
+        results[:] = c - self.eps
+
         if dummy_run:
             return
         
@@ -656,11 +721,65 @@ class EigenvectorConstraint:
                 grad[n,:-1] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
                 grad[n,-1] = 0.
 
-
         if self.verbose:
-            print(f"Eigenvector Constraint:")
-            print(f"Residuals: {c} (Target ≤{self.eps:})")
+            print(f"Invariant Constraint:")
+            print(f"Trace: {-c[0]:.3f} (Target >={-self.eps[0]:.3f})")
+            print(f"Det: {c[1]:.3f} (Target <={self.eps[1]:.3f})")
+
+            
+class GeometricConstraints:
+    
+    def __init__(self, ops, eps=1e-3, c=1/50., verbose=False):
+        self.ops = ops
+        self.eps = eps
+        self.verbose = verbose
+        self.c = c
+        self.n_constraints = 2
+
         
+    def __call__(self, results, x, grad, dummy_run=False):
+        
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+        
+        t = x[-1]
+        
+        
+    def indicator_fn(self, x, type):
+        if type not in ['width', 'space']:
+            raise ValueError("Indicator Function must be 'width' or 'space'")
+        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+        dx_tilde_dx = jax.jacrev(lambda x: jax_density_filter(x, filt.H_jax, filt.Hs_jax))(x)
+
+        x_bar = jax_projection(x_tilde, beta, eta)
+        
+        r = jnp.exp(-self.c*jnp.dot(dx_tilde_dx, dx_tilde_dx))
+
+        if type == 'width':
+            return x_bar * r
+        elif type == 'space':
+            return (1. - x_bar) * r
+        else:
+            raise ValueError("Indicator Function must be 'width' or 'space'. Also how did you make it here?")
+
+
+
+        
+        
+    
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+
+            
 
 class OffDiagonalConstraint(VectorConstraint):
 

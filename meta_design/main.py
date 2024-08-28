@@ -12,12 +12,13 @@ import time
 from mechanics import calculate_elastic_constants, anisotropy_index
 from metamaterial import Metamaterial
 from filters import DensityFilter
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, EnergyConstraint, BulkModulusConstraint
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, EnergyConstraint, BulkModulusConstraint, EigenvectorConstraint
+
 from helpers import Ellipse, print_summary, beta_function
 
 
 import numpy as np
-np.set_printoptions(precision=3)
+np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
 
 def uniform_density(dim):
@@ -107,7 +108,7 @@ def main():
     nelx = 50
     nely = nelx
     E_max = 1.
-    E_min = 1e-3
+    E_min = 1e-9
     nu = 0.3
     vol_frac = 0.1
     start_beta, n_betas = 1, 6
@@ -115,7 +116,6 @@ def main():
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     eta = 0.5
     epoch_duration = 50
-    a = 2e-3
     basis_v = 'BULK'
     density_seed_type = 'uniform'
     extremal_mode = 1
@@ -124,7 +124,7 @@ def main():
     metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
     
     # density filter setup
-    filt = DensityFilter(metamate.mesh, 0.05, distance_method='periodic')
+    filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
     
     # global optimization state
     ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
@@ -133,18 +133,20 @@ def main():
     np.random.seed(RAND_SEED)
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
     
-    f = EnergyConstraint(v=v_dict[basis_v], extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    g = BulkModulusConstraint(E_max, nu, a=a, ops=ops)
+    v = v_dict[basis_v]
+    f = EnergyConstraint(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
+    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
     
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
-    opt.add_inequality_constraint(g, 1e-6)
+    # opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
     
     opt.set_lower_bounds(np.zeros(x.size))
     opt.set_upper_bounds(np.ones(x.size))
     opt.set_maxeval(epoch_duration) # initial epoch, because we like to converge to a design first and then do our beta increases
-    opt.set_param('inner_maxeval', 1_000)
-    opt.set_param('dual_maxeval',  1_000)
+    # opt.set_param('inner_maxeval', 1_000)
+    # opt.set_param('dual_maxeval',  1_000)
+    opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
     for n, beta in enumerate(betas, 1):
@@ -152,9 +154,15 @@ def main():
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(f.evals))
         # opt.set_maxeval(epoch_duration)
+
+        if n == 1:
+            # g_vec.eps = 1e-5
+            opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
+            # opt.set_maxeval(epoch_duration)
             
-    f.update_plot(x)
     metamate.x.vector()[:] = x[:]
+    metamate.plot_density()
+    
     final_C = np.asarray(metamate.solve()[1])
     print('Final C:\n', final_C)
     final_S = np.linalg.inv(final_C)

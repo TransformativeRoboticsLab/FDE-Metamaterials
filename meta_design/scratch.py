@@ -1,23 +1,18 @@
 import numpy as np
+from jax import numpy as jnp
+import jax
+from matplotlib import pyplot as plt
 
-# np.random.seed(0)
-ws = []
-ws_normed = []
-ws_inf = []
-for _ in range(10000):
-    C = np.random.uniform(0., 100., (3,3))
-    C = (C @ C.T)/2.
+np.random.seed(0)
+A = np.random.uniform(0,1,(3,3))
+A = (A @ A.T) / 2
 
-    C_normed = C / np.linalg.norm(C, ord=2)
-    
-    C_infnormed = C / np.linalg.norm(C, ord=np.inf)
+w,v = np.linalg.eig(A)
 
-    w = np.linalg.eigvals(C)
-    w_normed = np.linalg.eigvals(C_normed)
-    ws.append(w)
-    ws_normed.append(w_normed)
-    ws_inf.append(np.linalg.eigvals(C_infnormed))
-    
-print(np.mean(np.max(ws, axis=1)))
-print(np.mean(np.max(ws_normed, axis=1)))
-print(np.mean(np.max(ws_inf, axis=1)))
+lambda_max = np.max(w)
+est_lambda_max = np.log(np.linalg.det(np.eye(3) + A))
+tr_lambda_max = np.trace(A)
+
+print(f"lambda_max: {lambda_max:.3f}")
+print(f"est_lambda_max: {est_lambda_max:.3f}")
+print(f"tr_lambda_max: {tr_lambda_max:.3f}")

@@ -41,8 +41,8 @@ class Metamaterial:
         r.set_allow_extrapolation(True)
         
         title = f"Density - Average {np.mean(self.x.vector()[:]):.3f}"
+        plt.figure()
         plot(r, cmap='gray', vmin=0, vmax=1, title=title)
-
         plt.show(block=True)
         
     def create_function_spaces(self, elem_degree=1):
