@@ -13,6 +13,9 @@ import jax
 from jax.experimental import sparse
 jax.config.update("jax_enable_x64", True)
 
+@jax.jit
+def jax_density_convolution(x, kernel):
+    return
 
 @jax.jit
 def jax_density_filter(x, H, Hs):
@@ -310,8 +313,8 @@ plot_delay: {self.plot_interval}
             S = jnp.linalg.inv(C)
             S /= norm(S, ord=2)
 
-            # if self.extremal_mode == 2:
-            #     C, S = S, C
+            if self.extremal_mode == 2:
+                C, S = S, C
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
@@ -319,7 +322,8 @@ plot_delay: {self.plot_interval}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            return jnp.array([norm(Cv1), (1-norm(Cv2)), 1-norm(Cv3),]), jnp.array([c1, c2, c3])
+            return (jnp.array([norm(Cv1), (1-norm(Cv2)), 1-norm(Cv3),]), 
+                    jnp.array([c1, c2, c3]))
 
             # NOTE: If I use (1-s1), s2, and s3 with a unimodal BULK vector input (which is the most stubborn optimization criteria I have found) the optimization stalls and doesn't converge; however, if s3 > s2 by some scalar factor, it begins converging quickly. Are these two factors at odds with eachother? Even once s3 gets doesn to ~s2 then the optimization stalls again. I discovered this by accident, but it's interesting to note. This might also explain why the other vector bases like VERT will converge quickly, because they inherently produce different values for s1, s2, and s3. It kinda seems like s2 and s3 are at odds. What does this mean?
             # A 1-sn value is a value that is closer to the maximum value of the eigenvalues of the tensor. This means that when using the compliance matrix S, the vn vector should be most compliant (e.g. less stiff)
@@ -357,8 +361,9 @@ plot_delay: {self.plot_interval}
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
             r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = np.flip(bitmapify(r_img, (1., 1.),
-                            (img_resolution, img_resolution)), axis=0)
+            x_img = np.flip(bitmapify(r_img, 
+                                      (1., 1.),                            (img_resolution, img_resolution)), 
+                            axis=0)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
                       f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
@@ -375,7 +380,7 @@ plot_delay: {self.plot_interval}
 
         r = Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.size == self.metamaterial.R.dim():
+            if field.shape[0] == self.metamaterial.R.dim():
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
             else:
@@ -696,7 +701,7 @@ class InvariantsConstraint:
         self.verbose = verbose
         # Invariant bounds:
         # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
-        self.eps = np.array([-.3, 1e-1])
+        self.eps = np.array([-.1, 1e-1])
 
         self.n_constraints = 2
 
