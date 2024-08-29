@@ -738,38 +738,113 @@ class InvariantsConstraint:
 
 class GeometricConstraints:
 
-    def __init__(self, ops, eps=1e-3, c=1/50., verbose=False):
+    def __init__(self, ops, metamaterial, line_width, line_space, c, eps=1e-3, verbose=True):
         self.ops = ops
+        self.metamaterial = metamaterial
+        self.lw = line_width
+        self.ls = line_space
+        self.filt_radius = self.ops.filt.radius
         self.eps = eps
         self.verbose = verbose
         self.c = c
         self.n_constraints = 2
 
+        self._eta_e, self._eta_d = self._calculate_etas(self.lw, self.ls, self.filt_radius)
+
+
+        # items to help calculate the gradient of rho_tilde
+        self._r_tilde = Function(self.metamaterial.R)
+        self._R_cg = FunctionSpace(self.metamaterial.mesh, 'CG', 1)
+
     def __call__(self, results, x, grad, dummy_run=False):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        x, t = x[:-1], x[-1]
 
-        t = x[-1]
+        def g(x):
+            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
+            b1 = self._indicator_fn(x, 'width')
+            c1 = jnp.mean(a1*b1)
 
-    def indicator_fn(self, x, type):
+            a2 = jnp.minimum(self._eta_d - x_tilde, 0.)**2
+            b2 = self._indicator_fn(x, 'space')
+            c2 = jnp.mean(a2*b2)
+            
+            return jnp.array([c1, c2])
+
+            
+        c = g(x)
+        dc_dx = jax.jacrev(g)(x)
+
+        results[:] = c - t*self.eps
+        
+        if grad.size > 0:
+            for n in range(self.n_constraints):
+                grad[n,:-1] = dc_dx[n,:]
+                grad[n,-1] = -self.eps
+
+        if self.verbose:
+            print(f"Geometric Constraint:")
+            print(f"Width: {c[0]:.3e} (Target ≤{t*self.eps:.1e})")
+            print(f"Space: {c[1]:.3e} (Target ≤{t*self.eps:.1e})")
+
+    def _indicator_fn(self, x, type):
         if type not in ['width', 'space']:
             raise ValueError("Indicator Function must be 'width' or 'space'")
         filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
         x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-        dx_tilde_dx = jax.jacrev(
-            lambda x: jax_density_filter(x, filt.H_jax, filt.Hs_jax))(x)
+        # dx_tilde_dx = jax.jacrev(
+            # lambda x: jax_density_filter(x, filt.H_jax, filt.Hs_jax))(x)
 
         x_bar = jax_projection(x_tilde, beta, eta)
 
-        r = jnp.exp(-self.c*jnp.dot(dx_tilde_dx, dx_tilde_dx))
+        # here we use fenics gradient to calculate grad(rho_tilde)
+        # first we convert x_tilde the vector to a fenics function in DG space
+        self._r_tilde.vector()[:] = x_tilde
+        # then we project r_tilde to a CG space so that we can get the gradient
+        # this is required because the gradient of a DG function is zero (values are constant across the cell)
+        r_tilde_cg = project(self._r_tilde, self._R_cg)
+        # now we can calculate the gradient of r_tilde
+        grad_r_tilde = project(grad(r_tilde_cg), 
+                               VectorFunctionSpace(self.metamaterial.mesh,
+                                                   'CG', 
+                                                   1)
+                               )
+        norm_sq_grad_r_tilde = assemble(project(dot(grad_r_tilde, grad_r_tilde), self._R_cg)*dx)
+
+        
+        q = jnp.exp(-self.c * norm_sq_grad_r_tilde)
+        print(f"q: {q}")
 
         if type == 'width':
-            return x_bar * r
+            return x_bar * q
         elif type == 'space':
-            return (1. - x_bar) * r
+            return (1. - x_bar) * q
         else:
             raise ValueError(
                 "Indicator Function must be 'width' or 'space'. Also how did you make it here?")
+
+    def _calculate_etas(self, lw, ls, R):
+        eta_e, eta_d = 1., 0.
+        lwR, lsR = lw/R, ls/R
+
+        if lwR < 0.:
+            raise ValueError("Line width / Radius must be greater than 0.")
+        elif 0 <= lwR < 1.:
+            eta_e = 0.25*lwR**2 + 0.5
+        elif 1. <= lwR <= 2.:
+            eta_e = -0.25*lwR**2 + lwR
+
+        if lsR < 0.:
+            raise ValueError("Line space / Radius must be greater than 0.")
+        elif 0 <= lsR < 1.:   
+            eta_d = 0.5 - 0.25*lsR**2
+        elif 1. <= lsR <= 2.:
+            eta_d = 1. + 0.25*lsR**2 - lsR
+
+            
+        return eta_e, eta_d
 
 
 class OffDiagonalConstraint(VectorConstraint):

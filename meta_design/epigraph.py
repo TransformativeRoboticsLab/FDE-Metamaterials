@@ -1,6 +1,6 @@
 # import fenics as fe
 from helpers import Ellipse, print_summary, beta_function
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, OffDiagonalConstraint, EpigraphBulkModulusConstraint, EigenvectorConstraint, InvariantsConstraint
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, OffDiagonalConstraint, EpigraphBulkModulusConstraint, EigenvectorConstraint, InvariantsConstraint, GeometricConstraints, jax_density_filter, jax_projection
 from filters import DensityFilter
 from metamaterial import Metamaterial
 from mechanics import calculate_elastic_constants, anisotropy_index
@@ -20,7 +20,7 @@ np.set_printoptions(precision=5)
 
 
 def uniform_density(dim):
-    return np.random.uniform(0., 1., dim)
+    return np.random.uniform(1e-3, 1., dim)
 
 
 def beta_density(vol_frac, dim):
@@ -106,8 +106,9 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
     if 'tri' in mesh_cell_type:
         metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
     elif 'quad' in mesh_cell_type:
-        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [
-                                                 nelx, nely], CellType.Type.quadrilateral)
+        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], 
+                                                 [nelx, nely], 
+                                                 CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
     metamaterial.create_function_spaces()
@@ -116,36 +117,61 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
 
 def main():
     # inputs
-    nelx = 50
-    nely = nelx
-    E_max = 1.
-    E_min = 1e-9
-    nu = 0.3
+    E_max, E_min, nu = 1., 1e-9, 0.3
     vol_frac = 0.1
-    start_beta, n_betas = 8, 3
+    start_beta, n_betas = 8, 2
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
-    epoch_duration = 100
+    epoch_duration = 50
     basis_v = 'BULK'
     density_seed_type = 'uniform'
     extremal_mode = 1
-    mesh_cell_type = 'tri'  # triangle, quadrilateral
+    mesh_cell_type = 'quad'  # triangle, quadrilateral
+    if 'tri' in mesh_cell_type:
+        nelx = 50
+    elif 'quad' in mesh_cell_type:
+        nelx = 100
+    else:
+        raise ValueError(f"Invalid mesh_cell_type: {mesh_cell_type}")
+    nely = nelx
+    
+    cell_side_length_mm = 25.
+    line_width_mm = 2.5
+    line_space_mm = line_width_mm
+    norm_line_width = line_width_mm / cell_side_length_mm
+    norm_line_space = line_space_mm / cell_side_length_mm
+    norm_filter_radius = norm_line_width
+    
+    print(f"Cell Side Length: {cell_side_length_mm} mm")
+    print(f"Line Width: {line_width_mm} mm")
+    print(f"Line Space: {line_space_mm} mm")
+    print(f"Normalized Line Space: {norm_line_space}")
+    print(f"Normalized Line Width: {norm_line_width}")
+    print(f"Final Filter Radius: {norm_filter_radius}")
 
-    metamate = setup_metamaterial(
-        E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
+    metamate = setup_metamaterial(E_max, 
+                                  E_min, 
+                                  nu, 
+                                  nelx, 
+                                  nely, 
+                                  mesh_cell_type=mesh_cell_type)
 
     # density filter setup
-    filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
+    filt = DensityFilter(mesh=metamate.mesh, 
+                         radius=norm_filter_radius, 
+                         distance_method='periodic')
 
     # global optimization state
-    ops = OptimizationState(beta=start_beta, eta=eta,
-                            filt=filt, epoch_iter_tracker=[1])
+    ops = OptimizationState(beta=start_beta, 
+                            eta=eta,
+                            filt=filt, 
+                            epoch_iter_tracker=[1])
 
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
-    x = np.append(x, 0.)  # append t value for epigraph form
+    x = np.append(x, 1.)  # append t value for epigraph form
 
     # setup optimization
     v = v_dict[basis_v]
@@ -154,18 +180,25 @@ def main():
         v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops, plot_interval=10)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
     g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
+    g_geo = GeometricConstraints(ops=ops, 
+                                 metamaterial=metamate,
+                                 line_width=norm_line_width, line_space=norm_line_space, 
+                                 eps=1e-3, 
+                                 c=(1./metamate.mesh.hmin())**4, 
+                                 verbose=True)
+    
     active_constraints = [g_ext, ]
-
+    
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
     for g in active_constraints:
         opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
 
-    # opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
+    opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
 
     opt.set_lower_bounds(np.append(np.zeros(x.size - 1), 1e-10))
-    opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
-    opt.set_maxeval(epoch_duration)
+    opt.set_upper_bounds(np.append(np.ones(x.size - 1), 1.))
+    opt.set_maxeval(2*epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
 
     # progressively up the projection
@@ -174,12 +207,20 @@ def main():
         update_t(x, active_constraints)
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(g_ext.evals))
-
-        g_vec.eps = np.maximum(1e-3, g_vec.eps / 2.)
+        
         opt.set_maxeval(epoch_duration)
+        
+        # if n == len(betas) - 1:
+        #     active_constraints.append(g_vec)
+        #     opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
 
-    metamate.x.vector()[:] = x[:-1]
-    final_C = np.asarray(metamate.solve()[1])
+    x = x[:-1]
+    x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+    x = jax_projection(x, ops.beta, ops.eta)
+    metamate.x.vector()[:] = x
+
+    m = np.diag(np.array([1, 1, np.sqrt(2)]))
+    final_C = m @ np.asarray(metamate.solve()[1]) @ m
     print('Final C:\n', final_C)
     w, v = np.linalg.eigh(final_C)
     print('Final Eigenvalues:\n', w)
