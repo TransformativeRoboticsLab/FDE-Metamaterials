@@ -1,4 +1,4 @@
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, EnergyConstraint
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, EnergyConstraint, GeometricConstraints
 from filters import DensityFilter
 from metamaterial import Metamaterial
 import numpy as np
@@ -88,8 +88,23 @@ def plot_gradients(grad_analytical, grad_fd):
 def handle_constraints(constraint_name, x, params, epi_constraint=False):
     constraints = {
         'Epigraph': Epigraph(),
-        'Extremal': ExtremalConstraints(v=params['v'], extremal_mode=params['extremal_mode'], metamaterial=params['metamaterial'], ops=params['ops'], verbose=params['verbose'], plot=params['plot']),
-        'Energy': EnergyConstraint(v=params['v'], extremal_mode=params['extremal_mode'], metamaterial=params['metamaterial'], ops=params['ops'], verbose=params['verbose'], plot=params['plot']),
+        'Extremal': ExtremalConstraints(v=params['v'], 
+                                        extremal_mode=params['extremal_mode'], 
+                                        metamaterial=params['metamaterial'], ops=params['ops'], 
+                                        verbose=params['verbose'], 
+                                        plot=params['plot']),
+        'Energy': EnergyConstraint(v=params['v'], 
+                                   extremal_mode=params['extremal_mode'], 
+                                   metamaterial=params['metamaterial'], ops=params['ops'], 
+                                   verbose=params['verbose'], 
+                                   plot=params['plot']),
+        'Geometric': GeometricConstraints(ops=params['ops'], 
+                                          metamaterial=params['metamaterial'],
+                                          line_width=params['line_width'], 
+                                          line_space=params['line_space'], 
+                                          c=1./params['metamaterial'].mesh.hmin(),
+                                          eps=1.,
+                                          verbose=params['verbose'])
     }
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
@@ -110,11 +125,17 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
 
 
 def main():
-    nelx = 11
+    nelx = 20
     nely = nelx
     E_max, E_min, nu = 1., 1e-9, 0.3
     beta, eta = 8., 0.5
-    filter_rad = 0.1
+    cell_side_length_mm = 25.
+    line_width_mm = 2.5
+    line_space_mm = line_width_mm
+    norm_line_width = line_width_mm / cell_side_length_mm
+    norm_line_space = line_space_mm / cell_side_length_mm
+    norm_filter_radius = norm_line_width
+
     meshes = {
         'tri': fe.UnitSquareMesh(nelx, nely, 'crossed'),
         'quad': fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [
@@ -131,18 +152,21 @@ def main():
         'extremal_mode': 1,
         'verbose': False,
         'plot': False,
-        'obj': None  # Set to a constraint function if required
+        'obj': None,  
+        'line_width': norm_line_width,
+        'line_space': norm_line_space,
     }
 
     params['metamaterial'].create_function_spaces()
-    params['ops'].filt = DensityFilter(
-        params['metamaterial'].mesh, filter_rad, distance_method='periodic')
+    params['ops'].filt = DensityFilter(params['metamaterial'].mesh,
+                                       norm_filter_radius, distance_method='periodic')
     # Initial design variables
     x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
 
-    handle_constraints('Epigraph', x, params, epi_constraint=True)
+    # handle_constraints('Epigraph', x, params, epi_constraint=True)
     handle_constraints('Extremal', x, params, epi_constraint=True)
-    handle_constraints('Energy', x, params)
+    # handle_constraints('Energy', x, params)
+    # handle_constraints('Geometric', x, params, epi_constraint=True)
 
 
 if __name__ == "__main__":
