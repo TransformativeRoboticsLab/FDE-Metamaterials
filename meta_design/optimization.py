@@ -701,9 +701,9 @@ class InvariantsConstraint:
         self.verbose = verbose
         # Invariant bounds:
         # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
-        self.eps = np.array([-.1, 1e-1])
+        self.eps = np.array([-.5, -0., 1e-1])
 
-        self.n_constraints = 2
+        self.n_constraints = 3
 
         assert self.eps.size == self.n_constraints, "Epsilons must be the same length as the number of constraints"
 
@@ -719,7 +719,7 @@ class InvariantsConstraint:
             I1 = jnp.trace(C)
             I2 = 0.5 * (jnp.trace(C)**2 - jnp.trace(C @ C))
             I3 = jnp.linalg.det(C)
-            return jnp.array([-I1, I3])
+            return jnp.array([-I1, -I2, I3])
 
         c = obj(jnp.asarray(Chom))
         dc_dChom = jax.jacrev(obj)(jnp.asarray(
@@ -738,7 +738,8 @@ class InvariantsConstraint:
         if self.verbose:
             print(f"Invariant Constraint:")
             print(f"Trace: {-c[0]:.3f} (Target >={-self.eps[0]:.3f})")
-            print(f"Det: {c[1]:.3f} (Target <={self.eps[1]:.3f})")
+            print(f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
+            print(f"Det: {c[2]:.2e} (Target <={self.eps[2]:.3f})")
 
 
 class GeometricConstraints:
