@@ -81,11 +81,7 @@ class DensityFilter:
             with open('calculated_filters.pkl', 'rb') as f:
                 self.calculated_filters = pickle.load(f)
                 
-        # Calculate midpoints and hash them to use as a key
-        midpoints = [cell.midpoint().array()[:] for cell in cells(self.mesh)]
-        midpoints_str = ''.join(str(midpoint) for midpoint in midpoints)
-        midpoints_hash = hashlib.sha256(midpoints_str.encode()).hexdigest()
-        self.key = (midpoints_hash, radius, distance_method)
+        self.key = (self.mesh.hash(), radius, distance_method)
         
         if self.key in self.calculated_filters:
             print("Loading filter from cache")
