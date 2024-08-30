@@ -20,7 +20,7 @@ np.set_printoptions(precision=5)
 
 
 def uniform_density(dim):
-    return np.random.uniform(1e-3, 1., dim)
+    return np.random.uniform(0., 1., dim)
 
 
 def beta_density(vol_frac, dim):
@@ -128,7 +128,7 @@ def main():
     basis_v = 'BULK'
     density_seed_type = 'uniform'
     extremal_mode = 1
-    mesh_cell_type = 'quad'  # triangle, quadrilateral
+    mesh_cell_type = 'tri'  # triangle, quadrilateral
     if 'tri' in mesh_cell_type:
         nelx = 50
     elif 'quad' in mesh_cell_type:
@@ -197,7 +197,7 @@ def main():
     opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
 
     opt.set_lower_bounds(np.append(np.zeros(x.size - 1), 1e-10))
-    opt.set_upper_bounds(np.append(np.ones(x.size - 1), 1.))
+    opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
     opt.set_maxeval(2*epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
 
