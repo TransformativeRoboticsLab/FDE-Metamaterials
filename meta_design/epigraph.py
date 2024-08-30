@@ -125,14 +125,15 @@ def main():
     print(f"Betas: {betas}")
     eta = 0.5
     epoch_duration = 50
-    basis_v = 'BULK'
+    basis_v = 'VERT'
     density_seed_type = 'uniform'
     extremal_mode = 1
-    mesh_cell_type = 'tri'  # triangle, quadrilateral
+    mesh_cell_type = 'quad'  # triangle, quadrilateral
     if 'tri' in mesh_cell_type:
         nelx = 50
     elif 'quad' in mesh_cell_type:
         nelx = 100
+        # nelx = 50
     else:
         raise ValueError(f"Invalid mesh_cell_type: {mesh_cell_type}")
     nely = nelx
@@ -208,8 +209,12 @@ def main():
         x = np.copy(opt.optimize(x))
         ops.epoch_iter_tracker.append(len(g_ext.evals))
         
-        opt.set_maxeval(epoch_duration)
+        opt.remove_inequality_constraints()
+        active_constraints.append(g_geo)
+        for g in active_constraints:
+            opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
         
+        opt.set_maxeval(epoch_duration)
         # if n == len(betas) - 1:
         #     active_constraints.append(g_vec)
         #     opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
