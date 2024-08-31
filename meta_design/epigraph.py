@@ -47,7 +47,6 @@ def init_density(density_seed_type, vol_frac, dim):
 RAND_SEED = 1
 print(f"Random Seed: {RAND_SEED}")
 np.random.seed(RAND_SEED)
-nlopt.srand(RAND_SEED)
 
 ISQR2 = 1. / np.sqrt(2.)
 v_dict = {
@@ -102,7 +101,7 @@ def update_t(x, gs):
 
 
 def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
-    metamaterial = Metamaterial(E_max, E_min, nu)
+    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely)
     if 'tri' in mesh_cell_type:
         metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
     elif 'quad' in mesh_cell_type:
@@ -116,8 +115,9 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
 
 
 def main():
+    # ===== Preamble =====
     # inputs
-    E_max, E_min, nu = 1., 1e-9, 0.3
+    E_max, E_min, nu = 1., 1e-3, 0.3
     vol_frac = 0.1
     start_beta, n_betas = 8, 2
     betas = [start_beta * 2 ** i for i in range(n_betas)]
@@ -125,7 +125,7 @@ def main():
     print(f"Betas: {betas}")
     eta = 0.5
     epoch_duration = 50
-    basis_v = 'VERT'
+    basis_v = 'BULK'
     density_seed_type = 'uniform'
     extremal_mode = 1
     mesh_cell_type = 'quad'  # triangle, quadrilateral
@@ -151,7 +151,9 @@ def main():
     print(f"Normalized Line Space: {norm_line_space}")
     print(f"Normalized Line Width: {norm_line_width}")
     print(f"Final Filter Radius: {norm_filter_radius}")
+    # ===== End Preamble =====
 
+    # ===== Component Setup =====
     metamate = setup_metamaterial(E_max, 
                                   E_min, 
                                   nu, 
@@ -172,53 +174,68 @@ def main():
 
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
-    x = np.append(x, 1.)  # append t value for epigraph form
+    x = np.append(x, 1.)
+    # ===== End Component Setup =====
 
-    # setup optimization
+    # ===== Objective and Constraints Setup =====
     v = v_dict[basis_v]
     f = Epigraph()
-    g_ext = ExtremalConstraints(
-        v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops, plot_interval=10)
+    g_ext = ExtremalConstraints(v=v, 
+                                extremal_mode=extremal_mode, 
+                                metamaterial=metamate, 
+                                ops=ops, 
+                                plot_interval=10)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
-    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
-    g_geo = GeometricConstraints(ops=ops, 
-                                 metamaterial=metamate,
-                                 line_width=norm_line_width, line_space=norm_line_space, 
-                                 eps=1e-3, 
-                                 c=(1./metamate.mesh.hmin())**4, 
-                                 verbose=True)
+    # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
+    if 'quad' in mesh_cell_type:
+        print("Including geometric constraints")
+        g_geo = GeometricConstraints(ops=ops, 
+                                    metamaterial=metamate,
+                                    line_width=norm_line_width, line_space=norm_line_space, 
+                                    eps=1e-3, 
+                                    c=(1./metamate.resolution[0])**4, 
+                                    verbose=True)
+    else:
+        print("Geometric constraints not implemented for triangle mesh")
     
     active_constraints = [g_ext, ]
-    
+    # ===== End Objective and Constraints Setup =====
+
+    # ===== Optimizer setup ======
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
+    
     opt.set_min_objective(f)
     for g in active_constraints:
-        opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+        opt.add_inequality_mconstraint(g, 1e-3*np.ones(g.n_constraints))
+    opt.add_inequality_mconstraint(g_inv, 1e-3*np.ones(g_inv.n_constraints))
 
-    opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
-
-    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), 1e-10))
+    opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
-    opt.set_maxeval(2*epoch_duration)
+    opt.set_maxeval(epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
+    # ===== End Optimizer setup ======
 
-    # progressively up the projection
+    # ===== Optimization Loop =====
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         update_t(x, active_constraints)
-        x = np.copy(opt.optimize(x))
+        x[:] = opt.optimize(x)
+        print(f"\n===== Epoch Summary: {n} =====")
+        print(f"Final Objective: {opt.last_optimum_value():.3f}")
+        print(f"Result Code: {opt.last_optimize_result()}")
+        print(f"===== End Epoch Summary: {n} =====\n")
         ops.epoch_iter_tracker.append(len(g_ext.evals))
         
-        opt.remove_inequality_constraints()
-        active_constraints.append(g_geo)
-        for g in active_constraints:
-            opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+        if 'quad' in mesh_cell_type:
+            opt.remove_inequality_constraints()
+            active_constraints.append(g_geo)
+            for g in active_constraints:
+                opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
         
         opt.set_maxeval(epoch_duration)
-        # if n == len(betas) - 1:
-        #     active_constraints.append(g_vec)
-        #     opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
+    # ===== End Optimization Loop =====
 
+    # ===== Post-Processing =====
     x = x[:-1]
     x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
     x = jax_projection(x, ops.beta, ops.eta)

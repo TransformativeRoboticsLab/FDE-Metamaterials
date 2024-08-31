@@ -1,4 +1,4 @@
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, EnergyConstraint, GeometricConstraints
+from optimization import OptimizationState, Epigraph, ExtremalConstraints, EnergyConstraint, GeometricConstraints, InvariantsConstraint
 from filters import DensityFilter
 from metamaterial import Metamaterial
 import numpy as np
@@ -104,7 +104,9 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                           line_space=params['line_space'], 
                                           c=1./params['metamaterial'].mesh.hmin(),
                                           eps=1.,
-                                          verbose=params['verbose'])
+                                          verbose=params['verbose']),
+        'Invariants': InvariantsConstraint(ops=params['ops'], 
+                                           verbose=params['verbose'])
     }
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
@@ -125,7 +127,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
 
 
 def main():
-    nelx = 20
+    nelx = 11
     nely = nelx
     E_max, E_min, nu = 1., 1e-9, 0.3
     beta, eta = 8., 0.5
@@ -161,12 +163,20 @@ def main():
     params['ops'].filt = DensityFilter(params['metamaterial'].mesh,
                                        norm_filter_radius, distance_method='periodic')
     # Initial design variables
-    x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
+    # x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
+    x = np.ones((nely, nelx))
+    x[0:3,0:3] = 0.
+    x[3:5,3:5] = 0.25
+    x[5:7,5:7] = 0.5
+    x[7:11,7:11] = 0.75
+    x[-1,-1] = 1.
+    x = x.flatten()
 
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
-    handle_constraints('Extremal', x, params, epi_constraint=True)
+    # handle_constraints('Extremal', x, params, epi_constraint=True)
     # handle_constraints('Energy', x, params)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
+    handle_constraints('Invariants', x, params)
 
 
 if __name__ == "__main__":
