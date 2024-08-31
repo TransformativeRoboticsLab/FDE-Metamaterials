@@ -8,7 +8,7 @@ set_log_level(40)
 
 
 class Metamaterial:
-    def __init__(self, E_max, E_min, nu, x=None, nelx=None, nely=None, mesh=None):
+    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None):
         self.prop = Properties(E_max, E_min, nu)
         self.nelx = nelx
         self.nely = nely
@@ -45,19 +45,25 @@ class Metamaterial:
         plt.show(block=True)
 
     def create_function_spaces(self, elem_degree=1):
+        assert elem_degree >= 1, "Element degree must be at least 1"
         # if not isinstance(self.mesh, Mesh):
         # raise ValueError("self.mesh is not a valid mesh")
+        PBC = PeriodicDomain(self.mesh)
         Ve = VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
         Re = VectorElement('R', self.mesh.ufl_cell(), 0)
         W = FunctionSpace(self.mesh, MixedElement(
-            [Ve, Re]), constrained_domain=PeriodicDomain(self.mesh))
+            [Ve, Re]), constrained_domain=PBC)
 
-        R = FunctionSpace(self.mesh, 'DG', 0)
+        # function spaces for rho (R), a continuous version of rho (R_cg), and the gradient of rho (R_grad).
+        # R is discontinuous, so we need a continuous space to project to so we can calculate the gradient
+        R = FunctionSpace(self.mesh, 'DG', 0, constrained_domain=PBC)
+        R_cg = FunctionSpace(self.mesh, 'CG', 2, constrained_domain=PBC)
+        R_grad = VectorFunctionSpace(self.mesh, 'CG', 2, constrained_domain=PBC)
 
         self.x = Function(R)
-        self.W, self.R = W, R
-
-        return W, R
+        self.PBC = PBC
+        self.W = W
+        self.R, self.R_cg, self.R_grad = R, R_cg, R_grad
 
     def _project_uChom_to_matrix(self, uChom):
         projected_values = []
@@ -126,6 +132,12 @@ class Metamaterial:
     @property
     def cell_vol(self):
         return next(cells(self.mesh)).volume()
+
+    @property
+    def resolution(self):
+        x_min, y_min = self.mesh.coordinates().min(axis=0)
+        x_max, y_max = self.mesh.coordinates().max(axis=0)
+        return (x_max - x_min) / self.nelx, (y_max - y_min) / self.nely
 
 
 @dataclass
