@@ -65,6 +65,7 @@ class DensityFilter:
     def __init__(self, mesh: Mesh, radius: float, distance_method: str = 'periodic'):
         self.mesh = mesh
         self.radius = radius
+        self.distance_method = distance_method
 
         distance_methods = {
             'periodic': self._calculate_periodic_distances,
