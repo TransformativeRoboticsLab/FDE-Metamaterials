@@ -187,18 +187,18 @@ def main():
                                 plot_interval=10)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
     # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
-    if 'quad' in mesh_cell_type:
-        print("Including geometric constraints")
-        g_geo = GeometricConstraints(ops=ops, 
-                                    metamaterial=metamate,
-                                    line_width=norm_line_width, line_space=norm_line_space, 
-                                    eps=1e-3, 
-                                    c=(1./metamate.resolution[0])**4, 
-                                    verbose=True)
-    else:
-        print("Geometric constraints not implemented for triangle mesh")
+    # if 'quad' in mesh_cell_type:
+        # print("Including geometric constraints")
+    g_geo = GeometricConstraints(ops=ops, 
+                                metamaterial=metamate,
+                                line_width=norm_line_width, line_space=norm_line_space, 
+                                eps=1e-3, 
+                                c=(1./metamate.resolution[0])**4, 
+                                verbose=True)
+    # else:
+        # print("Geometric constraints not implemented for triangle mesh")
     
-    active_constraints = [g_ext, ]
+    active_constraints = [g_ext, g_geo]
     # ===== End Objective and Constraints Setup =====
 
     # ===== Optimizer setup ======

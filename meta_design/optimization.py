@@ -748,8 +748,8 @@ class GeometricConstraints:
     def __init__(self, ops, metamaterial, line_width, line_space, c, eps=1e-3, verbose=True):
         self.ops = ops
         self.metamaterial = metamaterial
-        if 'quad' not in metamaterial.mesh.ufl_cell().cellname():
-            raise ValueError("Geometric Constraints only work with quadrilateral elements")
+        # if 'quad' not in metamaterial.mesh.ufl_cell().cellname():
+            # raise ValueError("Geometric Constraints only work with quadrilateral elements")
         self.lw = line_width
         self.ls = line_space
         self.filt_radius = self.ops.filt.radius
@@ -803,50 +803,60 @@ class GeometricConstraints:
 
         x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
         x_bar = jax_projection(x_tilde, beta, eta)
+
+        r = Function(self.metamaterial.R)
+        r.vector()[:] = x
+        # here we use fenics gradient to calculate grad(rho_tilde)
+        # first we convert x_tilde the vector to a fenics function in DG space
+        self._r_tilde.vector()[:] = x_tilde
+        # then we project r_tilde to a CG space so that we can get the gradient
+        # this is required because the gradient of a DG function is zero (values are constant across the cell)
+        r_tilde_cg = project(self._r_tilde, self.metamaterial.R_cg)
+        # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
+        grad_r_tilde = grad(r_tilde_cg)
+        grad_r_tilde_norm_sq = inner(grad_r_tilde, grad_r_tilde)
+        dr_grad_r_tilde_norm_sq = derivative(grad_r_tilde_norm_sq*dx, r_tilde_cg)
         
-        x_tilde_img = x_tilde.reshape((nely, nelx))
-        grad_x_tilde = self._fd_grad(x_tilde_img)
-        grad_x_tilde_norm_sq = (grad_x_tilde[1]**2 + grad_x_tilde[0]**2)
-
-        q = jnp.exp(-self.c * grad_x_tilde_norm_sq)
-
-        # # here we use fenics gradient to calculate grad(rho_tilde)
-        # # first we convert x_tilde the vector to a fenics function in DG space
-        # self._r_tilde.vector()[:] = x_tilde
-        # # then we project r_tilde to a CG space so that we can get the gradient
-        # # this is required because the gradient of a DG function is zero (values are constant across the cell)
-        # r_tilde_cg = project(self._r_tilde, self.metamaterial.R_cg)
-        # # now we can calculate the gradient of r_tilde
-        # grad_r_tilde = project(grad(r_tilde_cg), self.metamaterial.R_grad)
-        # grad_r_tilde_norm_sq = project(dot(grad_r_tilde, grad_r_tilde), 
-        #                                self.metamaterial.R)
-
-        # fig, (ax0, ax1, ax2) = plt.subplots(1,3)
-        # plt.sca(ax0)
-        # plt.imshow(grad_x_tilde_norm_sq)
+        grad_r_tilde_norm_sq = project(inner(grad_r_tilde, grad_r_tilde), 
+                                       self.metamaterial.R)
+        
+        r_tilde_img = x_tilde.reshape((nely, nelx))
+        grad_rho_img = self._fd_grad(r_tilde_img, h = 1  / nelx)
+        fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2)
+        
+        
+        
+        fig, (ax0, ax1, ax2) = plt.subplots(1,3)
+        plt.sca(ax0)
+        plt.imshow(grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx)), cmap='gray')   
+        plt.colorbar()
+        plt.title("grad_r_tilde_norm_sq")
+        
+        plt.sca(ax1)
+        plt.imshow(fd_grad_r_tilde_norm_sq, cmap='gray')
+        plt.colorbar()
+        plt.title("fd_grad_r_tilde_norm_sq")
+        
+        
+        
+        
+        
+        plt.sca(ax2)
+        # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
+        diff = fd_grad_r_tilde_norm_sq.flatten() - grad_r_tilde_norm_sq.vector()[:]
+        err = Function(self.metamaterial.R)
+        err.vector()[:] = diff
+        plt.plot(diff)
+        # plt.yscale('log')
         # plt.colorbar()
-        # plt.title("grad_x_tilde_norm_sq")
-        # plt.sca(ax1)
-        # # plot(grad_r_tilde_norm_sq)
-        # plt.imshow(grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx)))
-        # plt.colorbar()
-        # plt.title("norm_sq_grad_r_tilde")
-        # plt.sca(ax2)
-        # # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
-        # diff = grad_x_tilde_norm_sq.flatten() - grad_r_tilde_norm_sq.vector()[:]
-        # err = Function(self.metamaterial.R)
-        # err.vector()[:] = diff
-        # plt.plot(diff)
-        # # plt.yscale('log')
-        # # plt.colorbar()
-        # plt.title("diff")
-        # plt.show()
-        # print(f"Max diff: {np.max(diff)}")
-        # print(f"Min diff: {np.min(diff)}")
-        # print(f"Mean diff: {np.mean(diff)}")
-        # print(f"Std diff: {np.std(diff)}")
-        # print(f"Norm diff: {np.linalg.norm(diff, ord=2)}")
-        # print(f"Fenics norm diff: {norm(err, 'L2')}")
+        plt.title("diff")
+        plt.show()
+        print(f"Max diff: {np.max(diff)}")
+        print(f"Min diff: {np.min(diff)}")
+        print(f"Mean diff: {np.mean(diff)}")
+        print(f"Std diff: {np.std(diff)}")
+        print(f"Norm diff: {np.linalg.norm(diff)/nelx}")
+        print(f"Fenics norm diff: {norm(err, 'L2')}")
         
         
         if type == 'width':
@@ -877,32 +887,32 @@ class GeometricConstraints:
             
         return eta_e, eta_d
 
-    def _fd_grad(self, img):
-        h = self.metamaterial.resolution[0]
+    def _fd_grad(self, img, h = None):
+        h = self.metamaterial.resolutin[0] if h is None else h
         if self.ops.filt.distance_method == 'periodic':
             # use jnp.roll instead of jnp.gradient b/c periodic boundary conditions
-            right_neighbors  = jnp.roll(img, -1, axis=1)
-            left_neighbors   = jnp.roll(img, 1, axis=1)
-            top_neighbors    = jnp.roll(img, -1, axis=0)
-            bottom_neighbors = jnp.roll(img, 1, axis=0)
+            # right_neighbors  = jnp.roll(img, -1, axis=1)
+            # left_neighbors   = jnp.roll(img, 1, axis=1)
+            # top_neighbors    = jnp.roll(img, -1, axis=0)
+            # bottom_neighbors = jnp.roll(img, 1, axis=0)
             
-            grad_x = (right_neighbors - left_neighbors) / 2. / h
-            grad_y = (top_neighbors - bottom_neighbors) / 2. / h
+            # grad_x = (right_neighbors - left_neighbors) / 2. / h
+            # grad_y = (top_neighbors - bottom_neighbors) / 2. / h
 
             # Compute neighbors using periodic boundary conditions with jnp.roll
-            # right1 = jnp.roll(img, -1, axis=1)
-            # left1  = jnp.roll(img, 1, axis=1)
-            # right2 = jnp.roll(img, -2, axis=1)
-            # left2  = jnp.roll(img, 2, axis=1)
+            right1 = jnp.roll(img, -1, axis=1)
+            left1  = jnp.roll(img, 1, axis=1)
+            right2 = jnp.roll(img, -2, axis=1)
+            left2  = jnp.roll(img, 2, axis=1)
 
-            # top1    = jnp.roll(img, -1, axis=0)
-            # bottom1 = jnp.roll(img, 1, axis=0)
-            # top2    = jnp.roll(img, -2, axis=0)
-            # bottom2 = jnp.roll(img, 2, axis=0)
+            top1    = jnp.roll(img, -1, axis=0)
+            bottom1 = jnp.roll(img, 1, axis=0)
+            top2    = jnp.roll(img, -2, axis=0)
+            bottom2 = jnp.roll(img, 2, axis=0)
             
-            # # Compute fourth-order central differences
-            # grad_x = (-right2 + 8*right1 - 8*left1 + left2) / (12 * h)
-            # grad_y = (-top2 + 8*top1 - 8*bottom1 + bottom2) / (12 * h)
+            # Compute fourth-order central differences
+            grad_x = (-right2 + 8*right1 - 8*left1 + left2) / (12 * h)
+            grad_y = (-top2 + 8*top1 - 8*bottom1 + bottom2) / (12 * h)
 
         else: # assume non-periodicity
             grad_y, grad_x = jnp.gradient(img, h)

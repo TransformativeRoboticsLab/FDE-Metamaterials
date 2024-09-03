@@ -57,13 +57,15 @@ class Metamaterial:
         # function spaces for rho (R), a continuous version of rho (R_cg), and the gradient of rho (R_grad).
         # R is discontinuous, so we need a continuous space to project to so we can calculate the gradient
         R = FunctionSpace(self.mesh, 'DG', 0, constrained_domain=PBC)
-        R_cg = FunctionSpace(self.mesh, 'CG', 2, constrained_domain=PBC)
-        R_grad = VectorFunctionSpace(self.mesh, 'CG', 2, constrained_domain=PBC)
+        R_cg = FunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
+        R_grad = VectorFunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
+        R_tri = FunctionSpace(UnitSquareMesh(self.nelx, self.nely, 'crossed'), 'DG', 0)
 
         self.x = Function(R)
         self.PBC = PBC
         self.W = W
         self.R, self.R_cg, self.R_grad = R, R_cg, R_grad
+        self.R_tri = R_tri
 
     def _project_uChom_to_matrix(self, uChom):
         projected_values = []
