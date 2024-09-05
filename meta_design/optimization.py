@@ -13,9 +13,11 @@ import jax
 from jax.experimental import sparse
 jax.config.update("jax_enable_x64", True)
 
+
 @jax.jit
 def jax_density_convolution(x, kernel):
     return
+
 
 @jax.jit
 def jax_density_filter(x, H, Hs):
@@ -323,7 +325,7 @@ plot_delay: {self.plot_interval}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), 1-norm(Cv3),])), 
+            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), 1-norm(Cv3),])),
                     jnp.array([c1, c2, c3]))
 
             # NOTE: If I use (1-s1), s2, and s3 with a unimodal BULK vector input (which is the most stubborn optimization criteria I have found) the optimization stalls and doesn't converge; however, if s3 > s2 by some scalar factor, it begins converging quickly. Are these two factors at odds with eachother? Even once s3 gets doesn to ~s2 then the optimization stalls again. I discovered this by accident, but it's interesting to note. This might also explain why the other vector bases like VERT will converge quickly, because they inherently produce different values for s1, s2, and s3. It kinda seems like s2 and s3 are at odds. What does this mean?
@@ -362,8 +364,8 @@ plot_delay: {self.plot_interval}
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
             r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = np.flip(bitmapify(r_img, 
-                                      (1., 1.),                            (img_resolution, img_resolution)), 
+            x_img = np.flip(bitmapify(r_img,
+                                      (1., 1.),                            (img_resolution, img_resolution)),
                             axis=0)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
@@ -739,7 +741,8 @@ class InvariantsConstraint:
         if self.verbose:
             print(f"Invariant Constraint:")
             print(f"Trace: {-c[0]:.3f} (Target >={-self.eps[0]:.3f})")
-            print(f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
+            print(
+                f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
             print(f"Det: {c[2]:.2e} (Target <={self.eps[2]:.3f})")
 
 
@@ -749,7 +752,7 @@ class GeometricConstraints:
         self.ops = ops
         self.metamaterial = metamaterial
         # if 'quad' not in metamaterial.mesh.ufl_cell().cellname():
-            # raise ValueError("Geometric Constraints only work with quadrilateral elements")
+        # raise ValueError("Geometric Constraints only work with quadrilateral elements")
         self.lw = line_width
         self.ls = line_space
         self.filt_radius = self.ops.filt.radius
@@ -758,7 +761,8 @@ class GeometricConstraints:
         self.c = c
         self.n_constraints = 2
 
-        self._eta_e, self._eta_d = self._calculate_etas(self.lw, self.ls, self.filt_radius)
+        self._eta_e, self._eta_d = self._calculate_etas(
+            self.lw, self.ls, self.filt_radius)
 
         # items to help calculate the gradient of rho_tilde
         self._r_tilde = Function(self.metamaterial.R)
@@ -772,23 +776,33 @@ class GeometricConstraints:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
             a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
             b1 = self._indicator_fn(x, 'width')
+            f, a = plt.subplots(1, 3)
+            plt.sca(a[0])
+            plt.imshow(a1.reshape((100, 100)))
+            plt.colorbar()
+            plt.sca(a[1])
+            plt.imshow(b1.reshape((100, 100)))
+            plt.colorbar()
+            plt.sca(a[2])
+            plt.imshow((a1*b1).reshape((100, 100)))
+            plt.colorbar()
             c1 = jnp.mean(a1*b1)
 
             a2 = jnp.minimum(self._eta_d - x_tilde, 0.)**2
             b2 = self._indicator_fn(x, 'space')
             c2 = jnp.mean(a2*b2)
-            
+
             return jnp.log(jnp.array([c1, c2]))
 
         c = g(x)
         dc_dx = jax.jacrev(g)(x)
 
         results[:] = c - t*self.eps
-        
+
         if grad.size > 0:
             for n in range(self.n_constraints):
-                grad[n,:-1] = dc_dx[n,:]
-                grad[n,-1] = -self.eps
+                grad[n, :-1] = dc_dx[n, :]
+                grad[n, -1] = -self.eps
 
         if self.verbose:
             print(f"Geometric Constraint:")
@@ -814,51 +828,53 @@ class GeometricConstraints:
         r_tilde_cg = project(self._r_tilde, self.metamaterial.R_cg)
         # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
         grad_r_tilde = grad(r_tilde_cg)
-        grad_r_tilde_norm_sq = inner(grad_r_tilde, grad_r_tilde)
-        dr_grad_r_tilde_norm_sq = derivative(grad_r_tilde_norm_sq*dx, r_tilde_cg)
-        
-        grad_r_tilde_norm_sq = project(inner(grad_r_tilde, grad_r_tilde), 
-                                       self.metamaterial.R)
-        
+        grad_r_tilde_norm_sq = project(
+            inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
+
         r_tilde_img = x_tilde.reshape((nely, nelx))
-        grad_rho_img = self._fd_grad(r_tilde_img, h = 1  / nelx)
+        grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
         fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2)
-        
-        
-        
-        fig, (ax0, ax1, ax2) = plt.subplots(1,3)
-        plt.sca(ax0)
-        plt.imshow(grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx)), cmap='gray')   
-        plt.colorbar()
-        plt.title("grad_r_tilde_norm_sq")
-        
-        plt.sca(ax1)
-        plt.imshow(fd_grad_r_tilde_norm_sq, cmap='gray')
-        plt.colorbar()
-        plt.title("fd_grad_r_tilde_norm_sq")
-        
-        
-        
-        
-        
-        plt.sca(ax2)
-        # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
-        diff = fd_grad_r_tilde_norm_sq.flatten() - grad_r_tilde_norm_sq.vector()[:]
-        err = Function(self.metamaterial.R)
-        err.vector()[:] = diff
-        plt.plot(diff)
-        # plt.yscale('log')
+
+        # fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
+        # plt.sca(ax0)
+        # plt.imshow(grad_r_tilde_norm_sq.vector()[
+        #            :].reshape((nely, nelx)), cmap='gray')
         # plt.colorbar()
-        plt.title("diff")
+        # plt.title("grad_r_tilde_norm_sq")
+
+        # plt.sca(ax1)
+        # plt.imshow(fd_grad_r_tilde_norm_sq, cmap='gray')
+        # plt.colorbar()
+        # plt.title("fd_grad_r_tilde_norm_sq")
+
+        # plt.sca(ax2)
+        # # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
+        # diff = fd_grad_r_tilde_norm_sq.flatten(
+        # ) - grad_r_tilde_norm_sq.vector()[:]
+        # err = Function(self.metamaterial.R)
+        # err.vector()[:] = diff
+        # plt.plot(diff)
+        # # plt.yscale('log')
+        # # plt.colorbar()
+        # plt.title("diff")
+        # plt.show()
+        # print(f"Max diff: {np.max(diff)}")
+        # print(f"Min diff: {np.min(diff)}")
+        # print(f"Mean diff: {np.mean(diff)}")
+        # print(f"Std diff: {np.std(diff)}")
+        # print(f"Norm diff: {np.linalg.norm(diff)/nelx}")
+        # print(f"Fenics norm diff: {norm(err, 'L2')}")
+
+        q = jnp.exp(-self.c * (grad_r_tilde_norm_sq))
+        q = jnp.exp(-2000 * (grad_r_tilde_norm_sq))
+
+        fig, (ax0, ax1) = plt.subplots(1, 2)
+        ax0.imshow(q, vmin=0, vmax=1)
+        # plt.colorbar(ax=ax0)
+        ax1.imshow(grad_r_tilde_norm_sq)
+        # plt.colorbar(ax=ax1)
         plt.show()
-        print(f"Max diff: {np.max(diff)}")
-        print(f"Min diff: {np.min(diff)}")
-        print(f"Mean diff: {np.mean(diff)}")
-        print(f"Std diff: {np.std(diff)}")
-        print(f"Norm diff: {np.linalg.norm(diff)/nelx}")
-        print(f"Fenics norm diff: {norm(err, 'L2')}")
-        
-        
+
         if type == 'width':
             return x_bar * q.flatten()
         elif type == 'space':
@@ -879,15 +895,14 @@ class GeometricConstraints:
 
         if lsR < 0.:
             raise ValueError("Line space / Radius must be greater than 0.")
-        elif 0 <= lsR < 1.:   
+        elif 0 <= lsR < 1.:
             eta_d = 0.5 - 0.25*lsR**2
         elif 1. <= lsR <= 2.:
             eta_d = 1. + 0.25*lsR**2 - lsR
 
-            
         return eta_e, eta_d
 
-    def _fd_grad(self, img, h = None):
+    def _fd_grad(self, img, h=None):
         h = self.metamaterial.resolutin[0] if h is None else h
         if self.ops.filt.distance_method == 'periodic':
             # use jnp.roll instead of jnp.gradient b/c periodic boundary conditions
@@ -895,30 +910,31 @@ class GeometricConstraints:
             # left_neighbors   = jnp.roll(img, 1, axis=1)
             # top_neighbors    = jnp.roll(img, -1, axis=0)
             # bottom_neighbors = jnp.roll(img, 1, axis=0)
-            
+
             # grad_x = (right_neighbors - left_neighbors) / 2. / h
             # grad_y = (top_neighbors - bottom_neighbors) / 2. / h
 
             # Compute neighbors using periodic boundary conditions with jnp.roll
             right1 = jnp.roll(img, -1, axis=1)
-            left1  = jnp.roll(img, 1, axis=1)
+            left1 = jnp.roll(img, 1, axis=1)
             right2 = jnp.roll(img, -2, axis=1)
-            left2  = jnp.roll(img, 2, axis=1)
+            left2 = jnp.roll(img, 2, axis=1)
 
-            top1    = jnp.roll(img, -1, axis=0)
+            top1 = jnp.roll(img, -1, axis=0)
             bottom1 = jnp.roll(img, 1, axis=0)
-            top2    = jnp.roll(img, -2, axis=0)
+            top2 = jnp.roll(img, -2, axis=0)
             bottom2 = jnp.roll(img, 2, axis=0)
-            
+
             # Compute fourth-order central differences
             grad_x = (-right2 + 8*right1 - 8*left1 + left2) / (12 * h)
             grad_y = (-top2 + 8*top1 - 8*bottom1 + bottom2) / (12 * h)
 
-        else: # assume non-periodicity
+        else:  # assume non-periodicity
             grad_y, grad_x = jnp.gradient(img, h)
-            
+
         # match return format of jnp.gradient
         return grad_y, grad_x
+
 
 class OffDiagonalConstraint(VectorConstraint):
 

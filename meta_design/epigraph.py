@@ -105,8 +105,8 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
     if 'tri' in mesh_cell_type:
         metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
     elif 'quad' in mesh_cell_type:
-        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], 
-                                                 [nelx, nely], 
+        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)],
+                                                 [nelx, nely],
                                                  CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
@@ -137,14 +137,14 @@ def main():
     else:
         raise ValueError(f"Invalid mesh_cell_type: {mesh_cell_type}")
     nely = nelx
-    
+
     cell_side_length_mm = 25.
     line_width_mm = 2.5
     line_space_mm = line_width_mm
     norm_line_width = line_width_mm / cell_side_length_mm
     norm_line_space = line_space_mm / cell_side_length_mm
     norm_filter_radius = norm_line_width
-    
+
     print(f"Cell Side Length: {cell_side_length_mm} mm")
     print(f"Line Width: {line_width_mm} mm")
     print(f"Line Space: {line_space_mm} mm")
@@ -154,56 +154,60 @@ def main():
     # ===== End Preamble =====
 
     # ===== Component Setup =====
-    metamate = setup_metamaterial(E_max, 
-                                  E_min, 
-                                  nu, 
-                                  nelx, 
-                                  nely, 
+    metamate = setup_metamaterial(E_max,
+                                  E_min,
+                                  nu,
+                                  nelx,
+                                  nely,
                                   mesh_cell_type=mesh_cell_type)
 
     # density filter setup
-    filt = DensityFilter(mesh=metamate.mesh, 
-                         radius=norm_filter_radius, 
+    filt = DensityFilter(mesh=metamate.mesh,
+                         radius=norm_filter_radius,
                          distance_method='periodic')
 
     # global optimization state
-    ops = OptimizationState(beta=start_beta, 
+    ops = OptimizationState(beta=start_beta,
                             eta=eta,
-                            filt=filt, 
+                            filt=filt,
                             epoch_iter_tracker=[1])
 
     # seeding the initial density
-    x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    # x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    x = np.ones((nely, nelx))
+    # x[0:50, 0:50] = 0.1
+    x[:, 50:52] = 0.1
     x = np.append(x, 1.)
+    x = x.flatten()
     # ===== End Component Setup =====
 
     # ===== Objective and Constraints Setup =====
     v = v_dict[basis_v]
     f = Epigraph()
-    g_ext = ExtremalConstraints(v=v, 
-                                extremal_mode=extremal_mode, 
-                                metamaterial=metamate, 
-                                ops=ops, 
+    g_ext = ExtremalConstraints(v=v,
+                                extremal_mode=extremal_mode,
+                                metamaterial=metamate,
+                                ops=ops,
                                 plot_interval=10)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
     # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
     # if 'quad' in mesh_cell_type:
-        # print("Including geometric constraints")
-    g_geo = GeometricConstraints(ops=ops, 
-                                metamaterial=metamate,
-                                line_width=norm_line_width, line_space=norm_line_space, 
-                                eps=1e-3, 
-                                c=(1./metamate.resolution[0])**4, 
-                                verbose=True)
+    # print("Including geometric constraints")
+    g_geo = GeometricConstraints(ops=ops,
+                                 metamaterial=metamate,
+                                 line_width=norm_line_width, line_space=norm_line_space,
+                                 eps=1e-3,
+                                 c=(1./metamate.resolution[0])**4,
+                                 verbose=True)
     # else:
-        # print("Geometric constraints not implemented for triangle mesh")
-    
+    # print("Geometric constraints not implemented for triangle mesh")
+
     active_constraints = [g_ext, g_geo]
     # ===== End Objective and Constraints Setup =====
 
     # ===== Optimizer setup ======
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
-    
+
     opt.set_min_objective(f)
     for g in active_constraints:
         opt.add_inequality_mconstraint(g, 1e-3*np.ones(g.n_constraints))
@@ -225,13 +229,13 @@ def main():
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
         ops.epoch_iter_tracker.append(len(g_ext.evals))
-        
+
         if 'quad' in mesh_cell_type:
             opt.remove_inequality_constraints()
             active_constraints.append(g_geo)
             for g in active_constraints:
                 opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-        
+
         opt.set_maxeval(epoch_duration)
     # ===== End Optimization Loop =====
 
