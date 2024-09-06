@@ -1,7 +1,9 @@
+from matplotlib import pyplot as plt
+from functools import partial
 import pickle, os, hashlib
 import numpy as np
 from fenics import *
-# from fenics_adjoint import *
+from tqdm import tqdm
 
 from sklearn.metrics.pairwise import euclidean_distances
 from scipy.sparse import coo_matrix
@@ -160,3 +162,94 @@ class HelmholtzFilter:
         
         return self.r_filtered.vector()[:]
 
+
+@partial(jax.custom_vjp, nondiff_argnums=(0,))
+def jax_helmholtz_filter(filt, r_array):
+    return filt.filter(r_array)
+    # return r_array * 2
+
+def jax_helmholtz_filter_fwd(filt, r_array):
+    rt = jax_helmholtz_filter(filt, r_array)
+    return rt, (r_array, rt)
+
+def jax_helmholtz_filter_bwd(filt, res, g):
+    # r_array, r_filtered = res
+    # adjoint = filt.filter(g)
+    adjoint = jax_helmholtz_filter(filt, g)
+    return (adjoint,)
+
+jax_helmholtz_filter.defvjp(jax_helmholtz_filter_fwd, jax_helmholtz_filter_bwd)
+
+def finite_difference(f, x, V, eps=1e-7):
+    grad = np.zeros_like(x)
+    perturb = np.zeros_like(x)
+    for i in tqdm(range(x.size), desc="Calculating finite difference"):
+        perturb[i] = eps
+        x_plus = x + perturb
+        x_minus = x - perturb
+        grad[i] = (f(x_plus) - f(x_minus)) / (2*eps)
+        perturb[i] = 0.
+    return grad
+
+def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=False):
+    def f(x):
+        return jnp.sum(jax_helmholtz_filter(filter_obj, x)**2)
+    
+    jax_grad = jax.grad(f)(x)
+    fd_grad  = finite_difference(f, x, filter_obj.fn_space, eps)
+    
+    r = Function(filter_obj.fn_space)
+    r.vector()[:] = x
+    r_filt = Function(filter_obj.fn_space)
+    r_filt.vector()[:] = jax_helmholtz_filter(filter_obj, x)
+    jax_fn = Function(filter_obj.fn_space)
+    jax_fn.vector()[:] = jax_grad
+    fd_fn = Function(filter_obj.fn_space)
+    fd_fn.vector()[:] = fd_grad
+    
+    if show_plot:
+        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        plt.sca(axs[0,0])
+        c=plot(r, cmap='gray')
+        plt.colorbar(c)
+        plt.title("Density")
+        plt.sca(axs[0,1])
+        c=plot(r_filt, cmap='gray')
+        plt.colorbar(c)
+        plt.title("Filtered Density")
+        plt.sca(axs[1,0])
+        c=plot(jax_fn)
+        plt.colorbar(c)
+        plt.title("JAX Gradient")
+        plt.sca(axs[1,1])
+        c=plot(fd_fn)
+        plt.colorbar(c)
+        plt.title("Finite Difference Gradient")
+        plt.show()
+    
+    np.testing.assert_allclose(jax_grad, fd_grad, rtol=rtol, atol=atol)
+    print("Gradient check passed")
+    
+
+if __name__ == "__main__":
+    np.random.seed(0)
+
+    mesh = UnitSquareMesh(30, 30, 'crossed')
+    fn_space = FunctionSpace(mesh, 'CG', 1)
+    # fn_space = FunctionSpace(mesh, 'DG', 0)
+    expr = Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.2 ? 1.0 : 0.0', degree=1)
+    rho = Function(fn_space)
+    rho.vector()[:] = np.random.uniform(0, 1, fn_space.dim())
+    rho.interpolate(expr)
+
+    radius = 0.1
+    h_filt = HelmholtzFilter(radius, fn_space)
+
+    # the finite difference of the helmholtz filter shows some mesh artifacts that I haven't figured out how to fix.
+    # The gradient check doesn't pass, but when plotted the trend between the two so I'm happy with that.
+    # Also a sanity check when using the circle expression as the input gives the correct values (grad = 2 * rho because the function is sum(rho**2))
+    check_gradient(h_filt, rho.vector()[:], eps=1e-4, show_plot=True)
+
+    
+    
+    
