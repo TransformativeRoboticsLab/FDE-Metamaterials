@@ -137,17 +137,26 @@ class DensityFilter:
         return periodic_distances(midpoints)
 
 class HelmholtzFilter:
-    def __init__(self, radius: float):
-        self.radius = radius
-    
-    def filter(self, rho_n: Function):
-        fn_space = rho_n.function_space()
-        
+    def __init__(self, radius: float, fn_space: FunctionSpace):
+        self.radius = radius / 2. / np.sqrt(3)
+        self.fn_space = fn_space
+
         r, w = TrialFunction(fn_space), TestFunction(fn_space)
-        a = (self.radius**2)*inner(grad(r), grad(w))*dx + r*w*dx
-        L = rho_n*w*dx
-        bc = []
-        r = Function(fn_space, name="Rho_filtered")
-        solve(a == L, r, bc, annotate=True)
+        self.a = (self.radius**2)*inner(grad(r), grad(w))*dx + r*w*dx
+        self.solver = LUSolver(assemble(self.a))
+
+        self.r = Function(fn_space)
+        self.r_filtered = Function(fn_space)
+        self.b = Vector(self.fn_space.mesh().mpi_comm(), self.fn_space.dim())
+    
+    def filter(self, r_array):
+        assert r_array.size == self.fn_space.dim(), "Input array size must match function space dimension"
+        self.r.vector()[:] = r_array
+        w = TestFunction(self.fn_space)
+        L = self.r*w*dx
+        assemble(L, tensor=self.b)
         
-        return r
+        self.solver.solve(self.r_filtered.vector(), self.b)
+        
+        return self.r_filtered.vector()[:]
+
