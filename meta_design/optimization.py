@@ -1,5 +1,7 @@
+from typing import Union
+from functools import partial
 from image import bitmapify
-from filters import DensityFilter
+from filters import DensityFilter, HelmholtzFilter, jax_helmholtz_filter, jax_density_filter, jax_projection, jax_simp, jax_density_convolution
 from fenics import *
 import jax.numpy as jnp
 import jax.interpreters
@@ -79,10 +81,10 @@ class EnergyConstraint:
 
     def __call__(self, x, grad):
 
-        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
 
         def filter_and_project(x):
-            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = filt_fn(x)
             x = jax_projection(x, beta, eta)
             return x
 
@@ -136,7 +138,7 @@ class EnergyConstraint:
             print(f"Energy: {c:.4f}")
 
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
-            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
             r_img = self.metamaterial.x.copy(deepcopy=True)
@@ -264,10 +266,10 @@ plot_delay: {self.plot_interval}
 
         x, t = x[:-1], x[-1]
 
-        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
 
         def filter_and_project(x):
-            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = filt_fn(x)
             x = jax_projection(x, beta, eta)
             # x = jax_simp(x, 3.)
             return x
@@ -335,7 +337,7 @@ plot_delay: {self.plot_interval}
             print(f"Actual Values: {cs}")
 
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
-            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
             r_img = self.metamaterial.x.copy(deepcopy=True)
@@ -441,6 +443,9 @@ class AndreassenOptimization:
         pen = self.ops.pen
         beta = self.ops.beta
         eta = self.ops.eta
+
+        if type(filt) is not DensityFilter:
+            raise ValueError("Invalid filter type. Type must be DensityFilter")
 
         def filter_and_project(x):
             if not self.filter_and_project:
@@ -744,11 +749,11 @@ class GeometricConstraints:
 
     def __call__(self, results, x, grad, dummy_run=False):
 
-        filt = self.ops.filt
+        filt_fn = self.ops.filt_fn
         x, t = x[:-1], x[-1]
-
+        
         def g(x):
-            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x_tilde = filt_fn(x)
             a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
             b1 = self._indicator_fn(x, 'width')
             f, a = plt.subplots(1, 3)
@@ -787,10 +792,10 @@ class GeometricConstraints:
     def _indicator_fn(self, x, type):
         if type not in ['width', 'space']:
             raise ValueError("Indicator Function must be 'width' or 'space'")
-        filt, beta, eta = self.ops.filt, self.ops.beta, self.ops.eta
+        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
         nelx, nely = self.metamaterial.nelx, self.metamaterial.nely
 
-        x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+        x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
 
         r = Function(self.metamaterial.R)
@@ -803,12 +808,23 @@ class GeometricConstraints:
         r_tilde_cg = project(self._r_tilde, self.metamaterial.R_cg)
         # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
         grad_r_tilde = grad(r_tilde_cg)
+        laplac_r_tilde = div(grad_r_tilde)
         grad_r_tilde_norm_sq = project(
             inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
 
         r_tilde_img = x_tilde.reshape((nely, nelx))
-        grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
-        fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2)
+        def fd_norm_sq(img):
+            grad = self._fd_grad(img, h=1 / nelx)
+            return grad[0]**2 + grad[1]**2
+        fd_grad_r_tilde_norm_sq = fd_norm_sq(r_tilde_img)
+        J_fd = jax.jacfwd(fd_norm_sq)(r_tilde_img)
+        J_fenics = -2*div(grad_r_tilde)
+        # grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
+        # fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2).reshape((nely, nelx))
+        # d_check = jax.jacrev(self._fd_grad)(r_tilde_img)
+        # d_check = jax.gradient(self._fd_grad)(r_tilde_img)
+        # d_check = jax.jacrev(jnp.gradient)(r_tilde_img)
+        
 
         # fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
         # plt.sca(ax0)
@@ -841,13 +857,9 @@ class GeometricConstraints:
         # print(f"Fenics norm diff: {norm(err, 'L2')}")
 
         q = jnp.exp(-self.c * (grad_r_tilde_norm_sq))
-        q = jnp.exp(-2000 * (grad_r_tilde_norm_sq))
-
         fig, (ax0, ax1) = plt.subplots(1, 2)
-        ax0.imshow(q, vmin=0, vmax=1)
-        # plt.colorbar(ax=ax0)
-        ax1.imshow(grad_r_tilde_norm_sq)
-        # plt.colorbar(ax=ax1)
+        plt.sca(ax0)
+        plt.imshow(grad_r_tilde_norm_sq, cmap='gray')
         plt.show()
 
         if type == 'width':
@@ -878,7 +890,7 @@ class GeometricConstraints:
         return eta_e, eta_d
 
     def _fd_grad(self, img, h=None):
-        h = self.metamaterial.resolutin[0] if h is None else h
+        h = self.metamaterial.resolution[0] if h is None else h
         if self.ops.filt.distance_method == 'periodic':
             # use jnp.roll instead of jnp.gradient b/c periodic boundary conditions
             # right_neighbors  = jnp.roll(img, -1, axis=1)
@@ -1143,7 +1155,7 @@ class VolumeConstraint:
     def __call__(self, x, grad):
 
         # x_fem = self.ops.x_fem
-        filt = self.ops.filt
+        filt_fn = self.ops.filt_fn
         beta = self.ops.beta
         eta = self.ops.eta
 
@@ -1152,7 +1164,7 @@ class VolumeConstraint:
         # volume, dvdx = jax.value_and_grad(lambda x: jnp.mean(x))(x_fem)
 
         def g(x):
-            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+            x = filt_fn(x)
             x = jax_projection(x, beta, eta)
             return jnp.mean(x)
 
@@ -1260,7 +1272,8 @@ class OptimizationState:
     beta: float = 1.
     eta:  float = 0.5
     pen:  float = 3.  # holdover from other optimization types that use SIMP
-    filt: DensityFilter = None
+    filt: Union[DensityFilter, HelmholtzFilter] = None
+    filt_fn: partial = None
     epoch: int = 0
     epoch_iter_tracker: list = field(default_factory=list)
 
