@@ -14,31 +14,6 @@ from jax.experimental import sparse
 jax.config.update("jax_enable_x64", True)
 
 
-@jax.jit
-def jax_density_convolution(x, kernel):
-    return
-
-
-@jax.jit
-def jax_density_filter(x, H, Hs):
-    return jnp.divide(H @ x, Hs)
-
-
-@jax.jit
-def jax_projection(x, beta=1., eta=0.5):
-    tanh_beta_eta = jnp.tanh(beta * eta)
-    tanh_beta_x_minus_eta = jnp.tanh(beta * (x - eta))
-    tanh_beta_one_minus_eta = jnp.tanh(beta * (1. - eta))
-
-    numerator = tanh_beta_eta + tanh_beta_x_minus_eta
-    denominator = tanh_beta_eta + tanh_beta_one_minus_eta
-
-    return jnp.array(numerator / denominator)
-
-
-@jax.jit
-def jax_simp(x, penalty):
-    return jnp.power(x, penalty)
 
 
 class Epigraph:

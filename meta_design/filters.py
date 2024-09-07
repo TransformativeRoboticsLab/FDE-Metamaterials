@@ -13,6 +13,30 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
+@jax.jit
+def jax_density_convolution(x, kernel):
+    return
+
+@jax.jit
+# def jax_density_filter(x, H, Hs):
+def jax_density_filter(H, Hs, x):
+    return jnp.divide(H @ x, Hs)
+
+@jax.jit
+def jax_projection(x, beta=1., eta=0.5):
+    tanh_beta_eta = jnp.tanh(beta * eta)
+    tanh_beta_x_minus_eta = jnp.tanh(beta * (x - eta))
+    tanh_beta_one_minus_eta = jnp.tanh(beta * (1. - eta))
+
+    numerator = tanh_beta_eta + tanh_beta_x_minus_eta
+    denominator = tanh_beta_eta + tanh_beta_one_minus_eta
+
+    return jnp.array(numerator / denominator)
+
+@jax.jit
+def jax_simp(x, penalty):
+    return jnp.power(x, penalty)
+
 def filter_rho(rho: Function, H: np.array, Hs: np.array):
     filtered_rho = Function(rho.function_space())
     filtered_rho.vector().set_local(np.divide(H @ rho.vector()[:], Hs))
@@ -68,6 +92,7 @@ class DensityFilter:
         self.mesh = mesh
         self.radius = radius
         self.distance_method = distance_method
+        self.fn_space = FunctionSpace(mesh, 'DG', 0)
 
         distance_methods = {
             'periodic': self._calculate_periodic_distances,
@@ -140,22 +165,23 @@ class DensityFilter:
 
 class HelmholtzFilter:
     def __init__(self, radius: float, fn_space: FunctionSpace):
-        self.radius = radius / 2. / np.sqrt(3)
+        self.radius = radius
+        self._scaled_radius = radius / 2. / np.sqrt(3)
         self.fn_space = fn_space
 
         r, w = TrialFunction(fn_space), TestFunction(fn_space)
-        self.a = (self.radius**2)*inner(grad(r), grad(w))*dx + r*w*dx
+        self.a = (self._scaled_radius**2)*inner(grad(r), grad(w))*dx + r*w*dx
         self.solver = LUSolver(assemble(self.a))
 
         self.r = Function(fn_space)
         self.r_filtered = Function(fn_space)
         self.b = Vector(self.fn_space.mesh().mpi_comm(), self.fn_space.dim())
+        self.w = TestFunction(self.fn_space)
     
     def filter(self, r_array):
         assert r_array.size == self.fn_space.dim(), "Input array size must match function space dimension"
         self.r.vector()[:] = r_array
-        w = TestFunction(self.fn_space)
-        L = self.r*w*dx
+        L = self.r*self.w*dx
         assemble(L, tensor=self.b)
         
         self.solver.solve(self.r_filtered.vector(), self.b)
@@ -166,21 +192,18 @@ class HelmholtzFilter:
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
 def jax_helmholtz_filter(filt, r_array):
     return filt.filter(r_array)
-    # return r_array * 2
 
 def jax_helmholtz_filter_fwd(filt, r_array):
     rt = jax_helmholtz_filter(filt, r_array)
-    return rt, (r_array, rt)
+    return (rt, ())
 
-def jax_helmholtz_filter_bwd(filt, res, g):
-    # r_array, r_filtered = res
-    # adjoint = filt.filter(g)
+def jax_helmholtz_filter_bwd(filt, _, g):
     adjoint = jax_helmholtz_filter(filt, g)
     return (adjoint,)
 
 jax_helmholtz_filter.defvjp(jax_helmholtz_filter_fwd, jax_helmholtz_filter_bwd)
 
-def finite_difference(f, x, V, eps=1e-7):
+def finite_difference(f, x, eps=1e-7):
     grad = np.zeros_like(x)
     perturb = np.zeros_like(x)
     for i in tqdm(range(x.size), desc="Calculating finite difference"):
@@ -192,16 +215,24 @@ def finite_difference(f, x, V, eps=1e-7):
     return grad
 
 def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=False):
+    
+    if type(filter_obj) == DensityFilter:
+        filter_fn = partial(jax_density_filter, filter_obj.H_jax, filter_obj.Hs_jax)
+    elif type(filter_obj) == HelmholtzFilter:
+        filter_fn = partial(jax_helmholtz_filter, filter_obj)
+    else:
+        raise ValueError("Invalid filter type")
+    
     def f(x):
-        return jnp.sum(jax_helmholtz_filter(filter_obj, x)**2)
+        return jnp.sum(filter_fn(x)**2)
     
     jax_grad = jax.grad(f)(x)
-    fd_grad  = finite_difference(f, x, filter_obj.fn_space, eps)
+    fd_grad  = finite_difference(f, x, eps)
     
     r = Function(filter_obj.fn_space)
     r.vector()[:] = x
     r_filt = Function(filter_obj.fn_space)
-    r_filt.vector()[:] = jax_helmholtz_filter(filter_obj, x)
+    r_filt.vector()[:] = filter_fn(x)
     jax_fn = Function(filter_obj.fn_space)
     jax_fn.vector()[:] = jax_grad
     fd_fn = Function(filter_obj.fn_space)
@@ -225,6 +256,12 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
         c=plot(fd_fn)
         plt.colorbar(c)
         plt.title("Finite Difference Gradient")
+        # plt.show()
+
+        plt.figure()
+        plt.plot(fd_grad[:], label='Finite Difference')
+        plt.plot(jax_grad[:], label='JAX')
+        plt.legend()
         plt.show()
     
     np.testing.assert_allclose(jax_grad, fd_grad, rtol=rtol, atol=atol)
@@ -234,21 +271,27 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
 if __name__ == "__main__":
     np.random.seed(0)
 
-    mesh = UnitSquareMesh(30, 30, 'crossed')
-    fn_space = FunctionSpace(mesh, 'CG', 1)
-    # fn_space = FunctionSpace(mesh, 'DG', 0)
-    expr = Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.2 ? 1.0 : 0.0', degree=1)
-    rho = Function(fn_space)
-    rho.vector()[:] = np.random.uniform(0, 1, fn_space.dim())
-    rho.interpolate(expr)
+    mesh = UnitSquareMesh(50, 50, 'crossed')
+    expr = Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
 
-    radius = 0.1
-    h_filt = HelmholtzFilter(radius, fn_space)
+    dg_space = FunctionSpace(mesh, 'DG', 0)
+    rho_dg = Function(dg_space)
+    rho_dg.interpolate(expr)
+    cg_space = FunctionSpace(mesh, 'CG', 1)
+    rho_cg = Function(cg_space)
+    rho_cg.interpolate(expr)
 
     # the finite difference of the helmholtz filter shows some mesh artifacts that I haven't figured out how to fix.
+    # probably something 
     # The gradient check doesn't pass, but when plotted the trend between the two so I'm happy with that.
     # Also a sanity check when using the circle expression as the input gives the correct values (grad = 2 * rho because the function is sum(rho**2))
-    check_gradient(h_filt, rho.vector()[:], eps=1e-4, show_plot=True)
+    # The DG gradients (both JAX and FD) match, and they also match against the CG JAX gradient. The only outlier is the CG FD gradient.
+    # For now I'm willing to move on...
+    radius = 0.1
+    # d_filt = DensityFilter(mesh, radius, distance_method='flat')
+    # check_gradient(d_filt, rho_dg.vector()[:], eps=1e-2, show_plot=True)
+    h_filt = HelmholtzFilter(radius, cg_space)
+    check_gradient(h_filt, rho_cg.vector()[:], eps=1e-4, show_plot=True)
 
     
     
