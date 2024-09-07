@@ -68,17 +68,14 @@ class Metamaterial:
         self.R_tri = R_tri
 
     def _project_uChom_to_matrix(self, uChom):
-        projected_values = []
+        projected_values = np.empty((9, self.R.dim()))  # Preallocate the array
 
-        for i in range(3):
-            for j in range(3):
-                projected_function = project(uChom[i][j], self.R)
-                projected_values.append(
-                    projected_function.vector().get_local())
+        for idx, (i, j) in enumerate(((i, j) for i in range(3) for j in range(3))):
+            projected_function = project(uChom[i][j], self.R)
+            projected_values[idx, :] = projected_function.vector().get_local()
 
-        matrix = np.array(projected_values)
-
-        return matrix
+        return projected_values
+ 
 
     def homogenized_C(self, u_list, E, nu):
         s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu)
