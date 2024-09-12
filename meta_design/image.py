@@ -5,7 +5,8 @@ from scipy.ndimage import convolve, gaussian_filter
 
 def func2img(shape: tuple, resolution: tuple, func: Function):
     a, b = shape
-    Nx, Ny, *_ = resolution
+    Nx = int(resolution[0] * a)
+    Ny = int(resolution[1] * b)
     # Create a regular grid that matches the output image size
     x = np.linspace(0, a, Nx)
     y = np.linspace(0, b, Ny)
