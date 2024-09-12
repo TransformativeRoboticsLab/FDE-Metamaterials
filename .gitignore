@@ -122,3 +122,5 @@ dmypy.json
 
 
 *.pkl
+
+output/
