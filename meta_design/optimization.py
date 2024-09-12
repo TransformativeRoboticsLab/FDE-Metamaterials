@@ -598,8 +598,7 @@ class VectorConstraint:
 
         if grad.size > 0:
             for n in range(self.n_constraints):
-                grad[n, :-
-                     1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
+                grad[n, :-1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
                 grad[n, -1] = -self.dbdt[n]
 
     @property
@@ -948,18 +947,15 @@ class MaterialSymmetryConstraints(VectorConstraint):
                 f"Material symmetry must be one of {self.symmetry_types_}")
 
         if self.symmetry_order in self.symmetry_types_[1:]:
-            self.constraints.extend([lambda C: (C[0, 2]/C[0, 0])**2,
-                                     lambda C: (C[1, 2]/C[1, 1])**2])
+            self.constraints.extend([lambda C: jnp.log((C[0, 2]/C[0, 0])**2/self.eps),
+                                     lambda C: jnp.log((C[1, 2]/C[1, 1])**2/self.eps)])
         if self.symmetry_order in self.symmetry_types_[2:]:
-            self.constraints.append(lambda C: (1. - C[1, 1]/C[0, 0])**2)
+            self.constraints.append(lambda C: jnp.log((1. - C[1, 1]/C[0, 0])**2)/self.eps)
         if self.symmetry_order == 'isotropic':
-            self.constraints.append(lambda C: (
-                1. - C[0, 1]/C[0, 0] - C[2, 2]/C[0, 0])**2)
+            self.constraints.append(lambda C: jnp.log((1. - C[0, 1]/C[0, 0] - C[2, 2]/C[0, 0])**2)/self.eps)
 
-        # self.bounds = self.n_constraints * [lambda t: self.eps]
-        # self.dbdt = np.zeros(self.n_constraints)
-        self.bounds = self.n_constraints * [lambda t: self.eps * t]
-        self.dbdt = np.ones(self.n_constraints) * self.eps
+        self.bounds = self.n_constraints * [lambda t: t]
+        self.dbdt = np.ones(self.n_constraints)
 
     def __str__(self):
         return f"MaterialSymmetryConstraints_{self.symmetry_order}"
