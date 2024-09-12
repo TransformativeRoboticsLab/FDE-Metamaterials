@@ -1,14 +1,18 @@
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, EnergyConstraint, GeometricConstraints, InvariantsConstraint
-from filters import DensityFilter
-from metamaterial import Metamaterial
-import numpy as np
-import jax.numpy as jnp
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import inspect
+from functools import partial
 
 import fenics as fe
 import jax
+import matplotlib.pyplot as plt
+import numpy as np
+from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
+                     jax_helmholtz_filter)
+from metamaterial import Metamaterial
+from optimization import (EnergyConstraint, Epigraph, ExtremalConstraints,
+                          GeometricConstraints, InvariantsConstraint,
+                          OptimizationState)
+from tqdm import tqdm
+
 jax.config.update("jax_enable_x64", True)
 
 ISQR2 = 1. / np.sqrt(2.)
