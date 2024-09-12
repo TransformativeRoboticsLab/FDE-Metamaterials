@@ -173,14 +173,25 @@ def main():
                                   mesh_cell_type=mesh_cell_type)
 
     # density filter setup
-    filt = DensityFilter(mesh=metamate.mesh,
-                         radius=norm_filter_radius,
-                         distance_method='periodic')
+    if metamate.R.ufl_element().degree() > 0:
+        print("Using Helmholtz filter")
+        filt = HelmholtzFilter(radius=norm_filter_radius, 
+                                fn_space=metamate.R)
+        filter_fn = partial(jax_helmholtz_filter, filt)
+    elif metamate.R.ufl_element().degree() == 0:
+        print("Using Density filter")
+        filt = DensityFilter(mesh=metamate.mesh,
+                            radius=norm_filter_radius,
+                            distance_method='periodic')
+        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
+    else:
+        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
 
     # global optimization state
     ops = OptimizationState(beta=start_beta,
                             eta=eta,
                             filt=filt,
+                            filt_fn = filter_fn,
                             epoch_iter_tracker=[1])
 
     # seeding the initial density
@@ -252,7 +263,7 @@ def main():
 
     # ===== Post-Processing =====
     x = x[:-1]
-    x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+    x = filter_fn(x)
     x = jax_projection(x, ops.beta, ops.eta)
     metamate.x.vector()[:] = x
 
