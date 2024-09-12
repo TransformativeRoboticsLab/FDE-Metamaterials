@@ -19,6 +19,7 @@ class Metamaterial:
         self.x = x
         self.mesh = mesh
         self.domain_shape = domain_shape
+        self.mirror_map = None
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':

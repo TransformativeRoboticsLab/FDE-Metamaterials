@@ -6,19 +6,19 @@ from scipy.spatial import KDTree
 def mirror_density(density, fn_space, type='x'):
     if type == 'x':
         ref_angles = [np.pi/2]
-        # domain = lambda x: x[0] > 0.
+        domain = lambda x: x[0] > 0.
     elif type == 'y':
         ref_angles = [np.pi]
-        # domain = lambda x: x[1] > 0.
+        domain = lambda x: x[1] > 0.
     elif type == 'xy':
         ref_angles = [np.pi/2, np.pi, 3*np.pi/2]
-        # domain = lambda x: x[0] > 0. and x[1] > 0.
+        domain = lambda x: x[0] > 0. and x[1] > 0.
     elif type == 'xyd':
         ref_angles = [np.pi/4, np.pi/2, np.pi*3/4, np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4]
-        # domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1.
+        domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1.
     elif type == 'hex':
         ref_angles = [np.pi/6, np.pi/2, 5*np.pi/6, np.pi, 7*np.pi/6, 3*np.pi/2, 11*np.pi/6]
-        # domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
+        domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
     else:
         raise ValueError(f"Invalid mirror type: {type}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
 
@@ -44,15 +44,21 @@ def mirror_density(density, fn_space, type='x'):
 
     # We do this as a series of reflections, propagating the density around the domain
     # NOTE: We aren't checking the domain, because there isn't an exact mapping when using the hex. Instead we do this for all points and it still works out, even if it is inefficient and slower.
+    mirror_source = []
+    mirror_target = []
     for n, c in enumerate(shifted_dofs):
+        if not domain(c):
+            continue
         ref_c = c
         for th in ref_angles:
             ref_c = ref(ref_c, th)
             d, idx = tree.query(ref_c, distance_upper_bound=rad)
             if not np.isinf(d):
+                mirror_source.append(n)
+                mirror_target.append(idx)
                 mirror_density[idx] = mirror_density[n]
 
-    return mirror_density
+    return mirror_density, (mirror_source, mirror_target)
 
 class Ellipse(fe.UserExpression):
     

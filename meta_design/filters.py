@@ -19,7 +19,6 @@ def jax_density_convolution(x, kernel):
     return
 
 @jax.jit
-# def jax_density_filter(x, H, Hs):
 def jax_density_filter(H, Hs, x):
     return jnp.divide(H @ x, Hs)
 
