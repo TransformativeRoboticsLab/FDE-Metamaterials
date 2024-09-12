@@ -115,7 +115,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
     if epi_constraint:
-        x = np.append(x, 0.)
+        x = np.append(x, 1.)
 
     constraint = constraints[constraint_name]
     arg_nums = len(inspect.signature(constraint).parameters)
@@ -147,7 +147,7 @@ def main():
         'quad': fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [
                                         nelx, nely], fe.CellType.Type.quadrilateral)
     }
-    mesh_type = 'quad'
+    mesh_type = 'tri'
     v_basis = 'BULK'
 
     # Setup parameters and initial conditions
@@ -163,24 +163,32 @@ def main():
         'line_space': norm_line_space,
     }
 
-    params['metamaterial'].create_function_spaces()
-    params['ops'].filt = DensityFilter(params['metamaterial'].mesh,
-                                       norm_filter_radius, distance_method='periodic')
+    metamate = params['metamaterial']
+    metamate.create_function_spaces()
+    if metamate.R.ufl_element().degree() > 0:
+        print("Using Helmholtz filter")
+        filt = HelmholtzFilter(radius=norm_filter_radius, 
+                                fn_space=metamate.R)
+        filter_fn = partial(jax_helmholtz_filter, filt)
+    elif metamate.R.ufl_element().degree() == 0:
+        print("Using Density filter")
+        filt = DensityFilter(mesh=metamate.mesh,
+                            radius=norm_filter_radius,
+                            distance_method='periodic')
+        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
+    else:
+        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
+                    
+    params['ops'].filt = filt
+    params['ops'].filt_fn = filter_fn
     # Initial design variables
-    # x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
-    x = np.ones((nely, nelx))
-    x[0:3,0:3] = 0.
-    x[3:5,3:5] = 0.25
-    x[5:7,5:7] = 0.5
-    x[7:11,7:11] = 0.75
-    x[-1,-1] = 1.
-    x = x.flatten()
+    x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
 
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
-    # handle_constraints('Extremal', x, params, epi_constraint=True)
+    handle_constraints('Extremal', x, params, epi_constraint=True)
     # handle_constraints('Energy', x, params)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
-    handle_constraints('Invariants', x, params)
+    # handle_constraints('Invariants', x, params)
 
 
 if __name__ == "__main__":
