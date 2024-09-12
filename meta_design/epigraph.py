@@ -128,35 +128,35 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
 def main():
     # ===== Preamble =====
     # inputs
-    E_max, E_min, nu = 1., 1e-3, 0.3
+    E_max, E_min, nu = 1., 1e-2, 0.45
     vol_frac = 0.1
-    start_beta, n_betas = 8, 2
+    start_beta, n_betas = 1, 8
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
     epoch_duration = 50
-    basis_v = 'BULK'
-    density_seed_type = 'uniform'
+    basis_v = 'VERT'
+    density_seed_type = 'binomial'
     extremal_mode = 1
-    mesh_cell_type = 'quad'  # triangle, quadrilateral
+    mesh_cell_type = 'tri'  # triangle, quadrilateral
+    domain_shape = 'square' # square or rect
     if 'tri' in mesh_cell_type:
         nelx = 50
     elif 'quad' in mesh_cell_type:
         nelx = 100
-        # nelx = 50
     else:
         raise ValueError(f"Invalid mesh_cell_type: {mesh_cell_type}")
     nely = nelx
 
-    cell_side_length_mm = 25.
+    cell_min_dimension = 25.
     line_width_mm = 2.5
     line_space_mm = line_width_mm
-    norm_line_width = line_width_mm / cell_side_length_mm
-    norm_line_space = line_space_mm / cell_side_length_mm
+    norm_line_width = line_width_mm / cell_min_dimension
+    norm_line_space = line_space_mm / cell_min_dimension
     norm_filter_radius = norm_line_width
 
-    print(f"Cell Side Length: {cell_side_length_mm} mm")
+    print(f"Cell Minimum Dimension: {cell_min_dimension} mm")
     print(f"Line Width: {line_width_mm} mm")
     print(f"Line Space: {line_space_mm} mm")
     print(f"Normalized Line Space: {norm_line_space}")
@@ -170,7 +170,10 @@ def main():
                                   nu,
                                   nelx,
                                   nely,
-                                  mesh_cell_type=mesh_cell_type)
+                                  mesh_cell_type=mesh_cell_type,
+                                  domain_shape=domain_shape)
+    # metamate.plot_mesh(labels=True)
+
 
     # density filter setup
     if metamate.R.ufl_element().degree() > 0:
@@ -195,14 +198,11 @@ def main():
                             epoch_iter_tracker=[1])
 
     # seeding the initial density
-    # x = init_density(density_seed_type, vol_frac, metamate.R.dim())
-    x = np.ones((nely, nelx))
-    # x[0:50, 0:50] = 0.1
-    x[:, 50:52] = 0.1
+    x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    x = mirror_density(x, metamate.R, type='x')
     x = np.append(x, 1.)
-    x = x.flatten()
     # ===== End Component Setup =====
-
+    
     # ===== Objective and Constraints Setup =====
     v = v_dict[basis_v]
     f = Epigraph()
@@ -224,7 +224,7 @@ def main():
     # else:
     # print("Geometric constraints not implemented for triangle mesh")
 
-    active_constraints = [g_ext, g_geo]
+    active_constraints = [g_ext, ]
     # ===== End Objective and Constraints Setup =====
 
     # ===== Optimizer setup ======
@@ -232,12 +232,12 @@ def main():
 
     opt.set_min_objective(f)
     for g in active_constraints:
-        opt.add_inequality_mconstraint(g, 1e-3*np.ones(g.n_constraints))
-    opt.add_inequality_mconstraint(g_inv, 1e-3*np.ones(g_inv.n_constraints))
+        opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+    # opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
 
     opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
-    opt.set_maxeval(epoch_duration)
+    opt.set_maxeval(2*epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
     # ===== End Optimizer setup ======
 
@@ -245,7 +245,7 @@ def main():
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         update_t(x, active_constraints)
-        x[:] = opt.optimize(x)
+        x[:] = opt.optimize(x)#.clip(min=0.1)
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
