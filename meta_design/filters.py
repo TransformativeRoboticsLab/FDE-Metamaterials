@@ -1,17 +1,18 @@
-from matplotlib import pyplot as plt
+import os
+import pickle
 from functools import partial
-import pickle, os, hashlib
+
+import jax
 import numpy as np
 from fenics import *
+from jax.experimental import sparse
+from matplotlib import pyplot as plt
+from scipy.spatial import KDTree
 from tqdm import tqdm
 
-from sklearn.metrics.pairwise import euclidean_distances
-from scipy.sparse import coo_matrix
-
-from jax.experimental import sparse
-import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
+
 
 @jax.jit
 def jax_density_convolution(x, kernel):
@@ -126,12 +127,9 @@ class DensityFilter:
         return filter_rho(rho, self.H, self.Hs)
         
     def _calculate_filter(self):
-        distances = self._distance_fn()
-        H = np.maximum(0., self.radius - distances)
-        H[H < 1e-6] = 0.
-        self.Hs = H.sum(1)
-        self.Hs_jax = jnp.array(self.Hs)        
-        self.H = coo_matrix(H)
+        self.H = self._distance_fn()
+        self.Hs = np.asarray(self.H.sum(1)).flatten()
+        self.Hs_jax = jnp.array(self.Hs)
         self.H_jax = sparse.BCOO.from_scipy_sparse(self.H)
         
         self.calculated_filters[self.key] = (self.H, self.Hs, self.H_jax, self.Hs_jax)
@@ -141,27 +139,56 @@ class DensityFilter:
         
     def _calculate_flat_distances(self):
         midpoints = [cell.midpoint().array()[:] for cell in cells(self.mesh)]
-        return euclidean_distances(midpoints)
+        tree = KDTree(midpoints)
+        return tree.sparse_distance_matrix(tree, max_distance=self.radius, output_type='coo_matrix')
+
+
 
     def _calculate_periodic_distances(self):
 
-        def periodic_distances(midpoints, domain_size=1.0):
-            # Pairwise x and y differences
-            # col vector - row vector = matrix
-            x_diff = np.abs(midpoints[:, None, 0] - midpoints[None, :, 0]) 
-            y_diff = np.abs(midpoints[:, None, 1] - midpoints[None, :, 1])
-
-            # Adjust for wrap-around
-            x_diff = np.minimum(x_diff, domain_size - x_diff)
-            y_diff = np.minimum(y_diff, domain_size - y_diff)
-            
-            # Calculate the Euclidean distances with wrap-around consideration
-            distances = np.sqrt(x_diff**2 + y_diff**2)
-            return distances
-
-        midpoints = np.array([cell.midpoint().array()[0:2] for cell in cells(self.mesh)])
+        # NOTE: If instead of finding the midpoints we actually did a function_space.tabulate_dof_coordinates() we could also use this method for a CG space instead of just a DG space. This is because the dofs in a DG space are the cell midpoints, whereas in a CG space they are the vertices of the mesh.
+        midpoints = np.array([c.midpoint()[:][:2] for c in cells(self.mesh)])
         
-        return periodic_distances(midpoints)
+        x_min, y_min = self.mesh.coordinates().min(axis=0)
+        x_max, y_max = self.mesh.coordinates().max(axis=0)
+        width, height = x_max - x_min, y_max - y_min
+        
+        # The idea here is to create a KDTree for the minimum number of cells that give us full periodicity we want to achieve. So it looks something like this where O is the origin, A is the FEM base domain, and B, C, D, E are the periodic copies of A. 
+        '''
+         _____ _____
+        |     |     |
+        |  B  |  A  |
+        |_____O_____|_____
+        |     |     |     |
+        |  C  |  D  |  E  |
+        |_____|_____|_____|
+        '''
+        shifts = [
+            np.array([0, 0]),                    # no shift, A
+            np.array([width, 0]),                # -x shift, B
+            np.array([width, height]),           # -x and -y shift, C
+            np.array([0, height]),               # -y shift, D
+            np.array([-width, height])           # +x shift, -y, E
+        ]
+
+        # We then create trees for every space and then can query between them to determine which indices are within the filter radius. This is the minimum number of translations to get full periodicity, where every corner of the domain is able to touch every other corner.
+        trees = [KDTree(midpoints - shift) for shift in shifts]
+
+        distance_mats = [trees[0].sparse_distance_matrix(tree, max_distance=self.radius, output_type='coo_matrix') for tree in trees]
+
+        # This is the standard TO conic filter, where we take the distance from the filter radius and subtract it from the radius to get the filter value
+        for D in distance_mats:
+            D.data = self.radius - D.data
+
+        # Combine all distance matrices and their transposes
+        # Transposes are what let us not have to tile the full space, but only the minimum number of cells to get full periodicity
+        tdist = sum(D + D.T for D in distance_mats[1:]) + distance_mats[0]
+
+        # In case there are any cancellations when we do the subtraction for the filter (i.e., the distance is exactly the filter radius), we need to tell the matrix to remove tracking those values.
+        tdist.data[np.isclose(tdist.data, 0.)] = 0.
+        tdist.eliminate_zeros()
+
+        return tdist
 
 class HelmholtzFilter:
     def __init__(self, radius: float, fn_space: FunctionSpace):
@@ -271,7 +298,8 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
 if __name__ == "__main__":
     np.random.seed(0)
 
-    mesh = UnitSquareMesh(50, 50, 'crossed')
+    mesh = UnitSquareMesh(50,50, 'crossed')
+    # mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [20, 20], CellType.Type.quadrilateral)
     expr = Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
 
     dg_space = FunctionSpace(mesh, 'DG', 0)
@@ -287,11 +315,13 @@ if __name__ == "__main__":
     # Also a sanity check when using the circle expression as the input gives the correct values (grad = 2 * rho because the function is sum(rho**2))
     # The DG gradients (both JAX and FD) match, and they also match against the CG JAX gradient. The only outlier is the CG FD gradient.
     # For now I'm willing to move on...
-    radius = 0.1
+    radius = 0.2
     # d_filt = DensityFilter(mesh, radius, distance_method='flat')
     # check_gradient(d_filt, rho_dg.vector()[:], eps=1e-2, show_plot=True)
-    h_filt = HelmholtzFilter(radius, cg_space)
-    check_gradient(h_filt, rho_cg.vector()[:], eps=1e-4, show_plot=True)
+    pd_filt = DensityFilter(mesh, radius, distance_method='periodic')
+    check_gradient(pd_filt, rho_dg.vector()[:], eps=1e-2, show_plot=True)
+    # h_filt = HelmholtzFilter(radius, cg_space)
+    # check_gradient(h_filt, rho_cg.vector()[:], eps=1e-4, show_plot=True)
 
     
     
