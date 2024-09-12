@@ -1,18 +1,18 @@
-from typing import Union
-from functools import partial
-from image import bitmapify
-from filters import DensityFilter, HelmholtzFilter, jax_helmholtz_filter, jax_density_filter, jax_projection, jax_simp, jax_density_convolution
-from fenics import *
-import jax.numpy as jnp
-import jax.interpreters
-import matplotlib.pyplot as plt
-from matplotlib.colorbar import Colorbar
-from matplotlib import gridspec
 from dataclasses import dataclass, field
-from typing import Callable, Any
-import numpy as np
+from functools import partial
+from typing import Callable, Union
+
 import jax
-from jax.experimental import sparse
+import jax.interpreters
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+from fenics import *
+from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
+                     jax_projection, jax_simp)
+from image import bitmapify
+from matplotlib import gridspec
+
 jax.config.update("jax_enable_x64", True)
 
 
@@ -102,8 +102,6 @@ class EnergyConstraint:
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
             S = jnp.linalg.inv(C)
-            C /= jnp.linalg.norm(C, ord=2)
-            S /= jnp.linalg.norm(S, ord=2)
 
             if self.extremal_mode == 2:
                 C, S = S, C
@@ -114,12 +112,6 @@ class EnergyConstraint:
             vSv = self.v.T @ S @ self.v
             c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
             s1, s2, s3 = vSv[0, 0], vSv[1, 1], vSv[2, 2]
-            # return c1/c2 + c1/c3
-            # return c1**2/c2/c3
-            # return (c1*s2*s3)**(1/3)
-            # return c2*c3/c1**2
-            # return jnp.sqrt(norm(Cv1)**2/norm(Cv2)/norm(Cv3))
-            # return (norm(Cv1) * (1-norm(Cv2)) * (1-norm(Cv3)))**(1/3)
             return jnp.log(c1**2/c2/c3)
 
         c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
@@ -141,8 +133,9 @@ class EnergyConstraint:
             x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
+            img_shape = (self.metamaterial.width, self.metamaterial.height)
             r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = np.flip(bitmapify(r_img, (1., 1.),
+            x_img = np.flip(bitmapify(r_img, img_shape,
                             (img_resolution, img_resolution)), axis=0)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
@@ -181,10 +174,6 @@ class EnergyConstraint:
         self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')
         self.ax2.grid(True)
         self.ax2.set_xlim(left=0, right=len(self.evals) + 2)
-        if np.min(f_arr) > 0:
-            self.ax2.set_yscale('log')
-        else:
-            self.ax2.set_ylim(-2, 2)
 
         for iter_val in self.ops.epoch_iter_tracker:
             self.ax2.axvline(x=iter_val, color='black',
@@ -207,7 +196,7 @@ class EnergyConstraint:
             fig, ax = plt.subplots()
         ax.clear()
 
-        # ax.margins(x=0,y=0)
+        ax.margins(x=0,y=0)
 
         # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
         # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
@@ -302,14 +291,8 @@ plot_delay: {self.plot_interval}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), 1-norm(Cv3),])),
-                    jnp.array([c1, c2, c3]))
-
-            # NOTE: If I use (1-s1), s2, and s3 with a unimodal BULK vector input (which is the most stubborn optimization criteria I have found) the optimization stalls and doesn't converge; however, if s3 > s2 by some scalar factor, it begins converging quickly. Are these two factors at odds with eachother? Even once s3 gets doesn to ~s2 then the optimization stalls again. I discovered this by accident, but it's interesting to note. This might also explain why the other vector bases like VERT will converge quickly, because they inherently produce different values for s1, s2, and s3. It kinda seems like s2 and s3 are at odds. What does this mean?
-            # A 1-sn value is a value that is closer to the maximum value of the eigenvalues of the tensor. This means that when using the compliance matrix S, the vn vector should be most compliant (e.g. less stiff)
-            # Additionally, it seems that the bulk modulus Rayleigh quotient just simply doesn't have a strong enough gradient to converge (at least when normalized by the spectral norm).
-            # return jnp.array([(1-s1), -s2, s3]), jnp.array([s1, s2, s3])
-            # return jnp.array([s1, 1-s2, 1-s3]), jnp.array([s1, s2, s3])
+            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-6), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
+            # return jnp.log(jnp.array([c1/c2, c1/c3, ])), jnp.array([c1, c2, c3])
 
         c, cs = obj(jnp.asarray(Chom))
         dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
@@ -340,9 +323,10 @@ plot_delay: {self.plot_interval}
             x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
             img_resolution = 200
+            img_shape = (self.metamaterial.width, self.metamaterial.height)
             r_img = self.metamaterial.x.copy(deepcopy=True)
             x_img = np.flip(bitmapify(r_img,
-                                      (1., 1.),                            (img_resolution, img_resolution)),
+                                      img_shape,                            (img_resolution, img_resolution)),
                             axis=0)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
@@ -684,7 +668,7 @@ class InvariantsConstraint:
         self.verbose = verbose
         # Invariant bounds:
         # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
-        self.eps = np.array([-.3, -0., 1e-1])
+        self.eps = np.array([-3e-1, -0., 1e-1])
 
         self.n_constraints = 3
 
