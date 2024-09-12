@@ -1,19 +1,24 @@
-from boundary import PeriodicDomain
-import numpy as np
-from mechanics import linear_strain, linear_stress, macro_strain, lame_parameters
 from dataclasses import dataclass, field
-from matplotlib import pyplot as plt
+
+import numpy as np
+from boundary import PeriodicDomain
 from fenics import *
+from matplotlib import pyplot as plt
+
+from mechanics import (lame_parameters, linear_strain, linear_stress,
+                       macro_strain)
+
 set_log_level(40)
 
 
 class Metamaterial:
-    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None):
+    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None):
         self.prop = Properties(E_max, E_min, nu)
         self.nelx = nelx
         self.nely = nely
         self.x = x
         self.mesh = mesh
+        self.domain_shape = domain_shape
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
@@ -23,13 +28,11 @@ class Metamaterial:
 
         plot(self.mesh)
         if labels:
-            mids = [cell.midpoint() for cell in cells(self.mesh)]
-            ids = [cell.index() for cell in cells(self.mesh)]
-            for mid, id in zip(mids, ids):
-                plt.text(mid.x(), mid.y(), str(id))
+            for c in cells(self.mesh):
+                plt.text(c.midpoint().x(), c.midpoint().y(), str(c.index()))
 
-            plt.scatter([m.x() for m in mids], [m.y()
-                        for m in mids], marker='x', color='red')
+            # plt.scatter([m.x() for m in mids], [m.y()
+                        # for m in mids], marker='x', color='red')
 
         plt.show(block=True)
 
@@ -46,8 +49,8 @@ class Metamaterial:
 
     def create_function_spaces(self, elem_degree=1):
         assert elem_degree >= 1, "Element degree must be at least 1"
-        # if not isinstance(self.mesh, Mesh):
-        # raise ValueError("self.mesh is not a valid mesh")
+        if not isinstance(self.mesh, Mesh):
+            raise ValueError("self.mesh is not a valid mesh")
         PBC = PeriodicDomain(self.mesh)
         Ve = VectorElement('CG', self.mesh.ufl_cell(), elem_degree)
         Re = VectorElement('R', self.mesh.ufl_cell(), 0)
@@ -57,6 +60,7 @@ class Metamaterial:
         # function spaces for rho (R), a continuous version of rho (R_cg), and the gradient of rho (R_grad).
         # R is discontinuous, so we need a continuous space to project to so we can calculate the gradient
         R = FunctionSpace(self.mesh, 'DG', 0, constrained_domain=PBC)
+        # R = FunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
         R_cg = FunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
         R_grad = VectorFunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
         R_tri = FunctionSpace(UnitSquareMesh(self.nelx, self.nely, 'crossed'), 'DG', 0)
@@ -88,7 +92,7 @@ class Metamaterial:
             ]
             for s_t in s_list
         ]
-        Chom = [[assemble(uChom[i][j]*dx) for j in range(3)] for i in range(3)]
+        # Chom = [[assemble(uChom[i][j]*dx) for j in range(3)] for i in range(3)]
 
         # Must scale by cell volume because we aren't having ics account for that in the background
         # note: this makes the assumption that the mesh is uniform
@@ -96,9 +100,9 @@ class Metamaterial:
         # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
         # if we don't need the uChom matrix, the doing assemble might be faster again
 
-        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol
+        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol / self.domain_vol
         # remember the matrix is symmetric so we don't care about row/column order
-        # Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
+        Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
 
         return Chom, uChom_matrix
 
@@ -137,6 +141,22 @@ class Metamaterial:
         x_min, y_min = self.mesh.coordinates().min(axis=0)
         x_max, y_max = self.mesh.coordinates().max(axis=0)
         return (x_max - x_min) / self.nelx, (y_max - y_min) / self.nely
+
+    @property
+    def domain_vol(self):
+        return assemble(Constant(1)*dx(domain=self.mesh))
+    
+    @property
+    def width(self):
+        return self.resolution[0] * self.nelx
+    
+    @property
+    def height(self):
+        return self.resolution[1] * self.nely
+
+    @property
+    def cell_midpoints(self):
+        return np.array([c.midpoint().array()[:2] for c in cells(self.mesh)])
 
 
 @dataclass
