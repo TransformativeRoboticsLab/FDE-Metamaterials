@@ -1,23 +1,21 @@
-# import fenics as fe
-from fenics import *
-import numpy as np
-import nlopt
 import jax
+import nlopt
+import numpy as np
+from fenics import *
+
 jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp
-from matplotlib import pyplot as plt
-import matplotlib.animation as animation
-import time
-
-from mechanics import calculate_elastic_constants, anisotropy_index
-from metamaterial import Metamaterial
-from filters import DensityFilter
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, EnergyConstraint, BulkModulusConstraint, EigenvectorConstraint
-
-from helpers import Ellipse, print_summary, beta_function
-
+from functools import partial
 
 import numpy as np
+from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
+                     jax_helmholtz_filter, jax_projection)
+from helpers import beta_function, mirror_density
+from matplotlib import pyplot as plt
+from metamaterial import Metamaterial
+from optimization import EnergyConstraint, OptimizationState
+
+from mechanics import anisotropy_index, calculate_elastic_constants
+
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
 
@@ -97,7 +95,7 @@ def update_t(x, gs):
 
     
 def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
-    metamaterial = Metamaterial(E_max, E_min, nu)
+    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely)
     if 'tri' in mesh_cell_type:
         metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
     elif 'quad' in mesh_cell_type:
@@ -108,39 +106,87 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
     return metamaterial
 
 def main():
-    # inputs
-    nelx = 50
-    nely = nelx
-    E_max = 1.
-    E_min = 1e-9
-    nu = 0.3
+    E_max, E_min, nu = 1., 1e-9, 0.3
     vol_frac = 0.1
-    start_beta, n_betas = 8, 3
+    start_beta, n_betas = 1, 8
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
-    epoch_duration = 100
+    epoch_duration = 50
     basis_v = 'BULK'
-    density_seed_type = 'uniform'
-    extremal_mode = 1
-    mesh_cell_type = 'tri' # triangle, quadrilateral
-    
-    metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type=mesh_cell_type)
-    
-    # density filter setup
-    filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
-    
-    # global optimization state
-    ops = OptimizationState(beta=start_beta, eta=eta, filt=filt, epoch_iter_tracker=[1])
+    density_seed_type = 'binomial'
+    extremal_mode = 2
+    mesh_cell_type = 'tri'  # triangle, quadrilateral
+    if 'tri' in mesh_cell_type:
+        nelx = 50
+    elif 'quad' in mesh_cell_type:
+        nelx = 100
+        # nelx = 50
+    else:
+        raise ValueError(f"Invalid mesh_cell_type: {mesh_cell_type}")
+    nely = nelx
 
+    cell_side_length_mm = 25.
+    line_width_mm = 2.5
+    line_space_mm = line_width_mm
+    norm_line_width = line_width_mm / cell_side_length_mm
+    norm_line_space = line_space_mm / cell_side_length_mm
+    norm_filter_radius = norm_line_width
+
+    print(f"Cell Side Length: {cell_side_length_mm} mm")
+    print(f"Line Width: {line_width_mm} mm")
+    print(f"Line Space: {line_space_mm} mm")
+    print(f"Normalized Line Space: {norm_line_space}")
+    print(f"Normalized Line Width: {norm_line_width}")
+    print(f"Final Filter Radius: {norm_filter_radius}")
+    # ===== End Preamble =====
+
+    # ===== Component Setup =====
+    metamate = setup_metamaterial(E_max,
+                                  E_min,
+                                  nu,
+                                  nelx,
+                                  nely,
+                                  mesh_cell_type=mesh_cell_type)
+
+
+    # density filter setup
+    if metamate.R.ufl_element().degree() > 0:
+        print("Using Helmholtz filter")
+        filt = HelmholtzFilter(radius=norm_filter_radius, 
+                                fn_space=metamate.R)
+        filter_fn = partial(jax_helmholtz_filter, filt)
+    elif metamate.R.ufl_element().degree() == 0:
+        print("Using Density filter")
+        filt = DensityFilter(mesh=metamate.mesh,
+                            radius=norm_filter_radius,
+                            distance_method='periodic')
+        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
+    else:
+        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
+
+    # global optimization state
+    ops = OptimizationState(beta=start_beta,
+                            eta=eta,
+                            filt=filt,
+                            filt_fn = filter_fn,
+                            epoch_iter_tracker=[1])
+
+                            
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
+    x = mirror_density(x, metamate.mesh)
+    # ===== End Component Setup =====
     
+    # ===== Objective and Constraints Setup =====
     v = v_dict[basis_v]
     f = EnergyConstraint(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
     # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
     
+    # ===== End Objective and Constraints Setup =====
+    
+    # ===== Optimization Setup =====
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
     # opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
@@ -149,17 +195,28 @@ def main():
     opt.set_upper_bounds(np.ones(x.size))
     opt.set_maxeval(epoch_duration)
     opt.set_param('dual_ftol_rel', 1e-6)
+    # ===== End Optimization Setup =====
 
+    # ===== Optimization Loop =====
     # progressively up the projection
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
-        x = np.copy(opt.optimize(x))
+        x[:] = np.copy(opt.optimize(x))
+        print(f"\n===== Epoch Summary: {n} =====")
+        print(f"Final Objective: {opt.last_optimum_value():.3f}")
+        print(f"Result Code: {opt.last_optimize_result()}")
+        print(f"===== End Epoch Summary: {n} =====\n")
         ops.epoch_iter_tracker.append(len(f.evals))
+
+    # ===== End Optimization Loop =====
             
-    metamate.x.vector()[:] = x[:]
-    # metamate.plot_density()
+    # ===== Post-Optimization Analysis =====
+    x = filter_fn(x)
+    x = jax_projection(x, ops.beta, ops.eta)
+    metamate.x.vector()[:] = x
     
-    final_C = np.asarray(metamate.solve()[1])
+    m = np.diag(np.array([1., 1., np.sqrt(2)]))
+    final_C = m @ np.asarray(metamate.solve()[1]) @ m
     print('Final C:\n', final_C)
     w, v = np.linalg.eigh(final_C)
     print('Final Eigenvalues:\n', w)
