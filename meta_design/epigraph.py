@@ -4,14 +4,13 @@ import jax
 import nlopt
 import numpy as np
 from fenics import *
-from filters import DensityFilter, HelmholtzFilter
+from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
+                     jax_helmholtz_filter, jax_projection)
 from helpers import beta_function, mirror_density
 from matplotlib import pyplot as plt
 from metamaterial import Metamaterial
 from optimization import (Epigraph, ExtremalConstraints, GeometricConstraints,
-                          InvariantsConstraint, OptimizationState,
-                          jax_density_filter, jax_helmholtz_filter,
-                          jax_projection)
+                          InvariantsConstraint, OptimizationState)
 
 from mechanics import anisotropy_index, calculate_elastic_constants
 
@@ -130,7 +129,7 @@ def main():
     # inputs
     E_max, E_min, nu = 1., 1e-2, 0.45
     vol_frac = 0.1
-    start_beta, n_betas = 1, 8
+    start_beta, n_betas = 8, 3
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
