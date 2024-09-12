@@ -1,17 +1,20 @@
-# import fenics as fe
-from helpers import Ellipse, print_summary, beta_function
-from optimization import OptimizationState, Epigraph, ExtremalConstraints, MaterialSymmetryConstraints, OffDiagonalConstraint, EpigraphBulkModulusConstraint, EigenvectorConstraint, InvariantsConstraint, GeometricConstraints, jax_density_filter, jax_projection
-from filters import DensityFilter
-from metamaterial import Metamaterial
-from mechanics import calculate_elastic_constants, anisotropy_index
-import time
-import matplotlib.animation as animation
-from matplotlib import pyplot as plt
-import jax.numpy as jnp
-from fenics import *
-import numpy as np
-import nlopt
+from functools import partial
+
 import jax
+import nlopt
+import numpy as np
+from fenics import *
+from filters import DensityFilter, HelmholtzFilter
+from helpers import beta_function, mirror_density
+from matplotlib import pyplot as plt
+from metamaterial import Metamaterial
+from optimization import (Epigraph, ExtremalConstraints, GeometricConstraints,
+                          InvariantsConstraint, OptimizationState,
+                          jax_density_filter, jax_helmholtz_filter,
+                          jax_projection)
+
+from mechanics import anisotropy_index, calculate_elastic_constants
+
 jax.config.update("jax_enable_x64", True)
 
 
@@ -100,10 +103,18 @@ def update_t(x, gs):
     print(f"New t value: {x[-1]:.3e}")
 
 
-def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
-    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely)
+def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', domain_shape='square'):
+    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
     if 'tri' in mesh_cell_type:
-        metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+        # metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+        P0 = Point(0, 0)
+        P1 = Point(1, 1)
+        if 'rect' in domain_shape:
+            P1 = Point(np.sqrt(3), 1)
+            nelx = int(nelx * np.sqrt(3))
+            print(f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
+        metamaterial.mesh = RectangleMesh(P0, P1, nelx, nely, 'crossed')
+        metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
         metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)],
                                                  [nelx, nely],
