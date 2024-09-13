@@ -8,9 +8,9 @@ import numpy as np
 from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
                      jax_helmholtz_filter)
 from metamaterial import Metamaterial
-from optimization import (EnergyObjective, Epigraph, ExtremalConstraints,
-                          GeometricConstraints, InvariantsConstraint,
-                          OptimizationState)
+from optimization import (EigenvectorConstraint, EnergyObjective, Epigraph,
+                          ExtremalConstraints, GeometricConstraints,
+                          InvariantsConstraint, OptimizationState)
 from tqdm import tqdm
 
 jax.config.update("jax_enable_x64", True)
@@ -110,7 +110,10 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                           eps=1.,
                                           verbose=params['verbose']),
         'Invariants': InvariantsConstraint(ops=params['ops'], 
-                                           verbose=params['verbose'])
+                                           verbose=params['verbose']),
+        'Eigenvector': EigenvectorConstraint(v=params['v'],
+                                             ops=params['ops'],
+                                             verbose=params['verbose']),
     }
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
@@ -135,7 +138,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
 
 
 def main():
-    nelx = 10
+    nelx = 5
     nely = nelx
     E_max, E_min, nu = 1., 1e-2, 0.45
     beta, eta = 8., 0.5
@@ -201,8 +204,8 @@ def main():
                         plot=params['plot'])
     params['obj'] = obj
     
-    handle_constraints('Invariants', x, params, epi_constraint=True)
-    # handle_constraints('Eigenvector', x, params, epi_constraint=True)
+    # handle_constraints('Invariants', x, params, epi_constraint=True)
+    handle_constraints('Eigenvector', x, params, epi_constraint=True)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
 
 
