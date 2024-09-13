@@ -57,7 +57,7 @@ class Epigraph:
         return t
 
 
-class EnergyConstraint:
+class EnergyObjective:
     """ Not in epigraph form"""
 
     def __init__(self, v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=10, plot=True):
@@ -98,7 +98,6 @@ class EnergyConstraint:
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
 
         def obj(C):
-            from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
             S = jnp.linalg.inv(C)
@@ -106,15 +105,11 @@ class EnergyConstraint:
             if self.extremal_mode == 2:
                 C, S = S, C
 
-            v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
-            Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
             vCv = self.v.T @ C @ self.v
-            vSv = self.v.T @ S @ self.v
             c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
-            s1, s2, s3 = vSv[0, 0], vSv[1, 1], vSv[2, 2]
-            return jnp.log(c1**2/c2/c3)
+            return jnp.log10(c1**2/c2/c3), jnp.array([c1, c2, c3])
 
-        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        (c, cs), dc_dChom = jax.value_and_grad(obj, has_aux=True)(jnp.asarray(Chom))
 
         self.evals.append(c)
 
@@ -128,6 +123,7 @@ class EnergyConstraint:
                 f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
             print(f"Energy: {c:.4f}")
+            print(f"Actual Values: {cs}")
 
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = filt_fn(x)
@@ -212,6 +208,49 @@ class EnergyConstraint:
             return
 
         p = plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+
+class EnergyConstraints:
+    
+    def __init__(self, a, v, extremal_mode, ops, eps=1e-6, verbose=True):
+        self.a = a
+        self.v = v
+        self.extremal_mode = extremal_mode
+        self.ops = ops
+        self.verbose = verbose
+        self.eps = eps
+
+        self.n_constraints = 2
+
+    def __call__(self, results, x, grad, dummy_run=False):
+        
+        def obj(C):
+            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+            C = m @ C @ m
+            S = jnp.linalg.inv(C)
+            
+            if self.extremal_mode == 2:
+                C, S = S, C
+                
+            vCv = self.v.T @ C @ self.v
+            c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
+            return jnp.log10(jnp.array([c1/c2*self.a, c1/c3*self.a]))
+
+        Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
+        
+        c = obj(jnp.asarray(Chom))
+        results[:] = c
+        
+        if dummy_run:
+            return
+        
+        if grad.size > 0:
+            dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints, 9))
+            for n in range(self.n_constraints):
+                grad[n,:] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+
+        if self.verbose:
+            print(f"EnergyConstraints value(s): {c}")
+            
 
 
 class ExtremalConstraints:
