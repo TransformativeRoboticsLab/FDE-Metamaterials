@@ -8,7 +8,7 @@ import numpy as np
 from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
                      jax_helmholtz_filter)
 from metamaterial import Metamaterial
-from optimization import (EnergyConstraint, Epigraph, ExtremalConstraints,
+from optimization import (EnergyObjective, Epigraph, ExtremalConstraints,
                           GeometricConstraints, InvariantsConstraint,
                           OptimizationState)
 from tqdm import tqdm
@@ -58,16 +58,17 @@ def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e
         x_plus = x + perturb
         x_minus = x - perturb
 
-        if params['obj']:
-            params['obj'](np.zeros(params['obj'].n_constraints),
-                          x_plus, np.array([]))
-            params['obj'](np.zeros(params['obj'].n_constraints),
-                          x_minus, np.array([]))
 
         if args_count > 2:  # fn(results, x, grad)
             r_plus = np.zeros(constraint.n_constraints)
             r_minus = np.zeros(constraint.n_constraints)
+            if params['obj']:
+                params['obj'](np.zeros(params['obj'].n_constraints), 
+                              x_plus, np.array([]))
             constraint(r_plus, x_plus, np.array([]))
+            if params['obj']:
+                params['obj'](np.zeros(params['obj'].n_constraints), 
+                              x_minus, np.array([]))
             constraint(r_minus, x_minus, np.array([]))
             grad_fd[:, i] = (r_plus - r_minus) / (2 * epsilon)
         elif args_count == 2:  # c = fn(x, grad)
@@ -83,8 +84,7 @@ def plot_gradients(grad_analytical, grad_fd):
     ax[0].plot(grad_analytical.flatten(), label='Analytical', marker='o')
     ax[0].plot(grad_fd.flatten(), label='Finite Difference', marker='.')
     ax[0].legend()
-    ax[1].plot(np.abs(grad_analytical - grad_fd).flatten() /
-               (grad_analytical.flatten()+1e-8), label='Relative Difference')
+    ax[1].plot(np.abs(grad_analytical - grad_fd).flatten(), label='Abs Difference')
     ax[1].legend()
     plt.show()
 
@@ -97,7 +97,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                         metamaterial=params['metamaterial'], ops=params['ops'], 
                                         verbose=params['verbose'], 
                                         plot=params['plot']),
-        'Energy': EnergyConstraint(v=params['v'], 
+        'Energy': EnergyObjective(v=params['v'], 
                                    extremal_mode=params['extremal_mode'], 
                                    metamaterial=params['metamaterial'], ops=params['ops'], 
                                    verbose=params['verbose'], 
@@ -117,6 +117,10 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
     if epi_constraint:
         x = np.append(x, 1.)
 
+    # if we need to run the primary objective function first to get the analytical gradient
+    if params['obj']:
+        params['obj'](np.zeros(params['obj'].n_constraints), x, np.array([]), dummy_run=True)
+
     constraint = constraints[constraint_name]
     arg_nums = len(inspect.signature(constraint).parameters)
     if arg_nums > 2:
@@ -131,9 +135,9 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
 
 
 def main():
-    nelx = 11
+    nelx = 10
     nely = nelx
-    E_max, E_min, nu = 1., 1e-9, 0.3
+    E_max, E_min, nu = 1., 1e-2, 0.45
     beta, eta = 8., 0.5
     cell_side_length_mm = 25.
     line_width_mm = 2.5
@@ -184,11 +188,22 @@ def main():
     # Initial design variables
     x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
 
-    # handle_constraints('Epigraph', x, params, epi_constraint=True)
-    handle_constraints('Extremal', x, params, epi_constraint=True)
+    # The three constraints that do not need another constraint to be run first
     # handle_constraints('Energy', x, params)
+    # handle_constraints('Epigraph', x, params, epi_constraint=True)
+    # handle_constraints('Extremal', x, params, epi_constraint=True)
+
+    # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal': 
+    obj = ExtremalConstraints(v=params['v'], 
+                        extremal_mode=params['extremal_mode'], 
+                        metamaterial=params['metamaterial'], ops=params['ops'], 
+                        verbose=params['verbose'], 
+                        plot=params['plot'])
+    params['obj'] = obj
+    
+    handle_constraints('Invariants', x, params, epi_constraint=True)
+    # handle_constraints('Eigenvector', x, params, epi_constraint=True)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
-    # handle_constraints('Invariants', x, params)
 
 
 if __name__ == "__main__":
