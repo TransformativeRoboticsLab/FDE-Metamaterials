@@ -4,16 +4,18 @@ import jax
 import nlopt
 import numpy as np
 from fenics import *
-from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
-                     jax_helmholtz_filter, jax_projection)
-from helpers import init_density
-from image import bitmapify
 from matplotlib import pyplot as plt
-from metamaterial import Metamaterial
-from optimization import (EigenvectorConstraint, Epigraph, ExtremalConstraints,
-                          InvariantsConstraint, OptimizationState)
 
-from mechanics import anisotropy_index, calculate_elastic_constants
+from metatop.filters import (DensityFilter, HelmholtzFilter,
+                             jax_density_filter, jax_helmholtz_filter,
+                             jax_projection)
+from metatop.helpers import init_density
+from metatop.image import bitmapify
+from metatop.mechanics import anisotropy_index, calculate_elastic_constants
+from metatop.metamaterial import Metamaterial
+from metatop.optimization import (EigenvectorConstraint, Epigraph,
+                                  ExtremalConstraints, InvariantsConstraint,
+                                  OptimizationState)
 
 jax.config.update("jax_enable_x64", True)
 

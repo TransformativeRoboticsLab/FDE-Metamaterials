@@ -5,13 +5,15 @@ import fenics as fe
 import jax
 import matplotlib.pyplot as plt
 import numpy as np
-from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
-                     jax_helmholtz_filter)
-from metamaterial import Metamaterial
-from optimization import (EigenvectorConstraint, EnergyObjective, Epigraph,
-                          ExtremalConstraints, GeometricConstraints,
-                          InvariantsConstraint, OptimizationState)
 from tqdm import tqdm
+
+from metatop.filters import (DensityFilter, HelmholtzFilter,
+                             jax_density_filter, jax_helmholtz_filter)
+from metatop.metamaterial import Metamaterial
+from metatop.optimization import (EigenvectorConstraint, EnergyObjective,
+                                  Epigraph, ExtremalConstraints,
+                                  GeometricConstraints, InvariantsConstraint,
+                                  OptimizationState)
 
 jax.config.update("jax_enable_x64", True)
 

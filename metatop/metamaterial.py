@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 
 import numpy as np
-from boundary import PeriodicDomain
 from fenics import *
 from matplotlib import pyplot as plt
 
-from mechanics import (lame_parameters, linear_strain, linear_stress,
-                       macro_strain)
+from .boundary import PeriodicDomain
+from .mechanics import (lame_parameters, linear_strain, linear_stress,
+                        macro_strain)
 
 set_log_level(40)
 

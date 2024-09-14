@@ -8,10 +8,11 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from fenics import *
-from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
-                     jax_projection, jax_simp)
-from image import bitmapify
 from matplotlib import gridspec
+
+from .filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
+                      jax_projection, jax_simp)
+from .image import bitmapify
 
 jax.config.update("jax_enable_x64", True)
 

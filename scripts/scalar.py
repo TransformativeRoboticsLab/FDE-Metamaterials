@@ -7,14 +7,16 @@ jax.config.update("jax_enable_x64", True)
 from functools import partial
 
 import numpy as np
-from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
-                     jax_helmholtz_filter, jax_projection)
-from helpers import init_density
 from matplotlib import pyplot as plt
-from metamaterial import Metamaterial
-from optimization import EnergyConstraints, EnergyObjective, OptimizationState
 
-from mechanics import anisotropy_index, calculate_elastic_constants
+from metatop.filters import (DensityFilter, HelmholtzFilter,
+                             jax_density_filter, jax_helmholtz_filter,
+                             jax_projection)
+from metatop.helpers import init_density
+from metatop.mechanics import anisotropy_index, calculate_elastic_constants
+from metatop.metamaterial import Metamaterial
+from metatop.optimization import (EnergyConstraints, EnergyObjective,
+                                  OptimizationState)
 
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
