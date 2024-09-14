@@ -71,7 +71,7 @@ def update_t(x, gs):
     for g in gs:
         results = np.zeros(g.n_constraints)
         g(results, x, np.array([]), dummy_run=True)
-        new_t = max(new_t, *(results/g.eps))
+        new_t = max(new_t, *(results))
     x[-1] = new_t
     print(f"New t value: {x[-1]:.3e}")
 
