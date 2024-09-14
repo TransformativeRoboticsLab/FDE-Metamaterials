@@ -9,10 +9,12 @@ from matplotlib import pyplot as plt
 from metatop.filters import DensityFilter
 from metatop.helpers import beta_function, print_summary
 from metatop.metamaterial import Metamaterial
-from metatop.optimization import (AndreassenOptimization,
-                                  BulkModulusConstraint, IsotropicConstraint,
-                                  OptimizationState, ShearModulusConstraint,
-                                  VolumeConstraint)
+from metatop.optimization import OptimizationState
+from metatop.optimization.examples import AndreassenOptimization
+from metatop.optimization.scalar import (BulkModulusConstraint,
+                                         IsotropicConstraint,
+                                         ShearModulusConstraint,
+                                         VolumeConstraint)
 
 RAND_SEED = 0
 

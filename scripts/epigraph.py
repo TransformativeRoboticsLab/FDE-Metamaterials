@@ -12,9 +12,10 @@ from metatop.helpers import init_density, update_t
 from metatop.image import bitmapify
 from metatop.mechanics import anisotropy_index, calculate_elastic_constants
 from metatop.metamaterial import setup_metamaterial
-from metatop.optimization import (EigenvectorConstraint, Epigraph,
-                                  ExtremalConstraints, InvariantsConstraint,
-                                  OptimizationState)
+from metatop.optimization import OptimizationState
+from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
+                                           ExtremalConstraints,
+                                           InvariantsConstraint)
 
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)

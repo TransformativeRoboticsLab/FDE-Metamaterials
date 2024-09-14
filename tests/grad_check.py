@@ -13,10 +13,11 @@ from metatop import V_DICT
 from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
 from metatop.metamaterial import Metamaterial
-from metatop.optimization import (EigenvectorConstraint, EnergyObjective,
-                                  Epigraph, ExtremalConstraints,
-                                  GeometricConstraints, InvariantsConstraint,
-                                  OptimizationState)
+from metatop.optimization import OptimizationState
+from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
+                                           ExtremalConstraints,
+                                           InvariantsConstraint)
+from metatop.optimization.scalar import EnergyObjective
 
 
 def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e-5):
@@ -73,13 +74,6 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                    metamaterial=params['metamaterial'], ops=params['ops'], 
                                    verbose=params['verbose'], 
                                    plot=params['plot']),
-        'Geometric': GeometricConstraints(ops=params['ops'], 
-                                          metamaterial=params['metamaterial'],
-                                          line_width=params['line_width'], 
-                                          line_space=params['line_space'], 
-                                          c=1./params['metamaterial'].mesh.hmin(),
-                                          eps=1.,
-                                          verbose=params['verbose']),
         'Invariants': InvariantsConstraint(ops=params['ops'], 
                                            verbose=params['verbose']),
         'Eigenvector': EigenvectorConstraint(v=params['v'],
