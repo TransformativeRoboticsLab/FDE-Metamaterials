@@ -103,14 +103,15 @@ def main():
     # inputs
     E_max, E_min, nu = 1., 1e-2, 0.45
     vol_frac = 0.1
-    start_beta, n_betas = 8, 3
+    start_beta, n_betas = 8, 4
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
-    epoch_duration = 50
-    basis_v = 'VERT'
-    density_seed_type = 'binomial'
+    epoch_duration = 400
+    basis_v = 'BULK'
+    symmetry_order = 'rectangular'
+    density_seed_type = 'uniform'
     extremal_mode = 1
     mesh_cell_type = 'tri'  # triangle, quadrilateral
     domain_shape = 'square' # square or rect
@@ -172,7 +173,7 @@ def main():
 
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
-    x = mirror_density(x, metamate.R, type='x')
+    # x, metamate.mirror_map = mirror_density(x, metamate.R, type='x')
     x = np.append(x, 1.)
     # ===== End Component Setup =====
     
@@ -184,20 +185,11 @@ def main():
                                 metamaterial=metamate,
                                 ops=ops,
                                 plot_interval=10)
+    # g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-1, verbose=True, symmetry_order=symmetry_order)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
-    # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
-    # if 'quad' in mesh_cell_type:
-    # print("Including geometric constraints")
-    g_geo = GeometricConstraints(ops=ops,
-                                 metamaterial=metamate,
-                                 line_width=norm_line_width, line_space=norm_line_space,
-                                 eps=1e-3,
-                                 c=(1./metamate.resolution[0])**4,
-                                 verbose=True)
-    # else:
-    # print("Geometric constraints not implemented for triangle mesh")
+    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1., verbose=True)
 
-    active_constraints = [g_ext, ]
+    active_constraints = [g_ext, g_vec]
     # ===== End Objective and Constraints Setup =====
 
     # ===== Optimizer setup ======
@@ -218,20 +210,24 @@ def main():
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         update_t(x, active_constraints)
-        x[:] = opt.optimize(x)#.clip(min=0.1)
+        x[:] = opt.optimize(x)
+        # x[:-1] = jax_projection(filter_fn(x[:-1]), ops.beta, 0.35)
+        # x[:-1] += np.random.uniform(-0.2, 0.2)
+        # x[:-1] = x[:-1].clip(0., 1.)
+
+        ops.epoch_iter_tracker.append(len(g_ext.evals))
+        
+        # g_sym.eps /= 2.
+        g_vec.eps /= 2.
+
+        opt.set_maxeval(epoch_duration)
+        
+
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
-        ops.epoch_iter_tracker.append(len(g_ext.evals))
 
-        if 'quad' in mesh_cell_type:
-            opt.remove_inequality_constraints()
-            active_constraints.append(g_geo)
-            for g in active_constraints:
-                opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-
-        opt.set_maxeval(epoch_duration)
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
@@ -251,7 +247,25 @@ def main():
     print('Final ASU:', anisotropy_index(final_C, input_style='standard')[-1])
     print('Final Elastic Constants:', calculate_elastic_constants(
         final_C, input_style='standard'))
-
+    
+    img_rez = 200
+    img_shape = (metamate.width, metamate.height)
+    x_img = np.flip(bitmapify(metamate.x,
+                              img_shape,
+                              (img_rez, img_rez),),
+                    axis=0)
+    plt.figure()
+    plt.imshow(x_img, cmap='gray')
+    fname = 'epigraph'
+    fname += f'_v_{basis_v}'
+    fname += f'_sym_{symmetry_order}'
+    fname += f'_dens_{density_seed_type}'
+    fname += f'_vf_{vol_frac:.2f}'
+    fname += f'_b_{start_beta}_{n_betas}'
+    fname += f'_ext_{extremal_mode}'
+    fname += f'_R_{norm_filter_radius}'
+    plt.imsave(f"output/{fname}.png", x_img, cmap='gray')
+    plt.imsave(f"output/{fname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
     plt.show(block=True)
 
 

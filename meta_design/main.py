@@ -9,35 +9,16 @@ from functools import partial
 import numpy as np
 from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
                      jax_helmholtz_filter, jax_projection)
-from helpers import beta_function, mirror_density
+from helpers import init_density
 from matplotlib import pyplot as plt
 from metamaterial import Metamaterial
-from optimization import EnergyConstraint, OptimizationState
+from optimization import EnergyConstraints, EnergyObjective, OptimizationState
 
 from mechanics import anisotropy_index, calculate_elastic_constants
 
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
 
-def uniform_density(dim):
-    return np.random.uniform(0, 1, dim)
-
-def beta_density(vol_frac, dim):
-    return beta_function(vol_frac, dim)
-
-def binomial_density(vol_frac, dim):
-    return np.random.binomial(1, vol_frac, dim)
-
-density_functions = {
-    'uniform': lambda dim: uniform_density(dim),
-    'beta': lambda vol_frac, dim: beta_density(vol_frac, dim),
-    'binomial': lambda vol_frac, dim: binomial_density(vol_frac, dim)
-}
-
-def init_density(density_seed_type, vol_frac, dim):
-    if density_seed_type not in density_functions:
-        raise ValueError(f"Invalid density_seed_type: {density_seed_type}")
-    return density_functions[density_seed_type](vol_frac, dim) if density_seed_type != 'uniform' else density_functions[density_seed_type](dim)
 
 RAND_SEED = 1
 print(f"Random Seed: {RAND_SEED}")
@@ -106,17 +87,17 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
     return metamaterial
 
 def main():
-    E_max, E_min, nu = 1., 1e-9, 0.3
+    E_max, E_min, nu = 1., 1e-9, 0.45
     vol_frac = 0.1
-    start_beta, n_betas = 1, 8
+    start_beta, n_betas = 8, 4
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
     epoch_duration = 50
-    basis_v = 'BULK'
-    density_seed_type = 'binomial'
-    extremal_mode = 2
+    basis_v = 'VERT'
+    density_seed_type = 'uniform'
+    extremal_mode = 1
     mesh_cell_type = 'tri'  # triangle, quadrilateral
     if 'tri' in mesh_cell_type:
         nelx = 50
@@ -176,19 +157,20 @@ def main():
                             
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
-    x = mirror_density(x, metamate.mesh)
+    # x = mirror_density(x, metamate.mesh)
     # ===== End Component Setup =====
     
     # ===== Objective and Constraints Setup =====
     v = v_dict[basis_v]
-    f = EnergyConstraint(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
-    # g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-3, verbose=True)
+    f = EnergyObjective(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
+    g = EnergyConstraints(a=2., v=v, extremal_mode=extremal_mode, ops=ops, verbose=True)
     
     # ===== End Objective and Constraints Setup =====
     
     # ===== Optimization Setup =====
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
+    opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
     # opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
     
     opt.set_lower_bounds(np.zeros(x.size))
@@ -207,6 +189,8 @@ def main():
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
         ops.epoch_iter_tracker.append(len(f.evals))
+        
+        g.a *= 10.
 
     # ===== End Optimization Loop =====
             

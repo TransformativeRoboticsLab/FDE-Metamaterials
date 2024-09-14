@@ -1,18 +1,29 @@
 import numpy as np
-from jax import numpy as jnp
-import jax
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 
-np.random.seed(0)
-A = np.random.uniform(0,1,(3,3))
-A = (A @ A.T) / 2
+class Point:
+    def __init__(self, x, y):
+        self.pt = np.array([x, y])
+        
+    @property
+    def x(self):
+        return self.pt[0]
+    
+    @property
+    def y(self):
+        return self.pt[1]
 
-w,v = np.linalg.eig(A)
+p = Point(0.3, 0.1)
+p1 = Point(p.y, p.x)
+p2 = Point(-p.y, p.x)
+p3 = Point(-p.x, p.y)
+p4 = Point(-p.x, -p.y)
+p5 = Point(-p.y, -p.x)
+p6 = Point(p.y, -p.x)
+p7 = Point(p.x, -p.y)
 
-lambda_max = np.max(w)
-est_lambda_max = np.log(np.linalg.det(np.eye(3) + A))
-tr_lambda_max = np.trace(A)
-
-print(f"lambda_max: {lambda_max:.3f}")
-print(f"est_lambda_max: {est_lambda_max:.3f}")
-print(f"tr_lambda_max: {tr_lambda_max:.3f}")
+points = [p.pt, p1.pt, p2.pt, p3.pt, p4.pt, p5.pt, p6.pt, p7.pt, p.pt]
+points = np.array(points)
+plt.scatter(points[:,0], points[:,1])
+# plt.plot(points[:,0], points[:,1])
+plt.show()
