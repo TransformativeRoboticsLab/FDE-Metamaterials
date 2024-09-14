@@ -330,19 +330,17 @@ plot_delay: {self.plot_interval}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-6), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
-            # return jnp.log(jnp.array([c1/c2, c1/c3, ])), jnp.array([c1, c2, c3])
+            # return (jnp.log(jnp.array([c1, 1 - c2, 1 - c3,  ])), jnp.array([c1, c2, c3, ]))
+            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
 
         c, cs = obj(jnp.asarray(Chom))
-        dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
-            0].reshape((self.n_constraints, 9))
-
         results[:] = c - t
 
         if dummy_run:
             return
 
         if grad.size > 0:
+            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[0].reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = -1.
@@ -669,7 +667,7 @@ class EigenvectorConstraint:
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
 
-            C /= norm(C)
+            # C /= norm(C)
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             # Rayleigh quotients
@@ -677,26 +675,26 @@ class EigenvectorConstraint:
             Cv1, Cv2, Cv3 = C @ v1, C @ v2, C @ v3
             x1, x2, x3 = Cv1 - r1*v1, Cv2 - r2*v2, Cv3 - r3*v3
 
-            return jnp.array([norm(x1), norm(x2), norm(x3)])
+            # return jnp.log(jnp.array([norm(x1), norm(x2), norm(x3)])/self.eps), jnp.array([norm(x1), norm(x2), norm(x3)])
+            return jnp.log(jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])/self.eps), jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])
 
-        c = obj(np.asarray(Chom))
-        dc_dChom = jax.jacrev(obj)(jnp.asarray(
-            Chom)).reshape((self.n_constraints, 9))
-
-        results[:] = c - t*self.eps
+        c, cs = obj(np.asarray(Chom))
+        results[:] = c - t
 
         if dummy_run:
             return
 
         if grad.size > 0:
+            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[0].reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-                grad[n, -1] = -self.eps
+                grad[n, -1] = -1.
                 # grad[n,:] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
 
         if self.verbose:
             print(f"Eigenvector Constraint:")
-            print(f"Residuals: {c} (Target ≤{self.eps:.1e}*t)")
+            print(f"Values: {c}")
+            print(f"Residuals: {cs}")
 
 
 class InvariantsConstraint:
@@ -727,15 +725,13 @@ class InvariantsConstraint:
             return jnp.array([-I1, -I2, I3])
 
         c = obj(jnp.asarray(Chom))
-        dc_dChom = jax.jacrev(obj)(jnp.asarray(
-            Chom)).reshape((self.n_constraints, 9))
-
         results[:] = c - self.eps
 
         if dummy_run:
             return
 
         if grad.size > 0:
+            dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = 0.
