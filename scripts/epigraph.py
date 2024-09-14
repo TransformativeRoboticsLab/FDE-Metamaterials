@@ -1,9 +1,9 @@
 from functools import partial
 
+import fenics as fe
 import jax
 import nlopt
 import numpy as np
-from fenics import *
 from matplotlib import pyplot as plt
 
 from metatop.filters import (DensityFilter, HelmholtzFilter,
@@ -82,18 +82,18 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
     metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
     if 'tri' in mesh_cell_type:
         # metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-        P0 = Point(0, 0)
-        P1 = Point(1, 1)
+        P0 = fe.Point(0, 0)
+        P1 = fe.Point(1, 1)
         if 'rect' in domain_shape:
-            P1 = Point(np.sqrt(3), 1)
+            P1 = fe.Point(np.sqrt(3), 1)
             nelx = int(nelx * np.sqrt(3))
             print(f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
-        metamaterial.mesh = RectangleMesh(P0, P1, nelx, nely, 'crossed')
+        metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
-        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)],
+        metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
                                                  [nelx, nely],
-                                                 CellType.Type.quadrilateral)
+                                                 fe.CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
     metamaterial.create_function_spaces()

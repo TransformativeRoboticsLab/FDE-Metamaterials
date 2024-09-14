@@ -2,12 +2,12 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Callable, Union
 
+import fenics as fe
 import jax
 import jax.interpreters
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-from fenics import *
 from matplotlib import gridspec
 
 from .filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
@@ -150,7 +150,7 @@ class EnergyObjective:
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
-        r = Function(self.metamaterial.R)
+        r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.size == self.metamaterial.R.dim():
                 r.vector()[:] = field
@@ -181,7 +181,7 @@ class EnergyObjective:
         plt.pause(1e-3)
 
     def plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
-        r = Function(r_in.function_space())
+        r = fe.Function(r_in.function_space())
         r.vector()[:] = r_in.vector()[:]
         if cmap == 'gray':
             r.vector()[:] = 1. - r.vector()[:]
@@ -208,7 +208,7 @@ class EnergyObjective:
             ax.set_title(title)
             return
 
-        p = plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+        p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
 
 class EnergyConstraints:
     
@@ -380,7 +380,7 @@ plot_delay: {self.plot_interval}
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
-        r = Function(self.metamaterial.R)
+        r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.shape[0] == self.metamaterial.R.dim():
                 r.vector()[:] = field
@@ -410,7 +410,7 @@ plot_delay: {self.plot_interval}
         plt.pause(1e-3)
 
     def plot_density(self, r_in, title=None, ax=None):
-        r = Function(r_in.function_space())
+        r = fe.Function(r_in.function_space())
         r.vector()[:] = 1. - r_in.vector()[:]
         r.set_allow_extrapolation(True)
 
@@ -434,7 +434,7 @@ plot_delay: {self.plot_interval}
             ax.set_title(title)
             return
 
-        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
 
 class AndreassenOptimization:
@@ -537,7 +537,7 @@ class AndreassenOptimization:
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
-        r = Function(self.metamaterial.R)
+        r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.size == self.metamaterial.R.dim():
                 r.vector()[:] = field
@@ -558,7 +558,7 @@ class AndreassenOptimization:
         plt.pause(1e-3)
 
     def plot_density(self, r_in, title=None, ax=None):
-        r = Function(r_in.function_space())
+        r = fe.Function(r_in.function_space())
         r.vector()[:] = 1. - r_in.vector()[:]
         r.set_allow_extrapolation(True)
 
@@ -582,7 +582,7 @@ class AndreassenOptimization:
             ax.set_title(title)
             return
 
-        plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
 
 class VectorConstraint:
@@ -764,7 +764,7 @@ class GeometricConstraints:
             self.lw, self.ls, self.filt_radius)
 
         # items to help calculate the gradient of rho_tilde
-        self._r_tilde = Function(self.metamaterial.R)
+        self._r_tilde = fe.Function(self.metamaterial.R)
 
     def __call__(self, results, x, grad, dummy_run=False):
 
@@ -817,19 +817,19 @@ class GeometricConstraints:
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
 
-        r = Function(self.metamaterial.R)
+        r = fe.Function(self.metamaterial.R)
         r.vector()[:] = x
         # here we use fenics gradient to calculate grad(rho_tilde)
         # first we convert x_tilde the vector to a fenics function in DG space
         self._r_tilde.vector()[:] = x_tilde
         # then we project r_tilde to a CG space so that we can get the gradient
         # this is required because the gradient of a DG function is zero (values are constant across the cell)
-        r_tilde_cg = project(self._r_tilde, self.metamaterial.R_cg)
+        r_tilde_cg = fe.project(self._r_tilde, self.metamaterial.R_cg)
         # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
-        grad_r_tilde = grad(r_tilde_cg)
-        laplac_r_tilde = div(grad_r_tilde)
-        grad_r_tilde_norm_sq = project(
-            inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
+        grad_r_tilde = fe.grad(r_tilde_cg)
+        laplac_r_tilde = fe.div(grad_r_tilde)
+        grad_r_tilde_norm_sq = fe.project(
+            fe.inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
 
         r_tilde_img = x_tilde.reshape((nely, nelx))
         def fd_norm_sq(img):
@@ -837,7 +837,7 @@ class GeometricConstraints:
             return grad[0]**2 + grad[1]**2
         fd_grad_r_tilde_norm_sq = fd_norm_sq(r_tilde_img)
         J_fd = jax.jacfwd(fd_norm_sq)(r_tilde_img)
-        J_fenics = -2*div(grad_r_tilde)
+        J_fenics = -2*fe.div(grad_r_tilde)
         # grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
         # fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2).reshape((nely, nelx))
         # d_check = jax.jacrev(self._fd_grad)(r_tilde_img)
@@ -861,7 +861,7 @@ class GeometricConstraints:
         # # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
         # diff = fd_grad_r_tilde_norm_sq.flatten(
         # ) - grad_r_tilde_norm_sq.vector()[:]
-        # err = Function(self.metamaterial.R)
+        # err = fe.Function(self.metamaterial.R)
         # err.vector()[:] = diff
         # plt.plot(diff)
         # # plt.yscale('log')
@@ -1226,7 +1226,7 @@ class XiaOptimization:
             E_max = self.metamaterial.prop.E_max
             E_min = self.metamaterial.prop.E_min
             nu = self.metamaterial.prop.nu
-            cell_vol = next(cells(self.metamaterial.mesh)).volume()
+            cell_vol = next(fe.cells(self.metamaterial.mesh)).volume()
             baseUChom = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
             c = sum(-Chom[i][j] for i in self.obj_idxs[0]
@@ -1236,7 +1236,7 @@ class XiaOptimization:
 
             self.evals.append(c)
             dc = -self.pen * (E_max - E_min) * x_phys**(self.pen - 1.) * \
-                project(dc, self.metamaterial.R).vector()[:]
+                fe.project(dc, self.metamaterial.R).vector()[:]
             dv = np.ones_like(x) * cell_vol
 
             ft = 'density'

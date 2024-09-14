@@ -1,14 +1,13 @@
-# from fenics import sym, grad, Constant, tr, Identity
+import fenics as fe
 import numpy as np
-from fenics import *
 
 
 def linear_strain(u):
-    return sym(grad(u))
+    return fe.sym(fe.grad(u))
 
-def macro_strain(i: int) -> Constant:
+def macro_strain(i: int) -> fe.Constant:
     eye = np.eye((3))[:, i]
-    return Constant(np.array([[eye[0],    eye[2]/2.],
+    return fe.Constant(np.array([[eye[0],    eye[2]/2.],
                               [eye[2]/2., eye[1]]]))
 
 def lame_parameters(E, nu, model='plane_stress'):
@@ -21,7 +20,7 @@ def lame_parameters(E, nu, model='plane_stress'):
 
 def linear_stress(eps, E, nu):
     lambda_, mu_ = lame_parameters(E, nu, model='plane_stress')
-    return lambda_*tr(eps)*Identity(2) + 2.0*mu_*eps
+    return lambda_*fe.tr(eps)*fe.Identity(2) + 2.0*mu_*eps
 
 def matrix2tensor(V, input_style='mandel'):
   '''

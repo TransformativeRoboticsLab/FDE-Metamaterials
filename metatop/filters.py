@@ -2,9 +2,9 @@ import os
 import pickle
 from functools import partial
 
+import fenics as fe
 import jax
 import numpy as np
-from fenics import *
 from jax.experimental import sparse
 from matplotlib import pyplot as plt
 from scipy.spatial import KDTree
@@ -37,8 +37,8 @@ def jax_projection(x, beta=1., eta=0.5):
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
-def filter_rho(rho: Function, H: np.array, Hs: np.array):
-    filtered_rho = Function(rho.function_space())
+def filter_rho(rho: fe.Function, H: np.array, Hs: np.array):
+    filtered_rho = fe.Function(rho.function_space())
     filtered_rho.vector().set_local(np.divide(H @ rho.vector()[:], Hs))
     return filtered_rho
 
@@ -88,11 +88,11 @@ def filter_rho(rho: Function, H: np.array, Hs: np.array):
 class DensityFilter:
     calculated_filters = {}
     
-    def __init__(self, mesh: Mesh, radius: float, distance_method: str = 'periodic'):
+    def __init__(self, mesh: fe.Mesh, radius: float, distance_method: str = 'periodic'):
         self.mesh = mesh
         self.radius = radius
         self.distance_method = distance_method
-        self.fn_space = FunctionSpace(mesh, 'DG', 0)
+        self.fn_space = fe.FunctionSpace(mesh, 'DG', 0)
 
         distance_methods = {
             'periodic': self._calculate_periodic_distances,
@@ -120,7 +120,7 @@ class DensityFilter:
 
         self.calculated_filters = None
             
-    def filter(self, rho: Function):
+    def filter(self, rho: fe.Function):
         # r = Function(rho.function_space(), name="Rho_filtered")
         # r.assign(filter_rho(rho, self.H, self.Hs))
         return filter_rho(rho, self.H, self.Hs)
@@ -137,7 +137,7 @@ class DensityFilter:
             pickle.dump(self.calculated_filters, f)
         
     def _calculate_flat_distances(self):
-        midpoints = [cell.midpoint().array()[:] for cell in cells(self.mesh)]
+        midpoints = [cell.midpoint().array()[:] for cell in fe.cells(self.mesh)]
         tree = KDTree(midpoints)
         return tree.sparse_distance_matrix(tree, max_distance=self.radius, output_type='coo_matrix')
 
@@ -146,7 +146,7 @@ class DensityFilter:
     def _calculate_periodic_distances(self):
 
         # NOTE: If instead of finding the midpoints we actually did a function_space.tabulate_dof_coordinates() we could also use this method for a CG space instead of just a DG space. This is because the dofs in a DG space are the cell midpoints, whereas in a CG space they are the vertices of the mesh.
-        midpoints = np.array([c.midpoint()[:][:2] for c in cells(self.mesh)])
+        midpoints = np.array([c.midpoint()[:][:2] for c in fe.cells(self.mesh)])
         
         x_min, y_min = self.mesh.coordinates().min(axis=0)
         x_max, y_max = self.mesh.coordinates().max(axis=0)
@@ -190,25 +190,25 @@ class DensityFilter:
         return tdist
 
 class HelmholtzFilter:
-    def __init__(self, radius: float, fn_space: FunctionSpace):
+    def __init__(self, radius: float, fn_space: fe.FunctionSpace):
         self.radius = radius
         self._scaled_radius = radius / 2. / np.sqrt(3)
         self.fn_space = fn_space
 
-        r, w = TrialFunction(fn_space), TestFunction(fn_space)
-        self.a = (self._scaled_radius**2)*inner(grad(r), grad(w))*dx + r*w*dx
-        self.solver = LUSolver(assemble(self.a))
+        r, w = fe.TrialFunction(fn_space), fe.TestFunction(fn_space)
+        self.a = (self._scaled_radius**2)*fe.inner(fe.grad(r), fe.grad(w))*fe.dx + r*w*fe.dx
+        self.solver = fe.LUSolver(fe.assemble(self.a))
 
-        self.r = Function(fn_space)
-        self.r_filtered = Function(fn_space)
-        self.b = Vector(self.fn_space.mesh().mpi_comm(), self.fn_space.dim())
-        self.w = TestFunction(self.fn_space)
+        self.r = fe.Function(fn_space)
+        self.r_filtered = fe.Function(fn_space)
+        self.b = fe.Vector(self.fn_space.mesh().mpi_comm(), self.fn_space.dim())
+        self.w = fe.TestFunction(self.fn_space)
     
     def filter(self, r_array):
         assert r_array.size == self.fn_space.dim(), "Input array size must match function space dimension"
         self.r.vector()[:] = r_array
-        L = self.r*self.w*dx
-        assemble(L, tensor=self.b)
+        L = self.r*self.w*fe.dx
+        fe.assemble(L, tensor=self.b)
         
         self.solver.solve(self.r_filtered.vector(), self.b)
         
@@ -255,31 +255,31 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
     jax_grad = jax.grad(f)(x)
     fd_grad  = finite_difference(f, x, eps)
     
-    r = Function(filter_obj.fn_space)
+    r = fe.Function(filter_obj.fn_space)
     r.vector()[:] = x
-    r_filt = Function(filter_obj.fn_space)
+    r_filt = fe.Function(filter_obj.fn_space)
     r_filt.vector()[:] = filter_fn(x)
-    jax_fn = Function(filter_obj.fn_space)
+    jax_fn = fe.Function(filter_obj.fn_space)
     jax_fn.vector()[:] = jax_grad
-    fd_fn = Function(filter_obj.fn_space)
+    fd_fn = fe.Function(filter_obj.fn_space)
     fd_fn.vector()[:] = fd_grad
     
     if show_plot:
         fig, axs = plt.subplots(2, 2, figsize=(10, 10))
         plt.sca(axs[0,0])
-        c=plot(r, cmap='gray')
+        c=fe.plot(r, cmap='gray')
         plt.colorbar(c)
         plt.title("Density")
         plt.sca(axs[0,1])
-        c=plot(r_filt, cmap='gray')
+        c=fe.plot(r_filt, cmap='gray')
         plt.colorbar(c)
         plt.title("Filtered Density")
         plt.sca(axs[1,0])
-        c=plot(jax_fn)
+        c=fe.plot(jax_fn)
         plt.colorbar(c)
         plt.title("JAX Gradient")
         plt.sca(axs[1,1])
-        c=plot(fd_fn)
+        c=fe.plot(fd_fn)
         plt.colorbar(c)
         plt.title("Finite Difference Gradient")
         # plt.show()
@@ -297,15 +297,15 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
 if __name__ == "__main__":
     np.random.seed(0)
 
-    mesh = UnitSquareMesh(50,50, 'crossed')
+    mesh = fe.UnitSquareMesh(50,50, 'crossed')
     # mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [20, 20], CellType.Type.quadrilateral)
-    expr = Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
+    expr = fe.Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
 
-    dg_space = FunctionSpace(mesh, 'DG', 0)
-    rho_dg = Function(dg_space)
+    dg_space = fe.FunctionSpace(mesh, 'DG', 0)
+    rho_dg = fe.Function(dg_space)
     rho_dg.interpolate(expr)
-    cg_space = FunctionSpace(mesh, 'CG', 1)
-    rho_cg = Function(cg_space)
+    cg_space = fe.FunctionSpace(mesh, 'CG', 1)
+    rho_cg = fe.Function(cg_space)
     rho_cg.interpolate(expr)
 
     # the finite difference of the helmholtz filter shows some mesh artifacts that I haven't figured out how to fix.

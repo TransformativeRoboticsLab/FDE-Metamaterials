@@ -1,9 +1,9 @@
-from fenics import Function, FunctionSpace, Mesh, interpolate, Cell, UserExpression
+import fenics as fe
 import numpy as np
 from scipy.ndimage import convolve, gaussian_filter
 
 
-def func2img(shape: tuple, resolution: tuple, func: Function):
+def func2img(shape: tuple, resolution: tuple, func: fe.Function):
     a, b = shape
     Nx = int(resolution[0] * a)
     Ny = int(resolution[1] * b)
@@ -19,15 +19,15 @@ def func2img(shape: tuple, resolution: tuple, func: Function):
     image = ((image - np.min(image)) / (np.max(image) - np.min(image))) * 255
     return image.astype(np.uint8)
     
-def img2func(image: np.ndarray, mesh: Mesh, fs: FunctionSpace):
-    class ImageToFunction(UserExpression):
+def img2func(image: np.ndarray, mesh: fe.Mesh, fs: fe.FunctionSpace):
+    class ImageToFunction(fe.UserExpression):
         def __init__(self, image, mesh, **kwargs):
             super().__init__(**kwargs)
             self.mesh = mesh
             self.image = image
             
         def eval_cell(self, value, x, ufc_cell):
-            p = Cell(self.mesh, ufc_cell.index).midpoint()
+            p = fe.Cell(self.mesh, ufc_cell.index).midpoint()
             Nx, Ny = self.image.shape[1], self.image.shape[0]
             i, j = int(p[0] * Nx), int(p[1] * Ny)
             value[:] = self.image[-(j+1), i]
@@ -42,8 +42,8 @@ def img2func(image: np.ndarray, mesh: Mesh, fs: FunctionSpace):
         normalized_image= normalized_image[:,:,0] > 0.5
     # Create the custom UserExpression
     image_to_function = ImageToFunction(normalized_image, mesh, degree=2)
-    # Interpolate the UserExpression onto the Function
-    func = interpolate(image_to_function, fs)
+    # Interpolate the UserExpression onto the fe.Function
+    func = fe.interpolate(image_to_function, fs)
     return func
 
 def conic_filter(image, kernel_size=5):
@@ -59,7 +59,7 @@ def conic_filter(image, kernel_size=5):
     blurred_image = convolve(image, kernel)
     
     return blurred_image
-def bitmapify(r: Function, shape: tuple, img_resolution: tuple[int, int], threshold: int = 128) -> np.ndarray:
+def bitmapify(r: fe.Function, shape: tuple, img_resolution: tuple[int, int], threshold: int = 128) -> np.ndarray:
     # This blur is there just to smooth out some of the sharp 
     # corners that the fenics mesh can make if the image resolution >> mesh resolution
     if 'tri' in r.function_space().ufl_cell().cellname():

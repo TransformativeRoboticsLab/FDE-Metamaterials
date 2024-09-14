@@ -1,7 +1,7 @@
+import fenics as fe
 import jax
 import nlopt
 import numpy as np
-from fenics import *
 
 jax.config.update("jax_enable_x64", True)
 from functools import partial
@@ -80,9 +80,9 @@ def update_t(x, gs):
 def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
     metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely)
     if 'tri' in mesh_cell_type:
-        metamaterial.mesh = UnitSquareMesh(nelx, nely, 'crossed')
+        metamaterial.mesh = fe.UnitSquareMesh(nelx, nely, 'crossed')
     elif 'quad' in mesh_cell_type:
-        metamaterial.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+        metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [nelx, nely], fe.CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
     metamaterial.create_function_spaces()

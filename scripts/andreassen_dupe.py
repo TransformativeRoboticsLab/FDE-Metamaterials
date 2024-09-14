@@ -1,18 +1,20 @@
 # import fenics as fe
-from fenics import *
-import numpy as np
-import nlopt
 import jax
-jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp
-from matplotlib import pyplot as plt
-import matplotlib.animation as animation
-import time
+import nlopt
+import numpy as np
 
-from metamaterial import Metamaterial
-from filters import DensityFilter
-from optimization import AndreassenOptimization, VolumeConstraint, IsotropicConstraint, BulkModulusConstraint, ShearModulusConstraint, OptimizationState
-from helpers import Ellipse, print_summary, beta_function
+jax.config.update("jax_enable_x64", True)
+
+import fenics as fe
+from matplotlib import pyplot as plt
+
+from metatop.filters import DensityFilter
+from metatop.helpers import beta_function, print_summary
+from metatop.metamaterial import Metamaterial
+from metatop.optimization import (AndreassenOptimization,
+                                  BulkModulusConstraint, IsotropicConstraint,
+                                  OptimizationState, ShearModulusConstraint,
+                                  VolumeConstraint)
 
 RAND_SEED = 0
 
@@ -35,7 +37,7 @@ def main():
     
     metamate = Metamaterial(E_max, E_min, nu)
     # metamate.mesh = UnitSquareMesh(nelx, nely, 'crossed')
-    metamate.mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [nelx, nely], CellType.Type.quadrilateral)
+    metamate.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [nelx, nely], fe.CellType.Type.quadrilateral)
     metamate.create_function_spaces()
     
     filt = DensityFilter(metamate.mesh, 0.1, distance_method='periodic')
@@ -51,7 +53,7 @@ def main():
     # x = np.random.uniform(0, 1, dim)
     x = beta_function(vol_frac, dim)
     # x = np.random.binomial(1, vol_frac*0.95, dim)
-    # r = Function(metamate.R)
+    # r = fe.Function(metamate.R)
     # r.assign(interpolate(Ellipse(vol_frac, 1/3, 1/6), metamate.R))
     # x = r.vector()[:]
     
