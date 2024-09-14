@@ -6,45 +6,19 @@ import numpy as np
 from fenics import *
 from filters import (DensityFilter, HelmholtzFilter, jax_density_filter,
                      jax_helmholtz_filter, jax_projection)
-from helpers import beta_function, mirror_density
+from helpers import init_density
+from image import bitmapify
 from matplotlib import pyplot as plt
 from metamaterial import Metamaterial
-from optimization import (Epigraph, ExtremalConstraints, GeometricConstraints,
+from optimization import (EigenvectorConstraint, Epigraph, ExtremalConstraints,
                           InvariantsConstraint, OptimizationState)
 
 from mechanics import anisotropy_index, calculate_elastic_constants
 
 jax.config.update("jax_enable_x64", True)
 
-
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
-
-
-def uniform_density(dim):
-    return np.random.uniform(0., 1., dim)
-
-
-def beta_density(vol_frac, dim):
-    return beta_function(vol_frac, dim)
-
-
-def binomial_density(vol_frac, dim):
-    return np.random.binomial(1, vol_frac, dim)
-
-
-density_functions = {
-    'uniform': lambda dim: uniform_density(dim),
-    'beta': lambda vol_frac, dim: beta_density(vol_frac, dim),
-    'binomial': lambda vol_frac, dim: binomial_density(vol_frac, dim)
-}
-
-
-def init_density(density_seed_type, vol_frac, dim):
-    if density_seed_type not in density_functions:
-        raise ValueError(f"Invalid density_seed_type: {density_seed_type}")
-    return density_functions[density_seed_type](vol_frac, dim) if density_seed_type != 'uniform' else density_functions[density_seed_type](dim)
-
 
 RAND_SEED = 1
 print(f"Random Seed: {RAND_SEED}")

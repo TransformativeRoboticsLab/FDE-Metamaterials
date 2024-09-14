@@ -3,6 +3,23 @@ import numpy as np
 from scipy.spatial import KDTree
 
 
+def init_density(density_seed_type, vol_frac, dim):
+    if density_seed_type == 'uniform':
+        return np.random.uniform(0., 1., dim)
+    elif density_seed_type == 'beta':
+        return beta_function(vol_frac, dim)
+    elif density_seed_type == 'binomial':
+        return np.random.binomial(1, vol_frac, dim)
+    else:
+        raise ValueError(f"Invalid density_seed_type: {density_seed_type}")
+
+def beta_function(vol_frac, size):
+    # we use a reduced volume frac to ensure that the mean is actually below the desired frac. We want to ensure we start in a feasible region of the problem if we have an upper bound on the volume fraction.
+    reduced_vol_frac = 0.95 * (vol_frac * (1. - vol_frac) / 0.1 - 1.)
+    a = vol_frac * reduced_vol_frac
+    b = (1. - vol_frac) * reduced_vol_frac
+    return np.random.beta(a, b, size)
+
 def mirror_density(density, fn_space, type='x'):
     if type == 'x':
         ref_angles = [np.pi/2]
@@ -94,9 +111,3 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     print(summary)
 
     
-def beta_function(vol_frac, size):
-    # we use a reduced volume frac to ensure that the mean is actually below the desired frac. We want to ensure we start in a feasible region of the problem.
-    reduced_vol_frac = 0.95 * (vol_frac * (1. - vol_frac) / 0.1 - 1.)
-    a = vol_frac * reduced_vol_frac
-    b = (1. - vol_frac) * reduced_vol_frac
-    return np.random.beta(a, b, size)

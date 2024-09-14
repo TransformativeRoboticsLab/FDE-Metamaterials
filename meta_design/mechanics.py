@@ -1,7 +1,7 @@
 # from fenics import sym, grad, Constant, tr, Identity
-from fenics import *
-# from fenics_adjoint import *
 import numpy as np
+from fenics import *
+
 
 def linear_strain(u):
     return sym(grad(u))
