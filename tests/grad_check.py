@@ -3,6 +3,8 @@ from functools import partial
 
 import fenics as fe
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
@@ -16,7 +18,6 @@ from metatop.optimization import (EigenvectorConstraint, EnergyObjective,
                                   GeometricConstraints, InvariantsConstraint,
                                   OptimizationState)
 
-jax.config.update("jax_enable_x64", True)
 
 def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e-5):
     args_count = len(inspect.signature(constraint).parameters)

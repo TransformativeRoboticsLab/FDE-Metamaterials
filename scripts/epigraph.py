@@ -1,6 +1,8 @@
 from functools import partial
 
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import nlopt
 import numpy as np
 from matplotlib import pyplot as plt
@@ -16,8 +18,6 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import (EigenvectorConstraint, Epigraph,
                                   ExtremalConstraints, InvariantsConstraint,
                                   OptimizationState)
-
-jax.config.update("jax_enable_x64", True)
 
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)

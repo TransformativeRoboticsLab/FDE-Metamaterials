@@ -4,14 +4,12 @@ from functools import partial
 
 import fenics as fe
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jax.experimental import sparse
 from matplotlib import pyplot as plt
 from scipy.spatial import KDTree
 from tqdm import tqdm
-
-jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp
 
 
 @jax.jit

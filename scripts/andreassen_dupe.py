@@ -1,11 +1,9 @@
-# import fenics as fe
+import fenics as fe
 import jax
-import nlopt
-import numpy as np
 
 jax.config.update("jax_enable_x64", True)
-
-import fenics as fe
+import nlopt
+import numpy as np
 from matplotlib import pyplot as plt
 
 from metatop.filters import DensityFilter
