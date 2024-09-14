@@ -12,6 +12,17 @@ from scipy.spatial import KDTree
 from tqdm import tqdm
 
 
+def setup_filter(metamaterial, norm_filter_radius):
+    if metamaterial.R.ufl_element().degree() > 0:
+        # logger.info("Using Helmholtz filter")
+        filt = HelmholtzFilter(radius=norm_filter_radius, fn_space=metamaterial.R)
+        filter_fn = partial(jax_helmholtz_filter, filt)
+    else:
+        # logger.info("Using Density filter")
+        filt = DensityFilter(mesh=metamaterial.mesh, radius=norm_filter_radius, distance_method='periodic')
+        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
+    return filt, filter_fn
+
 @jax.jit
 def jax_density_convolution(x, kernel):
     return

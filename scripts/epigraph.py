@@ -1,4 +1,3 @@
-from functools import partial
 
 import jax
 
@@ -8,9 +7,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from metatop import V_DICT
-from metatop.filters import (DensityFilter, HelmholtzFilter,
-                             jax_density_filter, jax_helmholtz_filter,
-                             jax_projection)
+from metatop.filters import jax_projection, setup_filter
 from metatop.helpers import init_density, update_t
 from metatop.image import bitmapify
 from metatop.mechanics import anisotropy_index, calculate_elastic_constants
@@ -76,27 +73,13 @@ def main():
                                   domain_shape=domain_shape)
     # metamate.plot_mesh(labels=True)
 
-
-    # density filter setup
-    if metamate.R.ufl_element().degree() > 0:
-        print("Using Helmholtz filter")
-        filt = HelmholtzFilter(radius=norm_filter_radius, 
-                                fn_space=metamate.R)
-        filter_fn = partial(jax_helmholtz_filter, filt)
-    elif metamate.R.ufl_element().degree() == 0:
-        print("Using Density filter")
-        filt = DensityFilter(mesh=metamate.mesh,
-                            radius=norm_filter_radius,
-                            distance_method='periodic')
-        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
-    else:
-        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
+    filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
     ops = OptimizationState(beta=start_beta,
                             eta=eta,
                             filt=filt,
-                            filt_fn = filter_fn,
+                            filt_fn = filt_fn,
                             epoch_iter_tracker=[1])
 
     # seeding the initial density
@@ -150,7 +133,6 @@ def main():
 
         opt.set_maxeval(epoch_duration)
         
-
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
@@ -160,7 +142,7 @@ def main():
 
     # ===== Post-Processing =====
     x = x[:-1]
-    x = filter_fn(x)
+    x = filt_fn(x)
     x = jax_projection(x, ops.beta, ops.eta)
     metamate.x.vector()[:] = x
 

@@ -1,4 +1,3 @@
-from functools import partial
 
 import jax
 
@@ -8,9 +7,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from metatop import V_DICT
-from metatop.filters import (DensityFilter, HelmholtzFilter,
-                             jax_density_filter, jax_helmholtz_filter,
-                             jax_projection)
+from metatop.filters import jax_projection, setup_filter
 from metatop.helpers import init_density
 from metatop.mechanics import anisotropy_index, calculate_elastic_constants
 from metatop.metamaterial import setup_metamaterial
@@ -69,30 +66,15 @@ def main():
                                   nely,
                                   mesh_cell_type=mesh_cell_type)
 
-
-    # density filter setup
-    if metamate.R.ufl_element().degree() > 0:
-        print("Using Helmholtz filter")
-        filt = HelmholtzFilter(radius=norm_filter_radius, 
-                                fn_space=metamate.R)
-        filter_fn = partial(jax_helmholtz_filter, filt)
-    elif metamate.R.ufl_element().degree() == 0:
-        print("Using Density filter")
-        filt = DensityFilter(mesh=metamate.mesh,
-                            radius=norm_filter_radius,
-                            distance_method='periodic')
-        filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
-    else:
-        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
+    filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
     ops = OptimizationState(beta=start_beta,
                             eta=eta,
                             filt=filt,
-                            filt_fn = filter_fn,
+                            filt_fn = filt_fn,
                             epoch_iter_tracker=[1])
 
-                            
     # seeding the initial density
     x = init_density(density_seed_type, vol_frac, metamate.R.dim())
     # x = mirror_density(x, metamate.mesh)
@@ -133,7 +115,7 @@ def main():
     # ===== End Optimization Loop =====
             
     # ===== Post-Optimization Analysis =====
-    x = filter_fn(x)
+    x = filt_fn(x)
     x = jax_projection(x, ops.beta, ops.eta)
     metamate.x.vector()[:] = x
     
