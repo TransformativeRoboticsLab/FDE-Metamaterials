@@ -10,6 +10,25 @@ from .mechanics import (lame_parameters, linear_strain, linear_stress,
 
 fe.set_log_level(40)
 
+def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', domain_shape='square'):
+    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
+    if 'tri' in mesh_cell_type:
+        P0 = fe.Point(0, 0)
+        P1 = fe.Point(1, 1)
+        if 'rect' in domain_shape:
+            P1 = fe.Point(np.sqrt(3), 1)
+            nelx = int(nelx * np.sqrt(3))
+            print(f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
+        metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
+        metamaterial.domain_shape = domain_shape
+    elif 'quad' in mesh_cell_type:
+        metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
+                                                 [nelx, nely],
+                                                 fe.CellType.Type.quadrilateral)
+    else:
+        raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
+    metamaterial.create_function_spaces()
+    return metamaterial
 
 class Metamaterial:
     def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None):

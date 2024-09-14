@@ -3,6 +3,23 @@ import numpy as np
 from scipy.spatial import KDTree
 
 
+# when an epoch changes or we change beta the constraint values can jump
+# and because the constraints can also be clamped by t we need to make sure
+# that we start the epoch in a feasible state.
+# Basically t could be too low for the constraints to be satisfied and the
+# optimizer will spend cycles trying to get t up to a feasible value.
+# We avoid this by jumping t to a feasible value at the start of each epoch
+def update_t(x, gs):
+    print(f"Updating t...\nOld t value {x[-1]:.3e}")
+    new_t = -np.inf
+    x[-1] = 0.
+    for g in gs:
+        results = np.zeros(g.n_constraints)
+        g(results, x, np.array([]), dummy_run=True)
+        new_t = max(new_t, *(results))
+    x[-1] = new_t
+    print(f"New t value: {x[-1]:.3e}")
+
 def init_density(density_seed_type, vol_frac, dim):
     if density_seed_type == 'uniform':
         return np.random.uniform(0., 1., dim)

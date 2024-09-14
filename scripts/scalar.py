@@ -1,92 +1,27 @@
-import fenics as fe
+from functools import partial
+
 import jax
 import nlopt
 import numpy as np
-
-jax.config.update("jax_enable_x64", True)
-from functools import partial
-
-import numpy as np
 from matplotlib import pyplot as plt
 
+from metatop import V_DICT
 from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter,
                              jax_projection)
 from metatop.helpers import init_density
 from metatop.mechanics import anisotropy_index, calculate_elastic_constants
-from metatop.metamaterial import Metamaterial
+from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import (EnergyConstraints, EnergyObjective,
                                   OptimizationState)
 
+jax.config.update("jax_enable_x64", True)
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
-
 
 RAND_SEED = 1
 print(f"Random Seed: {RAND_SEED}")
 np.random.seed(RAND_SEED)
-nlopt.srand(RAND_SEED)
-
-ISQR2 = 1. / np.sqrt(2.)
-v_dict = {
-    "BULK": np.array([[ISQR2, -ISQR2, 0.],
-                      [ISQR2,  ISQR2, 0.],
-                      [0.,     0.,    1.]]),
-    "IBULK": np.array([[-ISQR2, ISQR2, 0.],
-                     [ ISQR2, ISQR2, 0.],
-                     [ 0.,    0.,    1.]]),
-    "VERT": np.array([[0., 1., 0.],
-                      [1., 0., 0.],
-                      [0., 0., 1.]]),
-    "VERT2": np.array([[0., ISQR2, -ISQR2],
-                       [1., 0.,     0.],
-                       [0., ISQR2,  ISQR2]]),
-    "SHEAR": np.array([[0., -ISQR2, ISQR2],
-                       [0.,  ISQR2, ISQR2],
-                       [1.,  0.,    0.]]),
-    "SHEARXY": np.array([[0., 1., 0.],
-                         [0., 0., 1.],
-                         [1., 0., 0.]]),
-    "HSA": np.array([[0.,     0.,    1.],
-                    [ISQR2, -ISQR2, 0.],
-                    [ISQR2,  ISQR2, 0.]]),
-    "HSA2": np.array([[0.,     0.,    1.],
-                     [ISQR2,  ISQR2, 0.],
-                      [-ISQR2, ISQR2, 0.]]),
-    "IHSA": np.array([[1., 0., 0.],
-                      [0., ISQR2, -ISQR2],
-                      [0., ISQR2,  ISQR2]]),
-    "EYE": np.eye(3),
-}
-
-# when an epoch changes or we change beta the constraint values can jump
-# and because the constraints can also be clamped by t we need to make sure
-# that we start the epoch in a feasible state. 
-# Basically t could be too low for the constraints to be satisfied and the 
-# optimizer will spend cycles trying to get t up to a feasible value.
-# We avoid this by jumping t to a feasible value at the start of each epoch
-def update_t(x, gs):
-    print(f"Updating t...\nOld t value {x[-1]:.3e}")
-    new_t = -np.inf
-    x[-1] = 0.
-    for g in gs:
-        results = np.zeros(g.n_constraints)
-        g(results, x, np.array([]), dummy_run=True)
-        new_t = max(new_t, *(results/g.eps))
-    x[-1] = new_t
-    print(f"New t value: {x[-1]:.3e}")
-
-    
-def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle'):
-    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely)
-    if 'tri' in mesh_cell_type:
-        metamaterial.mesh = fe.UnitSquareMesh(nelx, nely, 'crossed')
-    elif 'quad' in mesh_cell_type:
-        metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [nelx, nely], fe.CellType.Type.quadrilateral)
-    else:
-        raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
-    metamaterial.create_function_spaces()
-    return metamaterial
 
 def main():
     E_max, E_min, nu = 1., 1e-9, 0.45
@@ -163,7 +98,7 @@ def main():
     # ===== End Component Setup =====
     
     # ===== Objective and Constraints Setup =====
-    v = v_dict[basis_v]
+    v = V_DICT[basis_v]
     f = EnergyObjective(v=v, extremal_mode=extremal_mode, metamaterial=metamate, ops=ops)
     g = EnergyConstraints(a=2., v=v, extremal_mode=extremal_mode, ops=ops, verbose=True)
     

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
+from metatop import V_DICT
 from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
 from metatop.metamaterial import Metamaterial
@@ -16,39 +17,6 @@ from metatop.optimization import (EigenvectorConstraint, EnergyObjective,
                                   OptimizationState)
 
 jax.config.update("jax_enable_x64", True)
-
-ISQR2 = 1. / np.sqrt(2.)
-v_dict = {
-    "BULK": np.array([[ISQR2, -ISQR2, 0.],
-                      [ISQR2,  ISQR2, 0.],
-                      [0.,     0.,    1.]]),
-    "IBULK": np.array([[-ISQR2, ISQR2, 0.],
-                       [ISQR2, ISQR2, 0.],
-                       [0.,    0.,    1.]]),
-    "VERT": np.array([[0., 1., 0.],
-                      [1., 0., 0.],
-                      [0., 0., 1.]]),
-    "VERT2": np.array([[0., ISQR2, -ISQR2],
-                       [1., 0.,     0.],
-                       [0., ISQR2,  ISQR2]]),
-    "SHEAR": np.array([[0., -ISQR2, ISQR2],
-                       [0.,  ISQR2, ISQR2],
-                       [1.,  0.,    0.]]),
-    "SHEARXY": np.array([[0., 1., 0.],
-                         [0., 0., 1.],
-                         [1., 0., 0.]]),
-    "HSA": np.array([[0.,     0.,    1.],
-                     [ISQR2, -ISQR2, 0.],
-                     [ISQR2,  ISQR2, 0.]]),
-    "HSA2": np.array([[0.,     0.,    1.],
-                      [ISQR2,  ISQR2, 0.],
-                      [-ISQR2, ISQR2, 0.]]),
-    "IHSA": np.array([[1., 0., 0.],
-                      [0., ISQR2, -ISQR2],
-                      [0., ISQR2,  ISQR2]]),
-    "EYE": np.eye(3),
-}
-
 
 def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e-5):
     args_count = len(inspect.signature(constraint).parameters)
@@ -163,7 +131,7 @@ def main():
     params = {
         'metamaterial': Metamaterial(E_max=E_max, E_min=E_min, nu=nu, nelx=nelx, nely=nely, mesh=meshes[mesh_type]),
         'ops': OptimizationState(beta=beta, eta=eta),
-        'v': v_dict[v_basis],
+        'v': V_DICT[v_basis],
         'extremal_mode': 1,
         'verbose': False,
         'plot': False,
