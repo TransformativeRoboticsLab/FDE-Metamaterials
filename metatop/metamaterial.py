@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass, field
 
 import fenics as fe
@@ -28,6 +29,7 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
     metamaterial.create_function_spaces()
+    metamaterial.initialize_variational_forms()
     return metamaterial
 
 class Metamaterial:
@@ -39,6 +41,8 @@ class Metamaterial:
         self.mesh = mesh
         self.domain_shape = domain_shape
         self.mirror_map = None
+
+        self._run_times = []
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
@@ -57,7 +61,6 @@ class Metamaterial:
         plt.show(block=True)
 
     def plot_density(self):
-        # if isinstance(self.mesh.)
         r = fe.Function(self.R)
         r.vector()[:] = 1. - self.x.vector()[:]
         r.set_allow_extrapolation(True)
@@ -91,6 +94,23 @@ class Metamaterial:
         self.R, self.R_cg, self.R_grad = R, R_cg, R_grad
         self.R_tri = R_tri
 
+    def initialize_variational_forms(self):
+        self.v_, self.lamb_ = fe.TestFunctions(self.W)
+        self.dv, self.dlamb = fe.TrialFunctions(self.W)
+        
+        self.E = fe.Function(self.x.function_space())
+
+        self.m_strain = fe.Constant(((0., 0.), (0., 0.)))
+        
+        self.a_form = fe.inner(
+            linear_stress(linear_strain(self.dv), self.E, self.prop.nu),
+            linear_strain(self.v_))*fe.dx
+        self.a_form += fe.dot(self.lamb_, self.dv)*fe.dx + fe.dot(self.dlamb, self.v_)*fe.dx
+
+        self.L_form = -fe.inner(
+            linear_stress(self.m_strain, self.E, self.prop.nu),
+            linear_strain(self.v_))*fe.dx
+
     def _project_uChom_to_matrix(self, uChom):
         projected_values = np.empty((9, self.R.dim()))  # Preallocate the array
 
@@ -114,7 +134,7 @@ class Metamaterial:
         ]
         # Chom = [[assemble(uChom[i][j]*dx) for j in range(3)] for i in range(3)]
 
-        # Must scale by cell volume because we aren't having ics account for that in the background
+        # Must scale by cell volume because we aren't having fenics account for that in the background
         # note: this makes the assumption that the mesh is uniform
         # note note: we can also sum up these rows to get our Chom, which is the same as doing the "assembly"
         # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
@@ -127,28 +147,20 @@ class Metamaterial:
         return Chom, uChom_matrix
 
     def solve(self):
-        v_, lamb_ = fe.TestFunctions(self.W)
-        dv, dlamb = fe.TrialFunctions(self.W)
+        self.E.vector()[:] = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x.vector()[:]
 
-        E = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x
-        nu = self.prop.nu
-
-        m_strain = fe.Constant(((0., 0.),
-                             (0., 0.)))
-        F = fe.inner(linear_stress(linear_strain(dv) + m_strain, E, nu),
-                  linear_strain(v_))*fe.dx
-        a, L = fe.lhs(F), fe.rhs(F)
-        a += fe.dot(lamb_, dv)*fe.dx + fe.dot(dlamb, v_)*fe.dx
-
+        A = fe.assemble(self.a_form)
+        
         sols = []
         for (j, case) in enumerate(["Exx", "Eyy", "Exy"]):
             w = fe.Function(self.W)
-            m_strain.assign(macro_strain(j))
-            fe.solve(a == L, w, [])
-            v = fe.split(w.copy(deepcopy=True))[0]
+            self.m_strain.assign(macro_strain(j))
+            b = fe.assemble(self.L_form)
+            fe.solve(A, w.vector(), b)
+            v = fe.split(w)[0]
             sols.append(v)
 
-        Chom, uChom = self.homogenized_C(sols, E, nu)
+        Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
 
         return sols, Chom, uChom
 
