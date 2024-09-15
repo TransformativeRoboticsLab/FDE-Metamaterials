@@ -232,6 +232,38 @@ plot_delay: {self.plot_interval}
 
         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
+    def __str__(self):
+        return "ExtremalConstraints"
+
+class SpectralNormConstraint:
+    
+    def __init__(self, ops, bound=1., verbose=True):
+        self.ops = ops
+        self.bound = bound
+        self.verbose = verbose
+    
+    def __call__(self, x, grad, ):
+        
+        Chom, dChom_dxfem, dxfem_dx_vjp  = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+        def g(C):
+            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+            C = m @ C @ m
+            return jnp.linalg.norm(C, ord=2)
+            # return jnp.trace(C)
+
+        c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
+        
+        if grad.size > 0:
+            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[-1] = 0.
+
+        if self.verbose:
+            print(f"Spectral Norm Constraint:")
+            print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
+
+        return float(self.bound - c)
+
 class VectorConstraint:
     '''
     This is a generalized class that will handle vector constraints for nlopt.
@@ -343,6 +375,35 @@ class EigenvectorConstraint:
             print(f"Values: {c}")
             print(f"Residuals: {cs}")
 
+    def __str__(self):
+        return "EigenvectorConstraint"
+
+class TraceConstraint:
+
+    def __init__(self, ops, bound=3e-1, verbose=True):
+        self.ops = ops
+        self.verbose = verbose
+        self.bound = bound
+
+    def __call__(self, x, grad):
+
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+        def obj(C):
+            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+            return -jnp.trace(m@C@m)
+
+        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+
+        if grad.size > 0:
+            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            grad[-1]  = 0.
+
+        if self.verbose:
+            print(f"Invariant Constraint:")
+            print(f"Trace: {-c:.3f} (Target >={self.bound:.3f})")
+
+        return float(self.bound + c)
 
 class InvariantsConstraint:
 
