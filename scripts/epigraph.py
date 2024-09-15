@@ -15,7 +15,9 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            ExtremalConstraints,
-                                           InvariantsConstraint)
+                                           InvariantsConstraint,
+                                           MaterialSymmetryConstraints,
+                                           SpectralNormConstraint)
 
 np.set_printoptions(precision=5)
 # np.set_printoptions(suppress=True)
@@ -34,9 +36,9 @@ def main():
     # betas.append(betas[-1]) # repeat the last beta for final epoch when we turn on constraints
     print(f"Betas: {betas}")
     eta = 0.5
-    epoch_duration = 400
+    epoch_duration = 50
     basis_v = 'BULK'
-    symmetry_order = 'rectangular'
+    symmetry_order = 'isotropic'
     density_seed_type = 'uniform'
     extremal_mode = 1
     mesh_cell_type = 'tri'  # triangle, quadrilateral
@@ -97,9 +99,10 @@ def main():
                                 metamaterial=metamate,
                                 ops=ops,
                                 plot_interval=10)
-    # g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-1, verbose=True, symmetry_order=symmetry_order)
+    g_sym = MaterialSymmetryConstraints(ops=ops, eps=1e-1, verbose=True, symmetry_order=symmetry_order)
     g_inv = InvariantsConstraint(ops=ops, verbose=True)
-    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1., verbose=True)
+    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
+    g_spn = SpectralNormConstraint(ops=ops, bound=0.1, verbose=True)
 
     active_constraints = [g_ext, g_vec]
     # ===== End Objective and Constraints Setup =====
@@ -110,7 +113,7 @@ def main():
     opt.set_min_objective(f)
     for g in active_constraints:
         opt.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-    # opt.add_inequality_mconstraint(g_inv, np.zeros(g_inv.n_constraints))
+    opt.add_inequality_constraint(g_spn, 0.)
 
     opt.set_lower_bounds(np.append(np.zeros(x.size - 1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size - 1), np.inf))
@@ -123,16 +126,15 @@ def main():
         ops.beta, ops.epoch = beta, n
         update_t(x, active_constraints)
         x[:] = opt.optimize(x)
-        # x[:-1] = jax_projection(filter_fn(x[:-1]), ops.beta, 0.35)
-        # x[:-1] += np.random.uniform(-0.2, 0.2)
-        # x[:-1] = x[:-1].clip(0., 1.)
+        x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, 0.4)
 
         ops.epoch_iter_tracker.append(len(g_ext.evals))
-        
-        # g_sym.eps /= 2.
-        g_vec.eps /= 2.
-
+        g_vec.eps /= 10.
         opt.set_maxeval(epoch_duration)
+        # if n == n_betas - 1:
+        #     active_constraints.append(g_vec)
+        #     opt.add_inequality_mconstraint(g_vec, np.zeros(g_vec.n_constraints))
+
         
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
