@@ -1,14 +1,68 @@
+import inspect
 
 import fenics as fe
 import jax
 import jax.interpreters
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import nlopt
 import numpy as np
 from matplotlib import gridspec
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
+
+
+class EpigraphOptimizer(nlopt.opt):
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.active_constraints = []
+
+    def setup(self):
+        print("Setting up optimizer...")
+        self.set_min_objective(Epigraph())
+        if self.n_constraints > 0:
+            for n, g in enumerate(self.active_constraints):
+                print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
+                args_count = len(inspect.signature(g).parameters)
+                if args_count > 2:
+                    self.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+                elif args_count == 2:
+                    self.add_inequality_constraint(g, 0.)
+                else:
+                    raise ValueError(f"Constraint function {g} seems to take an incorrect number of arguments")
+        else:
+            raise Warning("No active constraints set")
+        
+        self.set_lower_bounds(np.append(np.zeros(self.size - 1), -np.inf))
+        self.set_upper_bounds(np.append(np.ones(self.size - 1), np.inf))
+        self.set_param('dual_ftol_rel', 1e-6)
+
+    def optimize(self, x):
+        self._update_t(x)
+        return super().optimize(x)
+        
+    def _update_t(self, x):
+        print(f"Updating t...\nOld t value {x[-1]:.3e}")
+        new_t = -np.inf
+        x[-1] = 0.
+        for g in self.active_constraints:
+            if len(inspect.signature(g).parameters) > 2:
+                results = np.zeros(g.n_constraints)
+                g(results, x, np.array([]), dummy_run=True)
+                new_t = max(new_t, *(results))
+        x[-1] = new_t
+        print(f"New t value: {x[-1]:.3e}")
+        
+    @property
+    def size(self):
+        return self.get_dimension()
+
+    @property
+    def n_constraints(self):
+        return len(self.active_constraints)
 
 
 class Epigraph:
@@ -127,8 +181,8 @@ plot_delay: {self.plot_interval}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            # return (jnp.log(jnp.array([c1, 1 - c2, 1 - c3,  ])), jnp.array([c1, c2, c3, ]))
-            return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
+            return (jnp.log(jnp.array([c1, (1 - c2), (1 - c3),  ])+1e-8), jnp.array([c1, c2, c3, ]))
+            # return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
 
         c, cs = obj(jnp.asarray(Chom))
         results[:] = c - t
@@ -346,7 +400,7 @@ class EigenvectorConstraint:
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
 
-            # C /= norm(C)
+            C /= norm(C)
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             # Rayleigh quotients
