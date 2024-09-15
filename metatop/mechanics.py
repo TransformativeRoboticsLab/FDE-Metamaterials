@@ -121,7 +121,15 @@ def calculate_elastic_constants(M, input_style='mandel'):
   eta121 =  E1 * np.einsum('ijkl,i,j,k,l',S,e1,e2,e1,e1)
   eta122 =  E2 * np.einsum('ijkl,i,j,k,l',S,e1,e2,e2,e2)
 
-  return E1, E2, G12, nu12, nu21, eta121, eta122
+  return {
+    'E1': E1,
+    'E2': E2,
+    'G12': G12,
+    'nu12': nu12,
+    'nu21': nu21,
+    'eta121': eta121,
+    'eta122': eta122
+  }
 
 def anisotropy_index(C, input_style):
   '''
@@ -140,8 +148,13 @@ def anisotropy_index(C, input_style):
     * "Elastic anisotropy measure for two-dimensional crystals" by Li et al.
   '''
 
-  if input_style != 'standard':
-    raise ValueError('Only valid input style is "standard"')
+  if input_style == 'mandel':
+    m = np.diag(np.array([1., 1., 1./np.sqrt(2)], dtype=np.double))
+    C = m@C@m
+  elif input_style == 'standard':
+    pass
+  else:
+    raise ValueError('Incorrect input style')
 
   S = np.linalg.inv(C)
   Kr = 1/(S[0,0]+S[1,1]+2*S[0,1])
@@ -150,4 +163,32 @@ def anisotropy_index(C, input_style):
   Gv = (C[0,0]+C[1,1]-2*C[0,1]+4*C[2,2])/8
   ASU = np.sqrt((Kv/Kr - 1)**2 + 2*(Gv/Gr - 1)**2)
 
-  return Kr, Kv, Gr, Gv, ASU
+  return {
+    'Kr': Kr,
+    'Kv': Kv,
+    'Gr': Gr,
+    'Gv': Gv,
+    'ASU': ASU
+  }
+
+  
+def matrix_invariants(M):
+  
+  '''
+  Calculate the invariants of a 3x3 matrix
+
+  in: M, a 3x3 matrix
+
+  out: I1, the first invariant
+        I2, the second invariant
+        I3, the third invariant
+  '''
+  I1 = np.trace(M)
+  I2 = 0.5*(np.trace(M)**2 - np.trace(M@M))
+  I3 = np.linalg.det(M)
+
+  return {
+    'tr(M)': I1,
+    'dev(M)': I2,
+    'det(M)': I3
+  }
