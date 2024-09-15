@@ -19,7 +19,14 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
 
 np.set_printoptions(precision=5)
 
-def main():
+from sacred import Experiment
+from sacred.observers import FileStorageObserver
+
+ex = Experiment('metatop_epigraph')
+ex.observers.append(FileStorageObserver.create('sacred_runs'))
+
+@ex.config
+def config():
     E_max, E_min, nu = 1., 1e-2, 0.45
     start_beta, n_betas = 8, 4
     epoch_duration = 50
@@ -29,8 +36,10 @@ def main():
     norm_filter_radius = 0.1
     verbose = interim_plot = True
 
-    # np.random.seed(73056963)
-    np.random.seed(1)
+@ex.automain
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, _seed):
+
+    np.random.seed(_seed)
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -94,6 +103,10 @@ def main():
     m = np.diag(np.array([1, 1, np.sqrt(2)]))
     final_C = m @ np.asarray(metamate.solve()[1]) @ m
     w, v = np.linalg.eigh(final_C)
+    ex.info['final_C'] = final_C
+    ex.info['eigvals'] = w
+    ex.info['norm_eigvals'] = w / np.max(w)
+    ex.info['eigvecs'] = v
     print('Final C:\n', final_C)
     print('Final Eigenvalues:\n', w)
     print('Final Eigenvalue Ratios:\n', w / np.max(w))
@@ -102,6 +115,9 @@ def main():
     ASU = anisotropy_index(final_C, input_style='mandel')
     elastic_constants = calculate_elastic_constants(final_C, input_style='mandel')
     invariants = matrix_invariants(final_C)
+    ex.info['ASU'] = ASU
+    ex.info['elastic_constants'] = elastic_constants
+    ex.info['invariants'] = invariants
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
     print('Final Invariants:', invariants)
@@ -115,9 +131,7 @@ def main():
     fname = 'epigraph'
     fname += f'_v_{basis_v}'
     fname += f'_ext_{extremal_mode}'
-    plt.imsave(f"output/{fname}_testbed.png", x_img, cmap='gray')
-    plt.imsave(f"output/{fname}_array_testbed.png", np.tile(x_img, (4,4)), cmap='gray')
-    plt.show(block=True)
-
-if __name__ == '__main__':
-    main()
+    plt.imsave(f"output/{fname}.png", x_img, cmap='gray')
+    plt.imsave(f"output/{fname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
+    ex.add_artifact(f"output/{fname}.png")
+    ex.add_artifact(f"output/{fname}_array.png")
