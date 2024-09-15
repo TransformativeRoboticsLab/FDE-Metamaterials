@@ -16,7 +16,9 @@ from metatop.metamaterial import Metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            ExtremalConstraints,
-                                           InvariantsConstraint)
+                                           InvariantsConstraint,
+                                           SpectralNormConstraint,
+                                           TraceConstraint)
 from metatop.optimization.scalar import EnergyObjective
 
 
@@ -44,11 +46,24 @@ def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e
             constraint(r_minus, x_minus, np.array([]))
             grad_fd[:, i] = (r_plus - r_minus) / (2 * epsilon)
         elif args_count == 2:  # c = fn(x, grad)
+            if params['obj']:
+                params['obj'](np.zeros(params['obj'].n_constraints), 
+                              x_plus, np.array([]))
             c_plus = constraint(x_plus, np.array([]))
+            if params['obj']:
+                params['obj'](np.zeros(params['obj'].n_constraints), 
+                              x_minus, np.array([]))
             c_minus = constraint(x_minus, np.array([]))
             grad_fd[i] = (c_plus - c_minus) / (2 * epsilon)
 
+    diff = np.abs(grad_analytical - grad_fd)
+    print(f"Max Abs Diff: {np.max(diff)}")
+    print(f"Mean Abs Diff: {np.mean(diff)}")
+    print(f"Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
+
     plot_gradients(grad_analytical, grad_fd)
+
+    
 
 
 def plot_gradients(grad_analytical, grad_fd):
@@ -79,6 +94,10 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
         'Eigenvector': EigenvectorConstraint(v=params['v'],
                                              ops=params['ops'],
                                              verbose=params['verbose']),
+        'SpectralNorm': SpectralNormConstraint(ops=params['ops'],
+                                               bound=1.,
+                                               verbose=params['verbose']),
+        'Trace': TraceConstraint(ops=params['ops'], bound=1., verbose=params['verbose']),
     }
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
@@ -170,8 +189,10 @@ def main():
     params['obj'] = obj
     
     # handle_constraints('Invariants', x, params, epi_constraint=True)
-    handle_constraints('Eigenvector', x, params, epi_constraint=True)
+    # handle_constraints('Eigenvector', x, params, epi_constraint=True)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
+    # handle_constraints('SpectralNorm', x, params, epi_constraint=True)
+    handle_constraints('Trace', x, params, epi_constraint=True)
 
 
 if __name__ == "__main__":
