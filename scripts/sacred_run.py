@@ -1,3 +1,5 @@
+import os
+import pickle
 
 import jax
 
@@ -15,7 +17,8 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
-                                           ExtremalConstraints)
+                                           ExtremalConstraints,
+                                           TraceConstraint)
 
 np.set_printoptions(precision=5)
 
@@ -32,14 +35,16 @@ def config():
     epoch_duration = 50
     extremal_mode = 1
     basis_v = 'BULK'
+    objective_type = 'rayleigh' # rayleigh or norm
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
+    weights = np.array([1., 1., 1.])
+    trace_bound = 0.1
+    
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, _seed):
-
-    np.random.seed(_seed)
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, weights, trace_bound, objective_type, seed):
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -71,11 +76,21 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
                                 extremal_mode=extremal_mode,
                                 metamaterial=metamate,
                                 ops=ops,
-                                plot_interval=10)
-    g_vec = EigenvectorConstraint(v=v, ops=ops, eps=1e-1, verbose=True)
+                                plot_interval=10,
+                                plot=interim_plot,
+                                verbose=verbose,
+                                w=weights,
+                                objective_type=objective_type)
+    g_vec = EigenvectorConstraint(v=v, 
+                                  ops=ops, 
+                                  eps=1e-1, 
+                                  verbose=verbose)
+    g_trc = TraceConstraint(ops=ops,
+                            bound=trace_bound,
+                            verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec]
+    opt.active_constraints = [g_ext, g_vec, g_trc]
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======
@@ -84,6 +99,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         x[:] = opt.optimize(x)
+        x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
         ops.epoch_iter_tracker.append(len(g_ext.evals))
 
         g_vec.eps /= 10.
@@ -103,10 +119,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     m = np.diag(np.array([1, 1, np.sqrt(2)]))
     final_C = m @ np.asarray(metamate.solve()[1]) @ m
     w, v = np.linalg.eigh(final_C)
-    ex.info['final_C'] = final_C
-    ex.info['eigvals'] = w
-    ex.info['norm_eigvals'] = w / np.max(w)
-    ex.info['eigvecs'] = v
     print('Final C:\n', final_C)
     print('Final Eigenvalues:\n', w)
     print('Final Eigenvalue Ratios:\n', w / np.max(w))
@@ -115,23 +127,37 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     ASU = anisotropy_index(final_C, input_style='mandel')
     elastic_constants = calculate_elastic_constants(final_C, input_style='mandel')
     invariants = matrix_invariants(final_C)
-    ex.info['ASU'] = ASU
-    ex.info['elastic_constants'] = elastic_constants
-    ex.info['invariants'] = invariants
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
     print('Final Invariants:', invariants)
     
+    dirname = './output/epigraph'
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    fname = f'{basis_v}'
+    fname += f'_m_{extremal_mode}'
+    fname += f'_seed_{seed}'
+    outname = dirname + '/' + fname
+
+    with open(f'{outname}.pkl', 'wb') as f:
+        pickle.dump({'x': x,}, f)
+
     img_rez = 200
     img_shape = (metamate.width, metamate.height)
     x_img = 1 - np.flip(bitmapify(metamate.x,
                               img_shape,
                               (img_rez, img_rez),),
                     axis=0)
-    fname = 'epigraph'
-    fname += f'_v_{basis_v}'
-    fname += f'_ext_{extremal_mode}'
-    plt.imsave(f"output/{fname}.png", x_img, cmap='gray')
-    plt.imsave(f"output/{fname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
-    ex.add_artifact(f"output/{fname}.png")
-    ex.add_artifact(f"output/{fname}_array.png")
+    plt.imsave(f"{outname}.png", x_img, cmap='gray')
+    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
+
+    ex.info['final_C'] = final_C
+    ex.info['eigvals'] = w
+    ex.info['norm_eigvals'] = w / np.max(w)
+    ex.info['eigvecs'] = v
+    ex.info['ASU'] = ASU
+    ex.info['elastic_constants'] = elastic_constants
+    ex.info['invariants'] = invariants
+    ex.add_artifact(f'{outname}.pkl')
+    ex.add_artifact(f"output/epigraph/{fname}.png")
+    ex.add_artifact(f"output/epigraph/{fname}_array.png")
