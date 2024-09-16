@@ -23,6 +23,7 @@ class EpigraphOptimizer(nlopt.opt):
     def setup(self):
         print("Setting up optimizer...")
         self.set_min_objective(Epigraph())
+        print("Adding constraints...")
         if self.n_constraints > 0:
             for n, g in enumerate(self.active_constraints):
                 print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
@@ -50,6 +51,7 @@ class EpigraphOptimizer(nlopt.opt):
         x[-1] = 0.
         for g in self.active_constraints:
             if len(inspect.signature(g).parameters) > 2:
+                print(f"Accounting for constraint {g} in t update")
                 results = np.zeros(g.n_constraints)
                 g(results, x, np.array([]), dummy_run=True)
                 new_t = max(new_t, *(results))
@@ -109,13 +111,15 @@ class ExtremalConstraints:
     A class representing the original objective functions of the minimax problem.
     """
 
-    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=10, plot=True):
+    def __init__(self, v, extremal_mode, metamaterial, ops, objective_type, w=jnp.ones(3), verbose=True, plot_interval=10, plot=True):
         self.v = v
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
         self.ops = ops
+        self.objective_type = objective_type
         self.verbose = verbose
         self.plot_interval = plot_interval
+        self.w = w
         self.evals = []
 
         self.n_constraints = 3
@@ -139,6 +143,7 @@ extremal_mode: {self.extremal_mode}
 starting beta: {self.ops.beta}
 verbose: {self.verbose}
 plot_delay: {self.plot_interval}
+objective_type: {self.objective_type}
 """)
 
     def __call__(self, results, x, grad, dummy_run=False):
@@ -168,8 +173,8 @@ plot_delay: {self.plot_interval}
             C = m @ C @ m
             # NOTE: Normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
             # NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
-            C /= norm(C, ord=2)
             S = jnp.linalg.inv(C)
+            C /= norm(C, ord=2)
             S /= norm(S, ord=2)
 
             if self.extremal_mode == 2:
@@ -180,9 +185,12 @@ plot_delay: {self.plot_interval}
             Sv1, Sv2, Sv3 = S@v1, S@v2, S@v3
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
-            # Minimize/Maximize the eigenvectors, this does a good job keeping the alignment of the eigenvectors with v
-            return (jnp.log(jnp.array([c1, (1 - c2), (1 - c3),  ])+1e-8), jnp.array([c1, c2, c3, ]))
-            # return (jnp.log(jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
+            if 'ray' in self.objective_type:
+                return (jnp.log(self.w*jnp.array([c1, (1. - c2), (1. - c3),  ])+1e-8), jnp.array([c1, c2, c3, ]))
+            elif self.objective_type == 'norm':
+                return (jnp.log(self.w*jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
+            else:
+                raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
         c, cs = obj(jnp.asarray(Chom))
         results[:] = c - t
@@ -300,8 +308,8 @@ class SpectralNormConstraint:
         
         Chom, dChom_dxfem, dxfem_dx_vjp  = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
+        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
         def g(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
             return jnp.linalg.norm(C, ord=2)
             # return jnp.trace(C)
@@ -315,8 +323,11 @@ class SpectralNormConstraint:
         if self.verbose:
             print(f"Spectral Norm Constraint:")
             print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
-
+            print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
         return float(self.bound - c)
+
+    def __str__(self):
+        return "SpectralNormConstraint"
 
 class VectorConstraint:
     '''
@@ -443,11 +454,11 @@ class TraceConstraint:
 
         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
+        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
         def obj(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             return -jnp.trace(m@C@m)
 
-        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        c, dc_dChom = jax.value_and_grad(obj)(Chom)
 
         if grad.size > 0:
             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
@@ -456,8 +467,16 @@ class TraceConstraint:
         if self.verbose:
             print(f"Invariant Constraint:")
             print(f"Trace: {-c:.3f} (Target >={self.bound:.3f})")
+            w,v = np.linalg.eigh(m@Chom@m)
+            print(f"Eigenvalues: {w}")
+            print(f"Rel. Eigenvalues: {w/np.max(w)}")
+            print(f"Sum(w): {np.sum(w):.3f}")
+            print(f"Eigenvectors:\n{v}")
 
         return float(self.bound + c)
+
+    def __str__(self):
+        return "TraceConstraint"
 
 class InvariantsConstraint:
 
