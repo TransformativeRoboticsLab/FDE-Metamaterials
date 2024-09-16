@@ -77,7 +77,7 @@ def main():
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v, 
                                   ops=ops, 
-                                  eps=1., 
+                                  eps=1e-1, 
                                   verbose=verbose)
     g_trc = TraceConstraint(ops=ops,
                             bound=trace_bound,
