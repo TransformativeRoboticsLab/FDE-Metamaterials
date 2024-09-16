@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import nlopt
 import numpy as np
+from jax.numpy.linalg import norm as jnorm
 from matplotlib import gridspec
 
 from metatop.filters import jax_projection
@@ -168,14 +169,13 @@ objective_type: {self.objective_type}
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
 
         def obj(C):
-            from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
-            # NOTE: Normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
+            # NOTE: normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
             # NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
             S = jnp.linalg.inv(C)
-            C /= norm(C, ord=2)
-            S /= norm(S, ord=2)
+            C /= jnorm(C, ord=2)
+            S /= jnorm(S, ord=2)
 
             if self.extremal_mode == 2:
                 C, S = S, C
@@ -188,7 +188,7 @@ objective_type: {self.objective_type}
             if 'ray' in self.objective_type:
                 return (jnp.log(self.w*jnp.array([c1, (1. - c2), (1. - c3),  ])+1e-8), jnp.array([c1, c2, c3, ]))
             elif self.objective_type == 'norm':
-                return (jnp.log(self.w*jnp.array([norm(Cv1), (1-norm(Cv2)), (1-norm(Cv3)),])+1e-8), jnp.array([norm(Cv1), norm(Cv2), norm(Cv3)]))
+                return (jnp.log(self.w*jnp.array([jnorm(Cv1), (1-jnorm(Cv2)), (1-jnorm(Cv3)),])+1e-8), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)]))
             else:
                 raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
@@ -407,11 +407,10 @@ class EigenvectorConstraint:
         t = x[-1]
 
         def obj(C):
-            from jax.numpy.linalg import norm
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
 
-            C /= norm(C)
+            C /= jnorm(C)
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             # Rayleigh quotients
@@ -419,7 +418,6 @@ class EigenvectorConstraint:
             Cv1, Cv2, Cv3 = C @ v1, C @ v2, C @ v3
             x1, x2, x3 = Cv1 - r1*v1, Cv2 - r2*v2, Cv3 - r3*v3
 
-            # return jnp.log(jnp.array([norm(x1), norm(x2), norm(x3)])/self.eps), jnp.array([norm(x1), norm(x2), norm(x3)])
             return jnp.log(jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])/self.eps), jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])
 
         c, cs = obj(np.asarray(Chom))
