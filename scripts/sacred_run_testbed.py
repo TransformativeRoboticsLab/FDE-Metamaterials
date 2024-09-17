@@ -28,13 +28,13 @@ def main():
     start_beta, n_betas = 1, 8
     epoch_duration = 50
     extremal_mode = 1
-    basis_v = 'BULK'    
+    basis_v = 'BULK'
     objective_type = 'ratio' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
     weights = np.array([1., 1., 1.])
-    trace_bound = 0.1
+    trace_bound = 0.3
     seed = 1 # 916723353 # 689993214
 
     np.random.seed(seed)
@@ -86,7 +86,7 @@ def main():
                                    verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec]
+    opt.active_constraints = [g_ext, g_vec, ]
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======

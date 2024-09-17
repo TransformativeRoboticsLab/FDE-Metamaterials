@@ -17,8 +17,7 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
-                                           ExtremalConstraints,
-                                           TraceConstraint)
+                                           ExtremalConstraints)
 
 np.set_printoptions(precision=5)
 
@@ -32,16 +31,14 @@ ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop
 def config():
     E_max, E_min, nu = 1., 1e-2, 0.45
     start_beta, n_betas = 1, 8
-    epoch_duration = 5
+    epoch_duration = 50
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'rayleigh' # rayleigh or norm
+    objective_type = 'ratio' # rayleigh or norm
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
     weights = np.array([1., 1., 1.])
-    trace_bound = 0.1
-    
 
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, weights, trace_bound, objective_type, seed):
@@ -83,14 +80,11 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v, 
                                   ops=ops, 
-                                  eps=1e-1, 
+                                  eps=1., 
                                   verbose=verbose)
-    g_trc = TraceConstraint(ops=ops,
-                            bound=trace_bound,
-                            verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec, g_trc]
+    opt.active_constraints = [g_ext, g_vec, ]
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======
@@ -99,7 +93,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         x[:] = opt.optimize(x)
-        # x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
         ops.epoch_iter_tracker.append(len(g_ext.evals))
 
         g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
