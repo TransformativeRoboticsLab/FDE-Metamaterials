@@ -31,7 +31,7 @@ ex.observers.append(FileStorageObserver.create('sacred_runs'))
 @ex.config
 def config():
     E_max, E_min, nu = 1., 1e-2, 0.45
-    start_beta, n_betas = 8, 4
+    start_beta, n_betas = 1, 8
     epoch_duration = 50
     extremal_mode = 1
     basis_v = 'BULK'
@@ -40,7 +40,7 @@ def config():
     norm_filter_radius = 0.1
     verbose = interim_plot = True
     weights = np.array([1., 1., 1.])
-    trace_bound = 0.1
+    trace_bound = 0.3
     
 
 @ex.automain
@@ -102,15 +102,14 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
         x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
         ops.epoch_iter_tracker.append(len(g_ext.evals))
 
-        g_vec.eps /= 10.
+        g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
 
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
 
-        if n == 1:
-            opt.set_maxeval(epoch_duration)
+        opt.set_maxeval(epoch_duration)
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====

@@ -29,16 +29,15 @@ def main():
     epoch_duration = 50
     extremal_mode = 1
     basis_v = 'BULK'
+    objective_type = 'ray' # rayleigh or norm
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
     weights = np.array([1., 1., 1.])
-    trace_bound = 0.1
-    seed = 916723353 # 689993214
-    objective_type = 'ray' # rayleigh or norm
+    trace_bound = 0.3
+    seed = 1 # 916723353 # 689993214
 
-    # np.random.seed(73056963)
-    np.random.seed(seed)
+    # np.random.seed(seed)
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -96,18 +95,17 @@ def main():
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         x[:] = opt.optimize(x)
-        x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
+        # x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
         ops.epoch_iter_tracker.append(len(g_ext.evals))
 
-        g_vec.eps /= 10.
+        g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
 
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
 
-        if n == 1:
-            opt.set_maxeval(epoch_duration)
+        opt.set_maxeval(epoch_duration)
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
