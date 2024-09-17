@@ -30,9 +30,9 @@ class EpigraphOptimizer(nlopt.opt):
                 print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
                 args_count = len(inspect.signature(g).parameters)
                 if args_count > 2:
-                    self.add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+                    super().add_inequality_mconstraint(g, np.zeros(g.n_constraints))
                 elif args_count == 2:
-                    self.add_inequality_constraint(g, 0.)
+                    super().add_inequality_constraint(g, 0.)
                 else:
                     raise ValueError(f"Constraint function {g} seems to take an incorrect number of arguments")
         else:
@@ -58,6 +58,22 @@ class EpigraphOptimizer(nlopt.opt):
                 new_t = max(new_t, *(results))
         x[-1] = new_t
         print(f"New t value: {x[-1]:.3e}")
+    
+    def add_inequality_mconstraint(self, *args, uses_t=True):
+        if uses_t:
+            self.active_constraints.append(args[0])
+        return super().add_inequality_mconstraint(*args)
+    
+    def add_inequality_constraint(self, *args, uses_t=True):
+        if uses_t:
+            self.active_constraints.append(args[0])
+        return super().add_inequality_constraint(*args)
+    
+    def add_equality_constraint(self, *args):
+        raise NotImplementedError("Equality constraints are not supported for this optimizer")
+    
+    def add_equality_mconstraint(self, *args):
+        raise NotImplementedError("Equality constraints are not supported for this optimizer")
         
     @property
     def size(self):
@@ -123,7 +139,7 @@ class ExtremalConstraints:
         self.w = w
         self.evals = []
 
-        self.n_constraints = 3
+        self.n_constraints = 2 if self.objective_type == 'ratio' else 3
         self.eps = 1.
 
         if plot:
@@ -174,8 +190,9 @@ objective_type: {self.objective_type}
             # NOTE: normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
             # NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
             S = jnp.linalg.inv(C)
-            C /= jnorm(C, ord=2)
-            S /= jnorm(S, ord=2)
+            if self.objective_type != 'ratio':
+                C /= jnorm(C, ord=2)
+                S /= jnorm(S, ord=2)
 
             if self.extremal_mode == 2:
                 C, S = S, C
@@ -186,9 +203,11 @@ objective_type: {self.objective_type}
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
             s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             if 'ray' in self.objective_type:
-                return (jnp.log(self.w*jnp.array([c1, (1. - c2), (1. - c3),  ])+1e-8), jnp.array([c1, c2, c3, ]))
+                return (jnp.log(self.w*jnp.array([c1, (1. - c2), (1. - c3), ])+1e-8), jnp.array([c1, c2, c3, ]))
             elif self.objective_type == 'norm':
                 return (jnp.log(self.w*jnp.array([jnorm(Cv1), (1-jnorm(Cv2)), (1-jnorm(Cv3)),])+1e-8), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)]))
+            elif self.objective_type == 'ratio':
+                return jnp.log(jnp.array([c1/c2, c1/c3])), jnp.array([c1, c2, c3])
             else:
                 raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
@@ -323,7 +342,7 @@ class SpectralNormConstraint:
         if self.verbose:
             print(f"Spectral Norm Constraint:")
             print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
-            print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
+            # print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
         return float(self.bound - c)
 
     def __str__(self):
@@ -463,13 +482,12 @@ class TraceConstraint:
             grad[-1]  = 0.
 
         if self.verbose:
-            print(f"Invariant Constraint:")
             print(f"Trace: {-c:.3f} (Target >={self.bound:.3f})")
-            w,v = np.linalg.eigh(m@Chom@m)
-            print(f"Eigenvalues: {w}")
-            print(f"Rel. Eigenvalues: {w/np.max(w)}")
-            print(f"Sum(w): {np.sum(w):.3f}")
-            print(f"Eigenvectors:\n{v}")
+            # w,v = np.linalg.eigh(m@Chom@m)
+            # print(f"Eigenvalues: {w}")
+            # print(f"Rel. Eigenvalues: {w/np.max(w)}")
+            # print(f"Sum(w): {np.sum(w):.3f}")
+            # print(f"Eigenvectors:\n{v}")
 
         return float(self.bound + c)
 

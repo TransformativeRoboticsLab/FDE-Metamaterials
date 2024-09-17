@@ -28,16 +28,16 @@ def main():
     start_beta, n_betas = 1, 8
     epoch_duration = 50
     extremal_mode = 1
-    basis_v = 'BULK'
-    objective_type = 'ray' # rayleigh or norm
+    basis_v = 'BULK'    
+    objective_type = 'ratio' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
     weights = np.array([1., 1., 1.])
-    trace_bound = 0.3
+    trace_bound = 0.1
     seed = 1 # 916723353 # 689993214
 
-    # np.random.seed(seed)
+    np.random.seed(seed)
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -76,7 +76,7 @@ def main():
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v, 
                                   ops=ops, 
-                                  eps=1e-1, 
+                                  eps=1., 
                                   verbose=verbose)
     g_trc = TraceConstraint(ops=ops,
                             bound=trace_bound,
@@ -86,7 +86,7 @@ def main():
                                    verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec, g_trc]
+    opt.active_constraints = [g_ext, g_vec]
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======
@@ -95,7 +95,6 @@ def main():
     for n, beta in enumerate(betas, 1):
         ops.beta, ops.epoch = beta, n
         x[:] = opt.optimize(x)
-        # x[:-1] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta).clip(0., 1.)
         ops.epoch_iter_tracker.append(len(g_ext.evals))
 
         g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
