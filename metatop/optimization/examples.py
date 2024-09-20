@@ -31,20 +31,20 @@ class AndreassenOptimization:
             self.ax2 = plt.subplot(grid_spec[1, :])
 
         if self.obj_type == 'bulk':
-            def obj(C):
+            def f(C):
                 S = jnp.linalg.inv(C)
                 return -1. / (S[0][0] + S[0][1]) / 2.
         elif self.obj_type == 'shear':
-            def obj(C): return -C[2][2]
+            def f(C): return -C[2][2]
         elif 'pr' in self.obj_type:
-            def obj(C):
+            def f(C):
                 S = jnp.linalg.inv(C)
                 S = -S if self.obj_type == 'ppr' else S
                 return -S[0][1]/S[0][0]
         else:
             raise ValueError("Invalid objective type")
 
-        self.obj = obj
+        self._obj = f
 
     def __call__(self, x, grad):
 
@@ -58,7 +58,7 @@ class AndreassenOptimization:
 
         self.metamaterial.x.vector()[:] = x_fem
 
-        sols, Chom, uChom = self.metamaterial.solve()
+        sols, Chom, _ = self.metamaterial.solve()
 
         E_max = self.metamaterial.prop.E_max
         nu = self.metamaterial.prop.nu
@@ -69,7 +69,7 @@ class AndreassenOptimization:
 
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
 
-        c, dc_dChom = jax.value_and_grad(self.obj)(jnp.asarray(Chom))
+        c, dc_dChom = jax.value_and_grad(self._obj)(jnp.asarray(Chom))
 
         self.evals.append(c)
 
@@ -77,13 +77,7 @@ class AndreassenOptimization:
             grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
         if (len(self.evals) % self.plot_interval == 1) and self.plot:
-            x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-            x_bar = jax_projection(x_tilde, beta, eta)
-            fields = {f'x (V={np.mean(x):.3f})': x,
-                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
-                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem}
-            self.update_plot(fields)
+            self.update_plot(x)
 
         if self.verbose == True:
             print("-" * 30)
@@ -95,7 +89,15 @@ class AndreassenOptimization:
 
         return float(c)
 
-    def update_plot(self, fields):
+    def update_plot(self, x):
+        filt, beta, eta, pen = self.ops.filt, self.ops.beta, self.ops.eta, self.ops.pen
+        x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+        x_bar = jax_projection(x_tilde, beta, eta)
+        x_simp = jax_simp(x_bar, pen)
+        fields = {f'x (V={np.mean(x):.3f})': x,
+                    f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
+                    f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                    f'x_simp (V={np.mean(x_simp):.3f})': x_simp}
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
