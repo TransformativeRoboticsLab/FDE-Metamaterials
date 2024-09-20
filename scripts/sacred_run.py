@@ -40,6 +40,7 @@ def config():
     verbose = interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
+    g_vec_eps = 1e-1
 
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, seed):
@@ -82,7 +83,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v, 
                                   ops=ops, 
-                                  eps=1., 
+                                  eps=g_vec_eps, 
                                   verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
