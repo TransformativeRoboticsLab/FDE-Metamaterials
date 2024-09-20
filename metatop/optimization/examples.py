@@ -10,8 +10,8 @@ from metatop.filters import (DensityFilter, jax_density_filter, jax_projection,
 
 
 class AndreassenOptimization:
-    def __init__(self, optim_type, metamaterial, ops, verbose=True, plot=True, filter_and_project=True):
-        self.optim_type = optim_type
+    def __init__(self, obj_type, metamaterial, ops, verbose=True, plot=True, ):
+        self.obj_type = obj_type
         self.metamaterial = metamaterial
         self.ops = ops
         self.plot = plot
@@ -21,7 +21,6 @@ class AndreassenOptimization:
         self.epoch = 0
         self.evals = []
         self.epoch_iter_tracker = []
-        self.filter_and_project = filter_and_project
 
         if self.plot:
             plt.ion()
@@ -31,25 +30,31 @@ class AndreassenOptimization:
                 grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
             self.ax2 = plt.subplot(grid_spec[1, :])
 
+        if self.obj_type == 'bulk':
+            def obj(C):
+                S = jnp.linalg.inv(C)
+                return -1. / (S[0][0] + S[0][1]) / 2.
+        elif self.obj_type == 'shear':
+            def obj(C): return -C[2][2]
+        elif 'pr' in self.obj_type:
+            def obj(C):
+                S = jnp.linalg.inv(C)
+                S = -S if self.obj_type == 'ppr' else S
+                return -S[0][1]/S[0][0]
+        else:
+            raise ValueError("Invalid objective type")
+
+        self.obj = obj
+
     def __call__(self, x, grad):
 
-        filt = self.ops.filt
-        pen = self.ops.pen
-        beta = self.ops.beta
-        eta = self.ops.eta
+        filt, pen, beta, eta = self.ops.filt, self.ops.pen, self.ops.beta, self.ops.eta
 
         if type(filt) is not DensityFilter:
             raise ValueError("Invalid filter type. Type must be DensityFilter")
 
-        def filter_and_project(x):
-            if not self.filter_and_project:
-                return x
-            x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-            x = jax_projection(x, beta, eta)
-            x = jax_simp(x, pen)
-            return x
 
-        x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
+        x_fem, dxfem_dx_vjp = jax.vjp(self._filt_proj_simp, x)
 
         self.metamaterial.x.vector()[:] = x_fem
 
@@ -64,27 +69,12 @@ class AndreassenOptimization:
 
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
 
-        if self.optim_type == 'bulk':
-            def obj(C):
-                S = jnp.linalg.inv(C)
-                return -1. / (S[0][0] + S[0][1]) / 2.
-        elif self.optim_type == 'shear':
-            def obj(C): return -C[2][2]
-        elif 'pr' in self.optim_type:
-            def obj(C):
-                S = jnp.linalg.inv(C)
-                S = -S if self.optim_type == 'ppr' else S
-                return -S[0][1]/S[0][0]
-        else:
-            raise ValueError("Invalid objective type")
-
-        c, dc_dChom = jax.value_and_grad(obj)(jnp.asarray(Chom))
+        c, dc_dChom = jax.value_and_grad(self.obj)(jnp.asarray(Chom))
 
         self.evals.append(c)
 
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(np.asarray(
-                dc_dChom).flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
         if (len(self.evals) % self.plot_interval == 1) and self.plot:
             x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
@@ -155,6 +145,13 @@ class AndreassenOptimization:
             return
 
         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+
+    def _filt_proj_simp(self, x):
+        filt, beta, eta, pen = self.ops.filt, self.ops.beta, self.ops.eta, self.ops.pen
+        x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
+        x = jax_projection(x, beta, eta)
+        x = jax_simp(x, pen)
+        return x
 
 
 class XiaOptimization:
