@@ -190,24 +190,23 @@ objective_type: {self.objective_type}
             # NOTE: normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
             # NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
             S = jnp.linalg.inv(C)
-            if self.objective_type != 'ratio':
-                C /= jnorm(C, ord=2)
-                S /= jnorm(S, ord=2)
 
             if self.extremal_mode == 2:
                 C, S = S, C
 
+            if self.objective_type != 'ratio':
+                C /= jnorm(C, ord=2)
+                S /= jnorm(S, ord=2)
+
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
-            Sv1, Sv2, Sv3 = S@v1, S@v2, S@v3
             c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
-            s1, s2, s3 = v1.T@S@v1, v2.T@S@v2, v3.T@S@v3
             if 'ray' in self.objective_type:
-                return (jnp.log(self.w*jnp.array([c1, (1. - c2), (1. - c3), ])+1e-8), jnp.array([c1, c2, c3, ]))
+                return (jnp.log(self.w*jnp.array([c1**2, (1. - c2**2), (1. - c3**2), ])+1e-8), jnp.array([c1, c2, c3, ]))
             elif self.objective_type == 'norm':
-                return (jnp.log(self.w*jnp.array([jnorm(Cv1), (1-jnorm(Cv2)), (1-jnorm(Cv3)),])+1e-8), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)]))
+                return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
             elif self.objective_type == 'ratio':
-                return jnp.log(jnp.array([c1/c2, c1/c3])), jnp.array([c1, c2, c3])
+                return jnp.log(jnp.array([(c1/c2)**2, (c1/c3)**2, c1**2/c2/c3])), jnp.array([c1, c2, c3])
             else:
                 raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
@@ -429,7 +428,7 @@ class EigenvectorConstraint:
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
 
-            C /= jnorm(C)
+            C /= jnorm(C, ord=2)
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             # Rayleigh quotients
