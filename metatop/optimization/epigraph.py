@@ -144,10 +144,10 @@ class ExtremalConstraints:
 
         if plot:
             plt.ion()
-            self.fig = plt.figure(figsize=(24, 8))
-            grid_spec = gridspec.GridSpec(2, 6, )
+            self.fig = plt.figure(figsize=(15, 6))
+            grid_spec = gridspec.GridSpec(2, 5, )
             self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(
-                grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), plt.subplot(grid_spec[0, 5])]
+                grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), ]
             self.ax2 = plt.subplot(grid_spec[1, :])
         else:
             self.fig = None
@@ -234,25 +234,24 @@ objective_type: {self.objective_type}
             print(f"Actual Values: {cs}")
 
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
-            x_tilde = filt_fn(x)
-            x_bar = jax_projection(x_tilde, beta, eta)
-            img_resolution = 200
-            img_shape = (self.metamaterial.width, self.metamaterial.height)
-            r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = np.flip(bitmapify(r_img,
-                                      img_shape,                            (img_resolution, img_resolution)),
-                            axis=0)
+            self.update_plot(x)
 
-            fields = {f'x (V={np.mean(x):.3f})': x,
-                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
-                      #   f'grad': grad[0,:-1],
-                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem,
-                      f'x_img': x_img,
-                      f'Tiling': np.tile(x_img, (3, 3))}
-            self.update_plot(fields)
+    def update_plot(self, x):
+        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+        x_tilde = filt_fn(x)
+        x_bar = jax_projection(x_tilde, beta, eta)
+        img_resolution = 200
+        img_shape = (self.metamaterial.width, self.metamaterial.height)
+        r_img = self.metamaterial.x.copy(deepcopy=True)
+        x_img = np.flip(bitmapify(r_img,
+                                    img_shape,                            (img_resolution, img_resolution)),
+                        axis=0)
 
-    def update_plot(self, fields):
+        fields = {f'x (V={np.mean(x):.3f})': x,
+                    f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
+                    f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                    f'x_img': x_img,
+                    f'Tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
@@ -272,10 +271,6 @@ objective_type: {self.objective_type}
         self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')
         self.ax2.grid(True)
         self.ax2.set_xlim(left=0, right=len(self.evals) + 2)
-        # if np.min(f_arr) > 0:
-        #     self.ax2.set_yscale('log')
-        # else:
-        #     self.ax2.set_ylim(-2, 2)
 
         for iter_val in self.ops.epoch_iter_tracker:
             self.ax2.axvline(x=iter_val, color='black',
