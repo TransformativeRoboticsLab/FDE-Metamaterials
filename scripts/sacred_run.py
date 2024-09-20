@@ -43,7 +43,15 @@ def config():
     g_vec_eps = 1e-1
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, seed):
+
+    dirname = './output/epigraph'
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    fname = f'{basis_v}'
+    fname += f'_m_{extremal_mode}'
+    fname += f'_seed_{seed}'
+    outname = dirname + '/' + fname
 
     weights = np.array([1/2, 1., 1.]) if extremal_mode == 1 else np.array([1., 1/2, 1/2])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
@@ -77,7 +85,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                                 metamaterial=metamate,
                                 ops=ops,
                                 plot_interval=10,
-                                plot=interim_plot,
+                                show_plot=interim_plot,
                                 verbose=verbose,
                                 w=weights,
                                 objective_type=objective_type)
@@ -95,14 +103,14 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
 
     # ===== Optimization Loop =====
     x_history = [x.copy()]
-    for _ in range(n_epochs):
+    for i in range(n_epochs):
         for n, beta in enumerate(betas, 1):
             ops.beta, ops.epoch = beta, n
             x[:] = opt.optimize(x)
             x_history.append(x.copy())
-            ops.epoch_iter_tracker.append(len(g_ext.evals))
             opt.set_maxeval(epoch_duration)
 
+        ops.epoch_iter_tracker.append(len(g_ext.evals))
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
@@ -110,7 +118,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
-    g_ext.update_plot(x[:-1])
+        g_ext.update_plot(x[:-1])
+        g_ext.fig.savefig(f"{outname}_timeline_e-{i+1}.png")
+        ex.add_artifact(f"{outname}_timeline_e-{i+1}.png")
 
     # ===== End Optimization Loop =====
 
@@ -131,14 +141,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
     print('Final Invariants:', invariants)
-    
-    dirname = './output/epigraph'
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-    fname = f'{basis_v}'
-    fname += f'_m_{extremal_mode}'
-    fname += f'_seed_{seed}'
-    outname = dirname + '/' + fname
 
     with open(f'{outname}.pkl', 'wb') as f:
         pickle.dump({'x': x,

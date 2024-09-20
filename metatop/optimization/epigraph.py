@@ -128,7 +128,7 @@ class ExtremalConstraints:
     A class representing the original objective functions of the minimax problem.
     """
 
-    def __init__(self, v, extremal_mode, metamaterial, ops, objective_type, w=jnp.ones(3), verbose=True, plot_interval=10, plot=True):
+    def __init__(self, v, extremal_mode, metamaterial, ops, objective_type, w=jnp.ones(3), verbose=True, plot_interval=10, show_plot=True):
         self.v = v
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
@@ -142,15 +142,13 @@ class ExtremalConstraints:
         self.n_constraints = 2 if self.objective_type == 'ratio' else 3
         self.eps = 1.
 
-        if plot:
+        if show_plot:
             plt.ion()
-            self.fig = plt.figure(figsize=(15, 6))
-            grid_spec = gridspec.GridSpec(2, 5, )
-            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(
-                grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), ]
-            self.ax2 = plt.subplot(grid_spec[1, :])
-        else:
-            self.fig = None
+        self.fig = plt.figure(figsize=(15, 6))
+        grid_spec = gridspec.GridSpec(2, 5, )
+        self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(
+            grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), ]
+        self.ax2 = plt.subplot(grid_spec[1, :])
 
         print(f"""
 MinimaxConstraint initialized with:

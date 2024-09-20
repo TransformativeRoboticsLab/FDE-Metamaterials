@@ -69,7 +69,7 @@ def main():
                                 metamaterial=metamate,
                                 ops=ops,
                                 plot_interval=10,
-                                plot=interim_plot,
+                                show_plot=interim_plot,
                                 verbose=verbose,
                                 w=weights,
                                 objective_type=objective_type)

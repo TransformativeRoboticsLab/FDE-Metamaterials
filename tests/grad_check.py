@@ -83,7 +83,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                         extremal_mode=params['extremal_mode'], 
                                         metamaterial=params['metamaterial'], ops=params['ops'], 
                                         verbose=params['verbose'], 
-                                        plot=params['plot'],
+                                        show_plot=params['plot'],
                                         objective_type=params['objective_type']),
         'Energy': EnergyObjective(v=params['v'], 
                                    extremal_mode=params['extremal_mode'], 
@@ -189,7 +189,7 @@ def main():
                         extremal_mode=params['extremal_mode'], 
                         metamaterial=params['metamaterial'], ops=params['ops'], 
                         verbose=params['verbose'], 
-                        plot=params['plot'],
+                        show_plot=params['plot'],
                         objective_type=params['objective_type'])
     params['obj'] = obj
     
