@@ -17,25 +17,24 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
-                                           ExtremalConstraints,
-                                           SpectralNormConstraint,
-                                           TraceConstraint)
+                                           ExtremalConstraints)
 
 np.set_printoptions(precision=5)
 
 def main():
-    E_max, E_min, nu = 1., 1e-2, 0.45
-    start_beta, n_betas = 1, 8
-    epoch_duration = 50
+    E_max, E_min, nu = 1., 1./60., 0.45
+    start_beta, n_betas = 8, 4
+    n_epochs, epoch_duration = 4, 50
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'ratio' # rayleigh or norm or ratio
+    objective_type = 'norm' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
-    weights = np.array([1., 1., 1.])
-    trace_bound = 0.3
     seed = 1 # 916723353 # 689993214
+    weights = np.array([.5, 1., 1.])
+    vector_constraint = True
+    tighten_vector_constraint = True
 
     np.random.seed(seed)
 
@@ -78,33 +77,33 @@ def main():
                                   ops=ops, 
                                   eps=1., 
                                   verbose=verbose)
-    g_trc = TraceConstraint(ops=ops,
-                            bound=trace_bound,
-                            verbose=verbose)
-    g_spn = SpectralNormConstraint(ops=ops,
-                                   bound=trace_bound,
-                                   verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec, ]
+    opt.active_constraints = [g_ext, ]
+    opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
-    for n, beta in enumerate(betas, 1):
-        ops.beta, ops.epoch = beta, n
-        x[:] = opt.optimize(x)
-        ops.epoch_iter_tracker.append(len(g_ext.evals))
-
-        g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
+    x_history = [x.copy()]
+    for _ in range(n_epochs):
+        for n, beta in enumerate(betas, 1):
+            ops.beta, ops.epoch = beta, n
+            x[:] = opt.optimize(x)
+            x_history.append(x.copy())
+            ops.epoch_iter_tracker.append(len(g_ext.evals))
+            opt.set_maxeval(epoch_duration)
 
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
+        
+        g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
-        opt.set_maxeval(epoch_duration)
+    g_ext.update_plot(x[:-1])
+
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
@@ -134,7 +133,9 @@ def main():
     outname = dirname + '/' + fname
 
     with open(f'{outname}_testbed.pkl', 'wb') as f:
-        pickle.dump({'x': x,}, f)
+        pickle.dump({'x': x,
+                     'x_history': x_history},
+                    f)
 
     img_rez = 200
     img_shape = (metamate.width, metamate.height)
@@ -142,6 +143,7 @@ def main():
                               img_shape,
                               (img_rez, img_rez),),
                     axis=0)
+    g_ext.fig.savefig(f"{outname}_timeline.png")
     plt.imsave(f"{outname}_testbed.png", x_img, cmap='gray')
     plt.imsave(f"{outname}_array_testbed.png", np.tile(x_img, (4,4)), cmap='gray')
     plt.show(block=True)

@@ -29,19 +29,21 @@ ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop
 
 @ex.config
 def config():
-    E_max, E_min, nu = 1., 1e-2, 0.45
-    start_beta, n_betas = 1, 8
-    epoch_duration = 50
+    E_max, E_min, nu = 1., 1./60., 0.45
+    start_beta, n_betas = 8, 4
+    n_epochs, epoch_duration = 4, 50
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'ratio' # rayleigh or norm
+    objective_type = 'norm' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
+    weights = np.array([.5, 1., 1.])
     verbose = interim_plot = True
-    weights = np.array([1., 1., 1.])
+    vector_constraint = True
+    tighten_vector_constraint = True
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, weights, trace_bound, objective_type, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, weights, verbose, interim_plot, vector_constraint, tighten_vector_constraint, seed):
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -84,25 +86,31 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
                                   verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_vec, ]
+    opt.active_constraints = [g_ext, ]
+    opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
-    for n, beta in enumerate(betas, 1):
-        ops.beta, ops.epoch = beta, n
-        x[:] = opt.optimize(x)
-        ops.epoch_iter_tracker.append(len(g_ext.evals))
-
-        g_vec.eps = np.max([g_vec.eps / 10., 1e-5])
+    x_history = [x.copy()]
+    for _ in range(n_epochs):
+        for n, beta in enumerate(betas, 1):
+            ops.beta, ops.epoch = beta, n
+            x[:] = opt.optimize(x)
+            x_history.append(x.copy())
+            ops.epoch_iter_tracker.append(len(g_ext.evals))
+            opt.set_maxeval(epoch_duration)
 
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
         print(f"===== End Epoch Summary: {n} =====\n")
+        
+        g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
-        opt.set_maxeval(epoch_duration)
+    g_ext.update_plot(x[:-1])
+
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
@@ -132,7 +140,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     outname = dirname + '/' + fname
 
     with open(f'{outname}.pkl', 'wb') as f:
-        pickle.dump({'x': x,}, f)
+        pickle.dump({'x': x,
+                     'x_history': x_history},
+                    f)
 
     img_rez = 200
     img_shape = (metamate.width, metamate.height)
@@ -140,6 +150,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
                               img_shape,
                               (img_rez, img_rez),),
                     axis=0)
+    g_ext.fig.savefig(f"{outname}_timeline.png")
     plt.imsave(f"{outname}.png", x_img, cmap='gray')
     plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
 
@@ -151,5 +162,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, extremal_mode, b
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
     ex.add_artifact(f'{outname}.pkl')
+    ex.add_artifact(f'{outname}_timeline.png')
     ex.add_artifact(f"output/epigraph/{fname}.png")
     ex.add_artifact(f"output/epigraph/{fname}_array.png")
