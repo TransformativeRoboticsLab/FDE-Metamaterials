@@ -1,6 +1,7 @@
 import numpy as np
 
 ISQR2 = 1. / np.sqrt(2.)
+ISQR3 = 1. / np.sqrt(3.)
 V_DICT = {
     "BULK": np.array([[ISQR2, -ISQR2, 0.],
                       [ISQR2,  ISQR2, 0.],
@@ -30,4 +31,12 @@ V_DICT = {
                       [0., ISQR2, -ISQR2],
                       [0., ISQR2,  ISQR2]]),
     "EYE": np.eye(3),
+    "HSA3": np.array([[1, -1/2,  3/2],
+                      [1, -1/2, -3/2],
+                      [1,  1,    0]]),
 }
+
+for k, v in V_DICT.items():
+    for column in v.T:
+        column /= np.linalg.norm(column)
+    assert np.allclose(v.T @ v, np.eye(3)), f'{k} does not have orthonormal columns'
