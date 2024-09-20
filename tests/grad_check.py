@@ -18,7 +18,7 @@ from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            ExtremalConstraints,
                                            InvariantsConstraint,
                                            SpectralNormConstraint,
-                                           TraceConstraint)
+                                           TraceConstraint, VolumeConstraint)
 from metatop.optimization.scalar import EnergyObjective
 
 
@@ -83,7 +83,8 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                         extremal_mode=params['extremal_mode'], 
                                         metamaterial=params['metamaterial'], ops=params['ops'], 
                                         verbose=params['verbose'], 
-                                        plot=params['plot']),
+                                        plot=params['plot'],
+                                        objective_type=params['objective_type']),
         'Energy': EnergyObjective(v=params['v'], 
                                    extremal_mode=params['extremal_mode'], 
                                    metamaterial=params['metamaterial'], ops=params['ops'], 
@@ -98,6 +99,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
                                                bound=1.,
                                                verbose=params['verbose']),
         'Trace': TraceConstraint(ops=params['ops'], bound=1., verbose=params['verbose']),
+        'Volume': VolumeConstraint(ops=params['ops'], bound=0.5, verbose=params['verbose']),
     }
 
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
@@ -152,10 +154,12 @@ def main():
         'obj': None,  
         'line_width': norm_line_width,
         'line_space': norm_line_space,
+        'objective_type': 'norm'
     }
 
     metamate = params['metamaterial']
     metamate.create_function_spaces()
+    metamate.initialize_variational_forms()
     if metamate.R.ufl_element().degree() > 0:
         print("Using Helmholtz filter")
         filt = HelmholtzFilter(radius=norm_filter_radius, 
@@ -185,14 +189,16 @@ def main():
                         extremal_mode=params['extremal_mode'], 
                         metamaterial=params['metamaterial'], ops=params['ops'], 
                         verbose=params['verbose'], 
-                        plot=params['plot'])
+                        plot=params['plot'],
+                        objective_type=params['objective_type'])
     params['obj'] = obj
     
     # handle_constraints('Invariants', x, params, epi_constraint=True)
     # handle_constraints('Eigenvector', x, params, epi_constraint=True)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
     # handle_constraints('SpectralNorm', x, params, epi_constraint=True)
-    handle_constraints('Trace', x, params, epi_constraint=True)
+    # handle_constraints('Trace', x, params, epi_constraint=True)
+    handle_constraints('Volume', x, params, epi_constraint=True)
 
 
 if __name__ == "__main__":
