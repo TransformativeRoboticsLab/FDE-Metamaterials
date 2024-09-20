@@ -37,14 +37,14 @@ def config():
     objective_type = 'norm' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
-    weights = np.array([.5, 1., 1.])
     verbose = interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, weights, verbose, interim_plot, vector_constraint, tighten_vector_constraint, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, seed):
 
+    weights = np.array([1/2, 1., 1.]) if extremal_mode == 1 else np.array([1., 1/2, 1/2])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
