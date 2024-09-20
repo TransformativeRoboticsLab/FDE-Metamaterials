@@ -834,3 +834,29 @@ class EpigraphBulkModulusConstraint:
         G = E / (2 * (1 + nu))
         K_plane = 9.*K*G / (3.*K + 4.*G)
         return K_plane
+
+        
+class VolumeConstraint:
+    
+    def __init__(self, ops, bound, verbose=True):
+        self.ops = ops
+        self.bound = bound
+        self.verbose = verbose
+        
+    def __call__(self, x, grad):
+        
+        x_fem, dxfem_dx_vjp = self.ops.x_fem, self.ops.dxfem_dx_vjp
+        
+        g, dg_dx_fem = jax.value_and_grad(jnp.mean)(x_fem)
+        
+        if grad.size > 0:
+            grad[:-1] = dxfem_dx_vjp(dg_dx_fem)[0]
+            grad[-1] = 0.
+        
+        if self.verbose:
+            print(f"Volume: {g:.3f} (Target <= {self.bound:.3f})")
+        
+        return float(g - self.bound)
+
+    def __str__(self):
+        return "VolumeConstraint"
