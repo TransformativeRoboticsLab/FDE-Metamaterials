@@ -2,6 +2,9 @@ import fenics as fe
 import numpy as np
 from scipy.spatial import KDTree
 
+from metatop.filters import jax_projection
+from metatop.mechanics import anisotropy_index, calculate_elastic_constants
+
 
 # when an epoch changes or we change beta the constraint values can jump
 # and because the constraints can also be clamped by t we need to make sure
@@ -127,4 +130,25 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     """
     print(summary)
 
-    
+
+def forward_solve(x, metamaterial, ops):
+    metamaterial.x.vector()[:] = jax_projection(ops.filt_fn(x), ops.beta, ops.eta)
+    m = np.diag(np.array([1, 1, np.sqrt(2)]))
+    C = m @ np.asarray(metamaterial.solve()[1]) @ m
+    return C
+
+def log_values(experiment, C):
+    for i in range(3):
+        for j in range(3):
+            experiment.log_scalar(f"C_{i}{j}", C[i, j])
+    w = np.linalg.eigvalsh(C)
+    for i, v in enumerate(w):
+        experiment.log_scalar(f"Eigenvalue_{i}", v)
+    for i, v in enumerate(w / np.max(w)):
+        experiment.log_scalar(f"Normed_Eigenvalue_{i}", v)
+    ASU = anisotropy_index(C, input_style='mandel')
+    for k, v in ASU.items():
+        experiment.log_scalar(k, v)
+    constants = calculate_elastic_constants(C, input_style='mandel')
+    for k, v in constants.items():
+        experiment.log_scalar(k, v)
