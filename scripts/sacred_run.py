@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 
 from metatop import V_DICT
 from metatop.filters import jax_projection, setup_filter
+from metatop.helpers import forward_solve, log_values
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
@@ -121,14 +122,13 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         g_ext.update_plot(x[:-1])
         g_ext.fig.savefig(f"{outname}_timeline_e-{i+1}.png")
         ex.add_artifact(f"{outname}_timeline_e-{i+1}.png")
+        log_values(ex, forward_solve(x[:-1], metamate, ops))
 
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    metamate.x.vector()[:] = jax_projection(filt_fn(x[:-1]), ops.beta, ops.eta)
-
-    m = np.diag(np.array([1, 1, np.sqrt(2)]))
-    final_C = m @ np.asarray(metamate.solve()[1]) @ m
+    final_C = forward_solve(x[:-1], metamate, ops)
+    
     w, v = np.linalg.eigh(final_C)
     print('Final C:\n', final_C)
     print('Final Eigenvalues:\n', w)
