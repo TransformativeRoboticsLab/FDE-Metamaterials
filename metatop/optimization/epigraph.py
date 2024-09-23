@@ -139,7 +139,7 @@ class ExtremalConstraints:
         self.w = w
         self.evals = []
 
-        self.n_constraints = 2 if self.objective_type == 'ratio' else 3
+        self.n_constraints = 2 if 'ratio' in self.objective_type else 3
         self.eps = 1.
 
         if show_plot:
@@ -198,13 +198,21 @@ objective_type: {self.objective_type}
 
             v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
             Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
-            c1, c2, c3 = v1.T@C@v1, v2.T@C@v2, v3.T@C@v3
-            if 'ray' in self.objective_type:
+            c1, c2, c3 = v1.T@Cv1, v2.T@Cv2, v3.T@Cv3
+            if self.objective_type == 'ray':
+                return jnp.log(self.w*jnp.array([c1, 1-c2, 1-c3])), jnp.array([c1, c2, c3])
+            elif self.objective_type == 'ray_sq':
                 return (jnp.log(self.w*jnp.array([c1**2, (1. - c2**2), (1. - c3**2), ])+1e-8), jnp.array([c1, c2, c3, ]))
             elif self.objective_type == 'norm':
+                return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
+            elif self.objective_type == 'norm_sq':
                 return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
             elif self.objective_type == 'ratio':
-                return jnp.log(jnp.array([(c1/c2)**2, (c1/c3)**2, c1**2/c2/c3])), jnp.array([c1, c2, c3])
+                return jnp.log(jnp.array([c1/c2, c1/c3, ])), jnp.array([c1, c2, c3])
+            elif self.objective_type == 'ratio_sq':
+                return jnp.log(jnp.array([(c1/c2)**2, (c1/c3)**2, ])), jnp.array([c1, c2, c3])
+            elif self.objective_type == 'ratio_c1sq':
+                return jnp.log(jnp.array([c1**2/c2, c1**2/c3, ])), jnp.array([c1, c2, c3])
             else:
                 raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
