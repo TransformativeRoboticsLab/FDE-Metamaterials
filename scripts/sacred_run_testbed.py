@@ -24,20 +24,31 @@ np.set_printoptions(precision=5)
 def main():
     E_max, E_min, nu = 1., 1./60., 0.45
     start_beta, n_betas = 8, 4
-    n_epochs, epoch_duration = 4, 50
+    n_epochs, epoch_duration = 3, 50
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'norm' # rayleigh or norm or ratio
+    objective_type = 'ray' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
-    verbose = interim_plot = True
-    seed = 1 # 916723353 # 689993214
-    weights = np.array([.5, 1., 1.])
+    verbose = True
+    interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
+    g_vec_eps = 1e-1
+    weight_scaling_factor = 1.
 
+    seed = 1 # 916723353 # 689993214
     np.random.seed(seed)
 
+    dirname = './output/epigraph'
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+    fname = f'{basis_v}'
+    fname += f'_m_{extremal_mode}'
+    fname += f'_seed_{seed}'
+    outname = dirname + '/' + fname + '_testbed'
+
+    weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array([1., weight_scaling_factor, weight_scaling_factor])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
@@ -68,14 +79,14 @@ def main():
                                 extremal_mode=extremal_mode,
                                 metamaterial=metamate,
                                 ops=ops,
-                                plot_interval=10,
+                                plot_interval=epoch_duration//2,
                                 show_plot=interim_plot,
                                 verbose=verbose,
                                 w=weights,
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v, 
                                   ops=ops, 
-                                  eps=1., 
+                                  eps=g_vec_eps, 
                                   verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
@@ -87,22 +98,25 @@ def main():
 
     # ===== Optimization Loop =====
     x_history = [x.copy()]
-    for _ in range(n_epochs):
+    for i in range(n_epochs):
         for n, beta in enumerate(betas, 1):
             ops.beta, ops.epoch = beta, n
             x[:] = opt.optimize(x)
             x_history.append(x.copy())
-            ops.epoch_iter_tracker.append(len(g_ext.evals))
             opt.set_maxeval(epoch_duration)
 
-        print(f"\n===== Epoch Summary: {n} =====")
+            ops.epoch_iter_tracker.append(len(g_ext.evals))
+
+        print(f"\n===== Epoch Summary: {i+1} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
-        print(f"===== End Epoch Summary: {n} =====\n")
+        print(f"===== End Epoch Summary: {i+1} =====\n")
         
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
-    g_ext.update_plot(x[:-1])
+        g_ext.update_plot(x[:-1])
+        g_ext.fig.savefig(f"{outname}_timeline_e-{i+1}.png")
+        # g_ext.w[0] = 1/2
 
     # ===== End Optimization Loop =====
 
@@ -123,16 +137,8 @@ def main():
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
     print('Final Invariants:', invariants)
-    
-    dirname = './output/epigraph'
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-    fname = f'{basis_v}'
-    fname += f'_m_{extremal_mode}'
-    fname += f'_seed_{seed}'
-    outname = dirname + '/' + fname
 
-    with open(f'{outname}_testbed.pkl', 'wb') as f:
+    with open(f'{outname}.pkl', 'wb') as f:
         pickle.dump({'x': x,
                      'x_history': x_history},
                     f)
@@ -144,8 +150,8 @@ def main():
                               (img_rez, img_rez),),
                     axis=0)
     g_ext.fig.savefig(f"{outname}_timeline.png")
-    plt.imsave(f"{outname}_testbed.png", x_img, cmap='gray')
-    plt.imsave(f"{outname}_array_testbed.png", np.tile(x_img, (4,4)), cmap='gray')
+    plt.imsave(f"{outname}.png", x_img, cmap='gray')
+    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
     plt.show(block=True)
 
 if __name__ == '__main__':
