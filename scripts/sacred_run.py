@@ -41,7 +41,7 @@ def config():
     verbose = interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
-    g_vec_eps = 1e-1
+    weight_scaling_factor = 1
 
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, seed):
@@ -54,7 +54,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     fname += f'_seed_{seed}'
     outname = dirname + '/' + fname
 
-    weights = np.array([1/2, 1., 1.]) if extremal_mode == 1 else np.array([1., 1/2, 1/2])
+    weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array([1., weight_scaling_factor, weight_scaling_factor])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
