@@ -35,16 +35,18 @@ def config():
     n_epochs, epoch_duration = 4, 50
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'norm' # rayleigh or norm or ratio
+    objective_type = 'ray_sq' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
-    verbose = interim_plot = True
+    verbose = True
+    interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
-    weight_scaling_factor = 1
+    g_vec_eps = 1.
+    weight_scaling_factor = 1.
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, weight_scaling_factor, seed):
 
     dirname = './output/epigraph'
     if not os.path.exists(dirname):
@@ -85,7 +87,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                                 extremal_mode=extremal_mode,
                                 metamaterial=metamate,
                                 ops=ops,
-                                plot_interval=10,
+                                plot_interval=epoch_duration//2,
                                 show_plot=interim_plot,
                                 verbose=verbose,
                                 w=weights,
@@ -111,11 +113,12 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
             x_history.append(x.copy())
             opt.set_maxeval(epoch_duration)
 
-        ops.epoch_iter_tracker.append(len(g_ext.evals))
-        print(f"\n===== Epoch Summary: {n} =====")
+            ops.epoch_iter_tracker.append(len(g_ext.evals))
+
+        print(f"\n===== Epoch Summary: {i+1} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
-        print(f"===== End Epoch Summary: {n} =====\n")
+        print(f"===== End Epoch Summary: {i+1} =====\n")
         
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
