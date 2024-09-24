@@ -44,7 +44,7 @@ def precompute_obj(obj, x):
     else:
         raise ValueError("Invalid number of arguments for primary objective")
 
-def finite_difference_checker(constraint, x, obj=None, epsilon=1e-5):
+def finite_difference_checker(constraint, x, obj=None, epsilon=1e-6):
     args_count = len(inspect.signature(constraint).parameters)
     grad_fd = np.zeros(x.size) if args_count == 2 else np.zeros((constraint.n_constraints, x.size))
 
@@ -79,17 +79,19 @@ def finite_difference_checker(constraint, x, obj=None, epsilon=1e-5):
             raise ValueError("Invalid number of arguments for primary objective.")
 
     return grad_fd
-    
-
 
 def plot_gradients(grad_analytical, grad_fd):
-    fig, ax = plt.subplots(2, 1, figsize=(10, 10))
+    fig, ax = plt.subplots(3, 1, figsize=(15, 10))
     ax[0].plot(grad_analytical.flatten(), label='Analytical', marker='o')
     ax[0].plot(grad_fd.flatten(), label='Finite Difference', marker='.')
     ax[0].legend()
-    ax[1].plot(np.abs(grad_analytical - grad_fd).flatten(), label='Abs Difference')
+    diff = np.abs(grad_analytical - grad_fd).flatten()
+    ax[1].plot(diff, label='Abs Difference')
     ax[1].legend()
-    plt.show()
+    ax[2].plot(diff / np.abs(grad_analytical).flatten(), label='Relative Difference')
+    plt.show(block=False)
+    
+    return fig
 
 def create_constraint(constraint_name, params):
     if constraint_name == 'Epigraph':
@@ -136,7 +138,7 @@ def create_constraint(constraint_name, params):
             V = 0.35,
             ops=params['ops'],
             verbose=params['verbose'])
-    elif constraint_name == 'Isotropic':
+    elif constraint_name == 'ScalarIsotropic':
         return ScalarIsotropicConstraint(
             eps=1e-5,
             ops=params['ops'],
@@ -169,20 +171,20 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=Fa
     grad_analytical = get_analytical_gradient(constraint, x)
     grad_fd = finite_difference_checker(constraint, x, obj)
 
+    if plot:
+        plot_gradients(grad_analytical, grad_fd)
+
     diff = np.abs(grad_analytical - grad_fd)
     print(f"Max Abs Diff: {np.max(diff)}")
     print(f"Mean Abs Diff: {np.mean(diff)}")
     print(f"Scaled Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
-    
-    if plot:
-        plot_gradients(grad_analytical, grad_fd)
-
+    npt.assert_allclose(grad_analytical, grad_fd, rtol=1e-5, atol=1e-5)
 
 def main():
     nelx = 5
     nely = nelx
-    E_max, E_min, nu = 1., 1e-2, 0.45
-    beta, eta = 8., 0.5
+    E_max, E_min, nu = 1., 1e-3, 0.3
+    beta, eta = 1., 0.5
     cell_side_length_mm = 25.
     line_width_mm = 2.5
     line_space_mm = line_width_mm
@@ -250,7 +252,7 @@ def main():
 
     # handle_constraints('ScalarBulk', x, params)
     # handle_constraints('ScalarVolume', x, params)
-    handle_constraints('Isotropic', x, params)
+    handle_constraints('ScalarIsotropic', x, params, plot=True)
 
     # ===== Epigraph Constraints =====
     # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal': 
@@ -269,6 +271,9 @@ def main():
     # handle_constraints('Trace', x, params, epi_constraint=True)
     # handle_constraints('Volume', x, params, epi_constraint=True)
 
+
+
+    plt.show(block=True)
 
 if __name__ == "__main__":
     main()
