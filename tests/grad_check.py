@@ -21,6 +21,7 @@ from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            TraceConstraint, VolumeConstraint)
 from metatop.optimization.scalar import EnergyObjective
 
+np.random.seed(0)
 
 def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e-5):
     args_count = len(inspect.signature(constraint).parameters)
