@@ -32,30 +32,31 @@ def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e
         perturb[i] = epsilon
         x_plus = x + perturb
         x_minus = x - perturb
-
+        
+        obj = params['obj']
+        empty_grad = np.array([])
 
         if args_count > 2:  # fn(results, x, grad)
             r_plus = np.zeros(constraint.n_constraints)
             r_minus = np.zeros(constraint.n_constraints)
-            if params['obj']:
-                params['obj'](np.zeros(params['obj'].n_constraints), 
-                              x_plus, np.array([]))
-            constraint(r_plus, x_plus, np.array([]))
-            if params['obj']:
-                params['obj'](np.zeros(params['obj'].n_constraints), 
-                              x_minus, np.array([]))
-            constraint(r_minus, x_minus, np.array([]))
+
+            obj(r_plus, x_plus, empty_grad) if not None else None
+            constraint(r_plus, x_plus, empty_grad)
+
+            obj(r_minus, x_minus, empty_grad) if not None else None
+            constraint(r_minus, x_minus, empty_grad)
+
             grad_fd[:, i] = (r_plus - r_minus) / (2 * epsilon)
         elif args_count == 2:  # c = fn(x, grad)
-            if params['obj']:
-                params['obj'](np.zeros(params['obj'].n_constraints), 
-                              x_plus, np.array([]))
-            c_plus = constraint(x_plus, np.array([]))
-            if params['obj']:
-                params['obj'](np.zeros(params['obj'].n_constraints), 
-                              x_minus, np.array([]))
-            c_minus = constraint(x_minus, np.array([]))
+            obj(x_plus, empty_grad) if not None else None
+            c_plus = constraint(x_plus, empty_grad)
+
+            obj(x_minus, empty_grad) if not None else None
+            c_minus = constraint(x_minus, empty_grad)
+
             grad_fd[i] = (c_plus - c_minus) / (2 * epsilon)
+        else:
+            raise ValueError("Invalid number of arguments")
 
     diff = np.abs(grad_analytical - grad_fd)
     print(f"Max Abs Diff: {np.max(diff)}")
