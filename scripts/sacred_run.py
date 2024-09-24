@@ -51,7 +51,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     dirname = './output/epigraph'
     if not os.path.exists(dirname):
         os.makedirs(dirname)
-    fname = f'{basis_v}'
+    fname = f'{ex.current_run._id}'
+    fname += f'_{basis_v}'
     fname += f'_m_{extremal_mode}'
     fname += f'_seed_{seed}'
     outname = dirname + '/' + fname
