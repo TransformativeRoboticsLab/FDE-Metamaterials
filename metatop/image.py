@@ -59,7 +59,7 @@ def conic_filter(image, kernel_size=5):
     blurred_image = convolve(image, kernel)
     
     return blurred_image
-def bitmapify(r: fe.Function, shape: tuple, img_resolution: tuple[int, int], threshold: int = 128) -> np.ndarray:
+def bitmapify(r: fe.Function, shape: tuple, img_resolution: tuple[int, int], threshold: int = 128, invert=False) -> np.ndarray:
     if 'tri' in r.function_space().ufl_cell().cellname():
         r_img = func2img(shape, img_resolution, r)
     elif 'quad' in r.function_space().ufl_cell().cellname():
@@ -72,7 +72,8 @@ def bitmapify(r: fe.Function, shape: tuple, img_resolution: tuple[int, int], thr
     # This blur is there just to smooth out some of the sharp 
     # corners that the fenics mesh can make if the image resolution >> mesh resolution
     r_img = gaussian_filter(r_img, sigma=img_resolution[0]//100, mode='wrap')
-    return np.where(r_img > threshold, 255, 0)
+    out = np.flip(np.where(r_img > threshold, 255, 0), axis=0)
+    return 1. - out if invert else out
 
 def projection(x, beta=1., eta=0.5):
     tanh_beta_eta = np.tanh(beta * eta)
