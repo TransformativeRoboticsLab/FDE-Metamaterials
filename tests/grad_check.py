@@ -7,6 +7,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.testing as npt
 from tqdm import tqdm
 
 from metatop import V_DICT
@@ -19,13 +20,33 @@ from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            InvariantsConstraint,
                                            SpectralNormConstraint,
                                            TraceConstraint, VolumeConstraint)
+from metatop.optimization.scalar import \
+    BulkModulusConstraint as ScalarBulkModulusConstraint
 from metatop.optimization.scalar import EnergyObjective
+from metatop.optimization.scalar import \
+    IsotropicConstraint as ScalarIsotropicConstraint
+from metatop.optimization.scalar import \
+    VolumeConstraint as ScalarVolumeConstraint
 
 np.random.seed(0)
 
-def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e-5):
+def precompute_obj(obj, x):
+    '''
+    Precompute the objective the if the constraint relies on calling the objective first.
+    The objective could be an nlopt scalar or vector so we need to handle how many arguments it takes dynamically.
+    '''
+    arg_nums = len(inspect.signature(obj).parameters)
+    empty_grad = np.array([])
+    if arg_nums > 2:
+        obj(np.zeros(obj.n_constraints), x, empty_grad)
+    elif arg_nums == 2:
+        obj(x, empty_grad)
+    else:
+        raise ValueError("Invalid number of arguments for primary objective")
+
+def finite_difference_checker(constraint, x, obj=None, epsilon=1e-5):
     args_count = len(inspect.signature(constraint).parameters)
-    grad_fd = np.zeros_like(grad_analytical)
+    grad_fd = np.zeros(x.size) if args_count == 2 else np.zeros((constraint.n_constraints, x.size))
 
     for i in tqdm(range(grad_fd.shape[grad_fd.ndim-1]), desc="Checking gradient"):
         perturb = np.zeros_like(x)
@@ -33,38 +54,31 @@ def finite_difference_checker(constraint, x, grad_analytical, params, epsilon=1e
         x_plus = x + perturb
         x_minus = x - perturb
         
-        obj = params['obj']
         empty_grad = np.array([])
 
         if args_count > 2:  # fn(results, x, grad)
             r_plus = np.zeros(constraint.n_constraints)
             r_minus = np.zeros(constraint.n_constraints)
 
-            obj(r_plus, x_plus, empty_grad) if not None else None
+            precompute_obj(obj, x_plus) if obj is not None else None
             constraint(r_plus, x_plus, empty_grad)
 
-            obj(r_minus, x_minus, empty_grad) if not None else None
+            precompute_obj(obj, x_minus) if obj is not None else None
             constraint(r_minus, x_minus, empty_grad)
 
             grad_fd[:, i] = (r_plus - r_minus) / (2 * epsilon)
         elif args_count == 2:  # c = fn(x, grad)
-            obj(x_plus, empty_grad) if not None else None
+            precompute_obj(obj, x_plus) if obj is not None else None
             c_plus = constraint(x_plus, empty_grad)
 
-            obj(x_minus, empty_grad) if not None else None
+            precompute_obj(obj, x_minus) if obj is not None else None
             c_minus = constraint(x_minus, empty_grad)
 
             grad_fd[i] = (c_plus - c_minus) / (2 * epsilon)
         else:
-            raise ValueError("Invalid number of arguments")
+            raise ValueError("Invalid number of arguments for primary objective.")
 
-    diff = np.abs(grad_analytical - grad_fd)
-    print(f"Max Abs Diff: {np.max(diff)}")
-    print(f"Mean Abs Diff: {np.mean(diff)}")
-    print(f"Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
-
-    plot_gradients(grad_analytical, grad_fd)
-
+    return grad_fd
     
 
 
@@ -77,42 +91,60 @@ def plot_gradients(grad_analytical, grad_fd):
     ax[1].legend()
     plt.show()
 
-
-def handle_constraints(constraint_name, x, params, epi_constraint=False):
-    constraints = {
-        'Epigraph': Epigraph(),
-        'Extremal': ExtremalConstraints(v=params['v'], 
-                                        extremal_mode=params['extremal_mode'], 
-                                        metamaterial=params['metamaterial'], ops=params['ops'], 
-                                        verbose=params['verbose'], 
-                                        show_plot=params['plot'],
-                                        objective_type=params['objective_type']),
-        'Energy': EnergyObjective(v=params['v'], 
+def create_constraint(constraint_name, params):
+    if constraint_name == 'Epigraph':
+        return Epigraph()
+    elif constraint_name == 'Extremal':
+        return ExtremalConstraints(v=params['v'], 
                                    extremal_mode=params['extremal_mode'], 
                                    metamaterial=params['metamaterial'], ops=params['ops'], 
                                    verbose=params['verbose'], 
-                                   plot=params['plot']),
-        'Invariants': InvariantsConstraint(ops=params['ops'], 
-                                           verbose=params['verbose']),
-        'Eigenvector': EigenvectorConstraint(v=params['v'],
-                                             ops=params['ops'],
-                                             verbose=params['verbose']),
-        'SpectralNorm': SpectralNormConstraint(ops=params['ops'],
-                                               bound=1.,
-                                               verbose=params['verbose']),
-        'Trace': TraceConstraint(ops=params['ops'], bound=1., verbose=params['verbose']),
-        'Volume': VolumeConstraint(ops=params['ops'], bound=0.5, verbose=params['verbose']),
-    }
+                                   show_plot=params['plot'],
+                                   objective_type=params['objective_type'])
+    elif constraint_name == 'Energy':
+        return EnergyObjective(v=params['v'], 
+                               extremal_mode=params['extremal_mode'], 
+                               metamaterial=params['metamaterial'], ops=params['ops'], 
+                               verbose=params['verbose'], 
+                               plot=params['plot'])
+    elif constraint_name == 'Invariants':
+        return InvariantsConstraint(ops=params['ops'], 
+                                    verbose=params['verbose'])
+    elif constraint_name == 'Eigenvector':
+        return EigenvectorConstraint(v=params['v'],
+                                     ops=params['ops'],
+                                     verbose=params['verbose'])
+    elif constraint_name == 'SpectralNorm':
+        return SpectralNormConstraint(ops=params['ops'],
+                                      bound=1.,
+                                      verbose=params['verbose'])
+    elif constraint_name == 'Trace':
+        return TraceConstraint(ops=params['ops'], bound=1., verbose=params['verbose'])
 
-    # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
-    if epi_constraint:
-        x = np.append(x, 1.)
+    elif constraint_name == 'Volume':
+        return VolumeConstraint(ops=params['ops'], bound=0.5, verbose=params['verbose'])
+    elif constraint_name == 'ScalarBulk':
+        return ScalarBulkModulusConstraint(
+            base_E=params['metamaterial'].prop.E_max,
+            base_nu=params['metamaterial'].prop.nu,
+            a=0.2*1e-2,
+            ops=params['ops'],
+            verbose=params['verbose'])
 
-    # if we need to run the primary objective function first to get the analytical gradient
-    if params['obj']:
-        params['obj'](np.zeros(params['obj'].n_constraints), x, np.array([]), dummy_run=True)
+    elif constraint_name == 'ScalarVolume':
+        return ScalarVolumeConstraint(
+            V = 0.35,
+            ops=params['ops'],
+            verbose=params['verbose'])
+    elif constraint_name == 'Isotropic':
+        return ScalarIsotropicConstraint(
+            eps=1e-5,
+            ops=params['ops'],
+            verbose=params['verbose'])
+    else:
+        raise ValueError(f"Constraint {constraint_name} not found")
 
-    constraint = constraints[constraint_name]
+def get_analytical_gradient(constraint, x):
     arg_nums = len(inspect.signature(constraint).parameters)
     if arg_nums > 2:
         grad_analytical = np.zeros((constraint.n_constraints, x.size))
@@ -122,7 +154,28 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False):
         constraint(x, grad_analytical)
     else:
         raise ValueError("Invalid number of arguments")
-    finite_difference_checker(constraint, x, grad_analytical, params)
+    return grad_analytical
+
+def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=False):
+    # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
+    if epi_constraint:
+        x = np.append(x, 1.)
+
+    # if we need to run the primary objective function first to get the analytical gradient
+    obj = params['obj']
+    precompute_obj(obj, x) if obj is not None else None
+
+    constraint = create_constraint(constraint_name, params)
+    grad_analytical = get_analytical_gradient(constraint, x)
+    grad_fd = finite_difference_checker(constraint, x, obj)
+
+    diff = np.abs(grad_analytical - grad_fd)
+    print(f"Max Abs Diff: {np.max(diff)}")
+    print(f"Mean Abs Diff: {np.mean(diff)}")
+    print(f"Scaled Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
+    
+    if plot:
+        plot_gradients(grad_analytical, grad_fd)
 
 
 def main():
@@ -186,6 +239,20 @@ def main():
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
     # handle_constraints('Extremal', x, params, epi_constraint=True)
 
+    # ===== Scalar Constraints =====
+    obj = EnergyObjective(v=params['v'],
+                            extremal_mode=params['extremal_mode'],
+                            metamaterial=params['metamaterial'],
+                            ops=params['ops'],
+                            verbose=params['verbose'],
+                            plot=params['plot'])
+    params['obj'] = obj
+
+    # handle_constraints('ScalarBulk', x, params)
+    # handle_constraints('ScalarVolume', x, params)
+    handle_constraints('Isotropic', x, params)
+
+    # ===== Epigraph Constraints =====
     # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal': 
     obj = ExtremalConstraints(v=params['v'], 
                         extremal_mode=params['extremal_mode'], 
@@ -200,7 +267,7 @@ def main():
     # handle_constraints('Geometric', x, params, epi_constraint=True)
     # handle_constraints('SpectralNorm', x, params, epi_constraint=True)
     # handle_constraints('Trace', x, params, epi_constraint=True)
-    handle_constraints('Volume', x, params, epi_constraint=True)
+    # handle_constraints('Volume', x, params, epi_constraint=True)
 
 
 if __name__ == "__main__":
