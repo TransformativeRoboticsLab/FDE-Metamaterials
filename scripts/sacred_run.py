@@ -67,6 +67,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                                   nely,
                                   mesh_cell_type='tri',
                                   domain_shape='square')
+    img_rez = 200
+    img_shape = (metamate.width, metamate.height)
 
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
@@ -126,7 +128,14 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         g_ext.update_plot(x[:-1])
         g_ext.fig.savefig(f"{outname}_timeline_e-{i+1}.png")
         ex.add_artifact(f"{outname}_timeline_e-{i+1}.png")
+
+        metamate.x.vector()[:] = x[:-1]
         log_values(ex, forward_solve(x[:-1], metamate, ops))
+
+        x_img = bitmapify(metamate.x, img_shape, (img_rez, img_rez), invert=True)
+        fcellname = f"{outname}_cell_e-{i+1}.png"
+        plt.imsave(fcellname, x_img, cmap='gray')
+        ex.add_artifact(fcellname)
 
     # ===== End Optimization Loop =====
 
@@ -151,13 +160,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                      'x_history': x_history},
                     f)
 
-    img_rez = 200
-    img_shape = (metamate.width, metamate.height)
-    x_img = 1 - np.flip(bitmapify(metamate.x,
-                              img_shape,
-                              (img_rez, img_rez),),
-                    axis=0)
     g_ext.fig.savefig(f"{outname}_timeline.png")
+    x_img = bitmapify(metamate.x, img_shape, (img_rez, img_rez), invert=True)
     plt.imsave(f"{outname}.png", x_img, cmap='gray')
     plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
 
