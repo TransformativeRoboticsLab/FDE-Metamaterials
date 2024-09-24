@@ -20,6 +20,7 @@ class EnergyObjective:
         self.verbose = verbose
         self.plot_interval = plot_interval
         self.evals = []
+        self.n_constraints = 1
 
         if plot:
             plt.ion()
@@ -217,32 +218,29 @@ class IsotropicConstraint:
         dxfem_dx_vjp = self.ops.dxfem_dx_vjp
 
         def g(C):
-            C = jnp.array(C)
-            Ciso = self.compute_Ciso(C)
+            Ciso = self._compute_Ciso(C)
             diff = Ciso - C
-            return jnp.sum(diff**2) / Ciso[0, 0]
+            return jnp.sum(diff**2) / Ciso[0, 0]**2
 
-        c, dc_dChom = jax.value_and_grad(g)(Chom)
+        c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
 
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(np.asarray(
-                dc_dChom).flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
         if self.verbose == True:
             print(
                 f"- Isotropic Constraint: {c:.2e} (Target ≤{self.eps:}) [{'Satisfied' if c <= self.eps else 'Not Satisfied'}]")
 
-        return float(c) - self.eps
+        return float(c - self.eps)
 
-    def compute_Ciso(self, C):
-        Ciso = jnp.zeros_like(C)
-        Ciso = Ciso.at[0, 1].set(C[0, 1])
-        Ciso = Ciso.at[1, 0].set(C[1, 0])
-        avg = (C[0, 0] + C[1, 1]) / 2.
-        Ciso = Ciso.at[0, 0].set(avg)
-        Ciso = Ciso.at[1, 1].set(avg)
-        Ciso = Ciso.at[2, 2].set((Ciso[0, 0] - Ciso[0, 1]) / 2.)
-        return Ciso
+    def _compute_Ciso(self, C):
+        Ciso_11 = Ciso_22 = (C[0, 0] + C[1, 1]) / 2.
+        Ciso_12 = Ciso_21 = C[0, 1]
+        Ciso_33 = (Ciso_11 - Ciso_12) / 2.
+
+        return jnp.array([[Ciso_11, Ciso_12, 0.],
+                          [Ciso_21, Ciso_22, 0.],
+                          [0.,      0.,      Ciso_33]])
 
 
 
@@ -257,6 +255,7 @@ class BulkModulusConstraint:
         self.aK = self.base_K * self.a
         self.ops = ops
         self.verbose = verbose
+        self.n_constraints = 1
 
     def __call__(self, x, grad):
 
@@ -264,22 +263,20 @@ class BulkModulusConstraint:
         dChom_dxfem = self.ops.dChom_dxfem
         dxfem_dx_vjp = self.ops.dxfem_dx_vjp
 
-        # g = lambda C: -0.5 * (C[0][0] + C[1][0])
         def g(C):
             S = jnp.linalg.inv(C)
             return -1. / (S[0][0] + S[0][1]) / 2.
         c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
 
         if grad.size > 0:
-            grad[:] = dxfem_dx_vjp(np.asarray(
-                dc_dChom).flatten() @ dChom_dxfem)[0]
+            grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
         if self.verbose == True:
             print(
                 f"- Bulk Modulus: {-c:.2e} (Target ≥{self.aK:.2e}) [{'Satisfied' if -c >= self.aK else 'Not Satisfied'}]")
 # ≤
 
-        return self.aK + float(c)
+        return float(self.aK + c)
 
     def compute_K(self, E, nu):
         # computes plane stress bulk modulus from E and nu

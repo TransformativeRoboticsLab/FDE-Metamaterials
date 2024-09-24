@@ -7,16 +7,17 @@ from matplotlib import pyplot as plt
 
 from metatop.filters import (DensityFilter, jax_density_filter, jax_projection,
                              jax_simp)
+from metatop.image import bitmapify
 
 
 class AndreassenOptimization:
-    def __init__(self, obj_type, metamaterial, ops, verbose=True, plot=True, ):
+    def __init__(self, obj_type, metamaterial, ops, verbose=True, plot=True, plot_interval=20):
         self.obj_type = obj_type
         self.metamaterial = metamaterial
         self.ops = ops
         self.plot = plot
         self.verbose = verbose
-        self.plot_interval = 20
+        self.plot_interval = plot_interval
 
         self.epoch = 0
         self.evals = []
@@ -25,9 +26,14 @@ class AndreassenOptimization:
         if self.plot:
             plt.ion()
             self.fig = plt.figure(figsize=(16, 8))
-            grid_spec = gridspec.GridSpec(2, 4, )
-            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(
-                grid_spec[0, 1]), plt.subplot(grid_spec[0, 2]), plt.subplot(grid_spec[0, 3])]
+            grid_spec = gridspec.GridSpec(2, 6, )
+            self.ax1 = [plt.subplot(grid_spec[0, 0]), 
+                        plt.subplot(grid_spec[0, 1]), 
+                        plt.subplot(grid_spec[0, 2]), 
+                        plt.subplot(grid_spec[0, 3]), 
+                        plt.subplot(grid_spec[0, 4]), 
+                        plt.subplot(grid_spec[0, 5]),
+            ]
             self.ax2 = plt.subplot(grid_spec[1, :])
 
         if self.obj_type == 'bulk':
@@ -40,7 +46,7 @@ class AndreassenOptimization:
             def f(C):
                 S = jnp.linalg.inv(C)
                 S = -S if self.obj_type == 'ppr' else S
-                return -S[0][1]/S[0][0]
+                return -(S[0][1]/S[0][0] + S[1][0]/S[1][1]) / 2.
         else:
             raise ValueError("Invalid objective type")
 
@@ -90,24 +96,32 @@ class AndreassenOptimization:
         return float(c)
 
     def update_plot(self, x):
-        filt, beta, eta, pen = self.ops.filt, self.ops.beta, self.ops.eta, self.ops.pen
-        x_tilde = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-        x_bar = jax_projection(x_tilde, beta, eta)
-        x_simp = jax_simp(x_bar, pen)
+        x_tilde = self.ops.filt_fn(x)
+        x_bar = jax_projection(x_tilde, self.ops.beta, self.ops.eta)
+        x_simp = jax_simp(x_bar, self.ops.pen)
+        img_shape = (100, 100)
+        img_rez = 100
+        x_img = np.flip(bitmapify(self.metamaterial.x,
+                                  img_shape,
+                                  (img_rez, img_rez)),
+                        axis=0)
         fields = {f'x (V={np.mean(x):.3f})': x,
                     f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                    f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
-                    f'x_simp (V={np.mean(x_simp):.3f})': x_simp}
+                    f'x_bar beta={int(self.ops.beta):d} (V={np.mean(x_bar):.3f})': x_bar,
+                    f'x_simp (V={np.mean(x_simp):.3f})': x_simp,
+                    f'x_img': x_img,
+                    f'Tiling': np.tile(x_img, (3,3))}
         if len(fields) != len(self.ax1):
             raise ValueError("Number of fields must match number of axes")
 
         r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.size == self.metamaterial.R.dim():
+            if field.shape[0] == self.metamaterial.R.dim():
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
             else:
-                raise ValueError("Field size does not match function space")
+                ax.imshow(255 - field, cmap='gray')
+                ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])
 
@@ -149,10 +163,9 @@ class AndreassenOptimization:
         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
 
     def _filt_proj_simp(self, x):
-        filt, beta, eta, pen = self.ops.filt, self.ops.beta, self.ops.eta, self.ops.pen
-        x = jax_density_filter(x, filt.H_jax, filt.Hs_jax)
-        x = jax_projection(x, beta, eta)
-        x = jax_simp(x, pen)
+        x = self.ops.filt_fn(x)
+        x = jax_projection(x, self.ops.beta, self.ops.eta)
+        x = jax_simp(x, self.ops.pen)
         return x
 
 

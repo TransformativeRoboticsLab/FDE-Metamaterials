@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass, field
+from functools import cached_property
 
 import fenics as fe
 import numpy as np
@@ -164,29 +165,29 @@ class Metamaterial:
 
         return sols, Chom, uChom
 
-    @property
+    @cached_property
     def cell_vol(self):
         return next(fe.cells(self.mesh)).volume()
 
-    @property
+    @cached_property
     def resolution(self):
         x_min, y_min = self.mesh.coordinates().min(axis=0)
         x_max, y_max = self.mesh.coordinates().max(axis=0)
         return (x_max - x_min) / self.nelx, (y_max - y_min) / self.nely
 
-    @property
+    @cached_property
     def domain_vol(self):
         return fe.assemble(fe.Constant(1)*fe.dx(domain=self.mesh))
     
-    @property
+    @cached_property
     def width(self):
         return self.resolution[0] * self.nelx
     
-    @property
+    @cached_property
     def height(self):
         return self.resolution[1] * self.nely
 
-    @property
+    @cached_property
     def cell_midpoints(self):
         return np.array([c.midpoint().array()[:2] for c in fe.cells(self.mesh)])
 
