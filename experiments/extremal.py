@@ -23,9 +23,9 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
 np.set_printoptions(precision=5)
 
 from sacred import Experiment
-from sacred.observers import FileStorageObserver, MongoObserver
+from sacred.observers import MongoObserver
 
-ex = Experiment('metatop_epigraph')
+ex = Experiment('epigraph')
 ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop'))
 
 @ex.config
@@ -38,7 +38,7 @@ def config():
     objective_type = 'ray_sq' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
-    verbose = True
+    verbose = False
     interim_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
