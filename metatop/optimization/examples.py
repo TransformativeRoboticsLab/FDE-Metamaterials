@@ -99,12 +99,9 @@ class AndreassenOptimization:
         x_tilde = self.ops.filt_fn(x)
         x_bar = jax_projection(x_tilde, self.ops.beta, self.ops.eta)
         x_simp = jax_simp(x_bar, self.ops.pen)
-        img_shape = (100, 100)
-        img_rez = 100
-        x_img = np.flip(bitmapify(self.metamaterial.x,
-                                  img_shape,
-                                  (img_rez, img_rez)),
-                        axis=0)
+        img_shape = (self.metamaterial.width, self.metamaterial.height)
+        img_rez = (self.metamaterial.nelx, self.metamaterial.nely)
+        x_img = bitmapify(self.metamaterial.x, img_shape, img_rez)
         fields = {f'x (V={np.mean(x):.3f})': x,
                     f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
                     f'x_bar beta={int(self.ops.beta):d} (V={np.mean(x_bar):.3f})': x_bar,

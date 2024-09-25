@@ -146,11 +146,16 @@ class ExtremalConstraints:
             plt.ion()
         self.fig = plt.figure(figsize=(15, 6))
         grid_spec = gridspec.GridSpec(2, 5, )
-        self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(
-            grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), ]
+        self.ax1 = [plt.subplot(grid_spec[0, 0]), 
+                    plt.subplot(grid_spec[0, 1]), 
+                    plt.subplot(grid_spec[0, 2]), 
+                    plt.subplot(grid_spec[0, 3]), 
+                    plt.subplot(grid_spec[0, 4]), 
+                    ]
         self.ax2 = plt.subplot(grid_spec[1, :])
 
-        print(f"""
+        if self.verbose:
+            print(f"""
 MinimaxConstraint initialized with:
 v:
 {v}
@@ -246,16 +251,13 @@ objective_type: {self.objective_type}
         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
-        img_resolution = 200
+        img_resolution = (200, 200)
         img_shape = (self.metamaterial.width, self.metamaterial.height)
         r_img = self.metamaterial.x.copy(deepcopy=True)
-        x_img = np.flip(bitmapify(r_img,
-                                    img_shape,                            (img_resolution, img_resolution)),
-                        axis=0)
-
+        x_img = bitmapify(r_img, img_shape, img_resolution)
         fields = {f'x (V={np.mean(x):.3f})': x,
                     f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                    f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
+                    f'x_bar beta={int(beta):d} (V={np.mean(x_bar):.3f})': x_bar,
                     f'x_img': x_img,
                     f'Tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
