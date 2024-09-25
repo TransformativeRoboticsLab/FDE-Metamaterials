@@ -26,7 +26,7 @@ from sacred import Experiment
 from sacred.observers import MongoObserver
 
 ex = Experiment('andreassen')
-ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='andreassen'))
+ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop'))
 
 @ex.config
 def config():
