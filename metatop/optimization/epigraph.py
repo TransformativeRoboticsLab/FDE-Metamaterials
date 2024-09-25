@@ -239,10 +239,10 @@ objective_type: {self.objective_type}
             print(
                 f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
-            # print(f"g(x) = {c:.4f}")
-            # print(t, c)
-            print(f"t: {t:.3e} g(x): {c}")
+            print(f"t: {t:.3e} g_ext(x): {c}")
             print(f"Actual Values: {cs}")
+        else:
+            print(f"{len(self.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
 
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             self.update_plot(x)
@@ -458,6 +458,8 @@ class EigenvectorConstraint:
             print(f"Eigenvector Constraint:")
             print(f"Values: {c}")
             print(f"Residuals: {cs}")
+        else:
+            print(f"\tg_vec(x): {c}")
 
     def __str__(self):
         return "EigenvectorConstraint"
