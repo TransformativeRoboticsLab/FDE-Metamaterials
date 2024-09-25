@@ -30,7 +30,6 @@ V_DICT = {
     "IHSA": np.array([[1., 0., 0.],
                       [0., ISQR2, -ISQR2],
                       [0., ISQR2,  ISQR2]]),
-    "EYE": np.eye(3),
     "HSA3": np.array([[1, -1/2,  3/2],
                       [1, -1/2, -3/2],
                       [1,  1,    0]]),
