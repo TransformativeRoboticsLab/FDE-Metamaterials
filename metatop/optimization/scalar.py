@@ -81,11 +81,10 @@ class EnergyObjective:
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
-            img_resolution = 200
+            img_rez = (200,200)
             img_shape = (self.metamaterial.width, self.metamaterial.height)
             r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = np.flip(bitmapify(r_img, img_shape,
-                            (img_resolution, img_resolution)), axis=0)
+            x_img = bitmapify(r_img, img_shape, img_rez)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
                       f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
@@ -113,7 +112,7 @@ class EnergyObjective:
                 self.plot_density(
                     r, title=f"{name}", ax=ax, cmap=cmap, colorbar=cb, vmin=vmin, vmax=vmax)
             else:
-                ax.imshow(255 - field, cmap='gray')
+                ax.imshow(field, cmap='gray')
                 ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])

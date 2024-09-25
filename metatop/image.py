@@ -72,8 +72,8 @@ def bitmapify(r: fe.Function, shape: tuple, img_resolution: tuple[int, int], thr
     # This blur is there just to smooth out some of the sharp 
     # corners that the fenics mesh can make if the image resolution >> mesh resolution
     r_img = gaussian_filter(r_img, sigma=img_resolution[0]//100, mode='wrap')
-    out = np.flip(np.where(r_img > threshold, 255, 0), axis=0)
-    return 1. - out if invert else out
+    out = 255 - np.flip(np.where(r_img > threshold, 255, 0), axis=0)
+    return 255 - out if invert else out
 
 def projection(x, beta=1., eta=0.5):
     tanh_beta_eta = np.tanh(beta * eta)

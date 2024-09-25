@@ -87,7 +87,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
                                ops=ops,
                                verbose=verbose,
                                plot=interim_plot,
-                               plot_interval=10)
+                               plot_interval=epoch_duration//2)
     
     g_vol = VolumeConstraint(vol_frac, ops=ops, verbose=verbose)
     g_bulk = BulkModulusConstraint(E_max, nu, bulk_modulus_ratio, ops=ops, verbose=verbose)

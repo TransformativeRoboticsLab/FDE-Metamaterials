@@ -269,7 +269,7 @@ objective_type: {self.objective_type}
                 r.vector()[:] = field
                 self.plot_density(r, title=f"{name}", ax=ax)
             else:
-                ax.imshow(255 - field, cmap='gray')
+                ax.imshow(field, cmap='gray')
                 ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])
