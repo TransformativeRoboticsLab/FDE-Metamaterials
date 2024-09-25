@@ -143,14 +143,19 @@ def log_values(experiment, C):
     for i in range(3):
         for j in range(3):
             experiment.log_scalar(f"C_{i}{j}", C[i, j])
+    print('C:\n', C)
     w = np.linalg.eigvalsh(C)
     for i, v in enumerate(w):
         experiment.log_scalar(f"Eigenvalue_{i}", v)
+        print(f"Eigenvalue_{i}: {v}")
     for i, v in enumerate(w / np.max(w)):
         experiment.log_scalar(f"Normed_Eigenvalue_{i}", v)
+        print(f"Normed_Eigenvalue_{i}: {v}")
     ASU = anisotropy_index(C, input_style='mandel')
     for k, v in ASU.items():
         experiment.log_scalar(k, v)
+        print(f"{k}: {v}")
     constants = calculate_elastic_constants(C, input_style='mandel')
     for k, v in constants.items():
         experiment.log_scalar(k, v)
+        print(f"{k}: {v}")
