@@ -20,6 +20,7 @@ from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
                                            InvariantsConstraint,
                                            SpectralNormConstraint,
                                            TraceConstraint, VolumeConstraint)
+from metatop.optimization.examples import AndreassenOptimization
 from metatop.optimization.scalar import \
     BulkModulusConstraint as ScalarBulkModulusConstraint
 from metatop.optimization.scalar import EnergyObjective
@@ -143,6 +144,12 @@ def create_constraint(constraint_name, params):
             eps=1e-5,
             ops=params['ops'],
             verbose=params['verbose'])
+    elif constraint_name == 'Andreassen':
+        return AndreassenOptimization('pr',
+                                      metamaterial=params['metamaterial'],
+                                      ops=params['ops'],
+                                      verbose=params['verbose'],
+                                      plot=params['plot'])
     else:
         raise ValueError(f"Constraint {constraint_name} not found")
 
@@ -183,7 +190,7 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=Fa
 def main():
     nelx = 5
     nely = nelx
-    E_max, E_min, nu = 1., 1e-3, 0.3
+    E_max, E_min, nu = 1., 1e-9, 0.3
     beta, eta = 1., 0.5
     cell_side_length_mm = 25.
     line_width_mm = 2.5
@@ -240,6 +247,7 @@ def main():
     # handle_constraints('Energy', x, params)
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
     # handle_constraints('Extremal', x, params, epi_constraint=True)
+    handle_constraints('Andreassen', x, params, plot=True)
 
     # ===== Scalar Constraints =====
     obj = EnergyObjective(v=params['v'],
