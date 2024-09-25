@@ -2,7 +2,7 @@ import fenics as fe
 import numpy as np
 from scipy.spatial import KDTree
 
-from metatop.filters import jax_projection
+from metatop.filters import jax_projection, jax_simp
 from metatop.mechanics import anisotropy_index, calculate_elastic_constants
 
 
@@ -131,8 +131,10 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     print(summary)
 
 
-def forward_solve(x, metamaterial, ops):
+def forward_solve(x, metamaterial, ops, simp=False):
     metamaterial.x.vector()[:] = jax_projection(ops.filt_fn(x), ops.beta, ops.eta)
+    if simp:
+        metamaterial.x.vector()[:] = jax_simp(metamaterial.x.vector()[:], ops.pen)
     m = np.diag(np.array([1, 1, np.sqrt(2)]))
     C = m @ np.asarray(metamaterial.solve()[1]) @ m
     return C
