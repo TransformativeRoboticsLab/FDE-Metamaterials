@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 from metatop import V_DICT
 from metatop.filters import jax_projection, setup_filter
 from metatop.helpers import forward_solve, log_values
+from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
 from metatop.metamaterial import setup_metamaterial
@@ -30,9 +31,9 @@ ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='andreas
 @ex.config
 def config():
     E_max, E_min, nu = 1., 1e-9, 0.3
-    start_beta, n_betas = 1, 8
+    start_beta, n_betas = 2, 7
     penalty = 3.
-    epoch_duration = 50
+    epoch_duration = 100
     nelx = nely = 100
     norm_filter_radius = 0.1
     verbose = interim_plot = True
@@ -63,13 +64,13 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
                                   nely,
                                   mesh_cell_type='quad',
                                   domain_shape='square')
-    img_rez = 100
+    img_rez = (nelx, nely)
     img_shape = (metamate.width, metamate.height)
 
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
-    ops = OptimizationState(beta=start_beta,
+    ops = OptimizationState(beta=1,
                             eta=0.5,
                             filt=filt,
                             filt_fn = filt_fn,
@@ -86,7 +87,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
                                ops=ops,
                                verbose=verbose,
                                plot=interim_plot,
-                               plot_interval=epoch_duration//2)
+                               plot_interval=10)
     
     g_vol = VolumeConstraint(vol_frac, ops=ops, verbose=verbose)
     g_bulk = BulkModulusConstraint(E_max, nu, bulk_modulus_ratio, ops=ops, verbose=verbose)
@@ -100,31 +101,53 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     
     opt.set_lower_bounds(np.zeros(x.size))
     opt.set_upper_bounds(np.ones(x.size))
-    # opt.set_maxeval(1_000)
-    opt.set_ftol_rel(1e-6)
-    opt.set_xtol_rel(1e-6)
-    x[:] = opt.optimize(x)
     # opt.set_param('dual_ftol_rel', 1e-6)
     # ===== End Optimization Setup =====
 
     # ===== Optimization Loop =====
-    # for n, beta in enumerate(betas, 1):
-    #     ops.beta, ops.epoch = beta, n
-    #     x[:] = opt.optimize(x)
-    #     ops.epoch_iter_tracker.append(len(f.evals))
-        
-    #     print(f"\n===== Epoch Summary: {n} =====")
-    #     print(f"Final Objective: {opt.last_optimum_value():.3f}")
-    #     print(f"Result Code: {opt.last_optimize_result()}")
-    #     print(f"===== End Epoch Summary: {n} =====\n")
+    # First epoch lets optimizer converge at beta=1
+    # Previous runs indicate this takes about 4k iterations
+    x_history = [x.copy()]
+    opt.set_maxeval(4_000)
+    x[:] = opt.optimize(x)
+    x_history.append(x.copy())
+    ops.epoch_iter_tracker.append(len(f.evals))
 
-    #     opt.set_maxeval(epoch_duration)
-    metamate.x.vector()[:] = x
-    log_values(ex, forward_solve(x, metamate, ops))
+    log_values(ex, forward_solve(x, metamate, ops, simp=True))
+    x_img = bitmapify(metamate.x, img_shape, img_rez)
+    fcellname = f"{outname}_cell_e-1.png"
+    plt.imsave(fcellname, x_img, cmap='gray')
+    ex.add_artifact(fcellname)
+    ftimelinename = f"{outname}_timeline_e-1.png"
+    f.fig.savefig(ftimelinename)
+    ex.add_artifact(ftimelinename)
+
+    # Now we can start the epochs
+    opt.set_maxeval(epoch_duration)
+    for n, beta in enumerate(betas, 2):
+        ops.beta, ops.epoch = beta, n
+        x[:] = opt.optimize(x)
+        x_history.append(x.copy())
+        ops.epoch_iter_tracker.append(len(f.evals))
+        
+        print(f"\n===== Epoch Summary: {n} =====")
+        print(f"Final Objective: {opt.last_optimum_value():.3f}")
+        print(f"Result Code: {opt.last_optimize_result()}")
+        print(f"===== End Epoch Summary: {n} =====\n")
+
+        metamate.x.vector()[:] = x
+        log_values(ex, forward_solve(x, metamate, ops, simp=True))
+        x_img = bitmapify(metamate.x, img_shape, img_rez)
+        fcellname = f"{outname}_cell_e-{n}.png"
+        plt.imsave(fcellname, x_img, cmap='gray')
+        ex.add_artifact(fcellname)
+        ftimelinename = f"{outname}_timeline_e-{n}.png"
+        f.fig.savefig(ftimelinename)
+        ex.add_artifact(ftimelinename)
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    final_C = forward_solve(x, metamate, ops)
+    final_C = forward_solve(x, metamate, ops, simp=True)
 
     w, v = np.linalg.eigh(final_C)
     print('Final C:\n', final_C)
@@ -138,7 +161,23 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
     print('Final Invariants:', invariants)
-    plt.show(block=True)
 
-if __name__ == '__main__':
-    main()
+    with open(f'{outname}.pkl', 'wb') as f:
+        pickle.dump({'x': x,
+                     'x_history': x_history},
+                    f)
+        
+    x_img = bitmapify(metamate.x, img_shape, img_rez)
+    plt.imsave(f"{outname}.png", x_img, cmap='gray')
+    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
+    
+    ex.info['final_C'] = final_C
+    ex.info['eigvals'] = w
+    ex.info['norm_eigvals'] = w / np.max(w)
+    ex.info['eigvecs'] = v
+    ex.info['ASU'] = ASU
+    ex.info['elastic_constants'] = elastic_constants
+    ex.info['invariants'] = invariants
+    ex.add_artifact(f'{outname}.pkl')
+    ex.add_artifact(f"{outname}.png")
+    ex.add_artifact(f"{outname}_array.png")
