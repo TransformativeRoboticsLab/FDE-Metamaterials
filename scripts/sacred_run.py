@@ -174,5 +174,5 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     ex.info['invariants'] = invariants
     ex.add_artifact(f'{outname}.pkl')
     ex.add_artifact(f'{outname}_timeline.png')
-    ex.add_artifact(f"output/epigraph/{fname}.png")
-    ex.add_artifact(f"output/epigraph/{fname}_array.png")
+    ex.add_artifact(f"{outname}.png")
+    ex.add_artifact(f"{outname}_array.png")
