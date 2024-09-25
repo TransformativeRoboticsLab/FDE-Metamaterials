@@ -25,7 +25,7 @@ np.set_printoptions(precision=5)
 from sacred import Experiment
 from sacred.observers import MongoObserver
 
-ex = Experiment('epigraph')
+ex = Experiment('extremal')
 ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop'))
 
 @ex.config
