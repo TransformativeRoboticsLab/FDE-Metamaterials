@@ -161,12 +161,9 @@ def main():
     print('Final Elastic Constants:', calculate_elastic_constants(
         final_C, input_style='standard'))
     
-    img_rez = 200
+    img_rez = (200, 200)
     img_shape = (metamate.width, metamate.height)
-    x_img = np.flip(bitmapify(metamate.x,
-                              img_shape,
-                              (img_rez, img_rez),),
-                    axis=0)
+    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     plt.figure()
     plt.imshow(x_img, cmap='gray')
     fname = 'epigraph'

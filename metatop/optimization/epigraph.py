@@ -254,7 +254,7 @@ objective_type: {self.objective_type}
         img_resolution = (200, 200)
         img_shape = (self.metamaterial.width, self.metamaterial.height)
         r_img = self.metamaterial.x.copy(deepcopy=True)
-        x_img = bitmapify(r_img, img_shape, img_resolution)
+        x_img = bitmapify(r_img, img_shape, img_resolution, invert=True)
         fields = {f'x (V={np.mean(x):.3f})': x,
                     f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
                     f'x_bar beta={int(beta):d} (V={np.mean(x_bar):.3f})': x_bar,

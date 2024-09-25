@@ -143,12 +143,9 @@ def main():
                      'x_history': x_history},
                     f)
 
-    img_rez = 200
+    img_rez = (200, 200)
     img_shape = (metamate.width, metamate.height)
-    x_img = 1 - np.flip(bitmapify(metamate.x,
-                              img_shape,
-                              (img_rez, img_rez),),
-                    axis=0)
+    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     g_ext.fig.savefig(f"{outname}_timeline.png")
     plt.imsave(f"{outname}.png", x_img, cmap='gray')
     plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')

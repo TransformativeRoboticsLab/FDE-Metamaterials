@@ -114,7 +114,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     ops.epoch_iter_tracker.append(len(f.evals))
 
     log_values(ex, forward_solve(x, metamate, ops, simp=True))
-    x_img = bitmapify(metamate.x, img_shape, img_rez)
+    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     fcellname = f"{outname}_cell_e-1.png"
     plt.imsave(fcellname, x_img, cmap='gray')
     ex.add_artifact(fcellname)
@@ -137,7 +137,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
 
         metamate.x.vector()[:] = x
         log_values(ex, forward_solve(x, metamate, ops, simp=True))
-        x_img = bitmapify(metamate.x, img_shape, img_rez)
+        x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
         fcellname = f"{outname}_cell_e-{n}.png"
         plt.imsave(fcellname, x_img, cmap='gray')
         ex.add_artifact(fcellname)
@@ -167,7 +167,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
                      'x_history': x_history},
                     f)
         
-    x_img = bitmapify(metamate.x, img_shape, img_rez)
+    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     plt.imsave(f"{outname}.png", x_img, cmap='gray')
     plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
     

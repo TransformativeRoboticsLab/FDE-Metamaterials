@@ -84,7 +84,7 @@ class EnergyObjective:
             img_rez = (200,200)
             img_shape = (self.metamaterial.width, self.metamaterial.height)
             r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = bitmapify(r_img, img_shape, img_rez)
+            x_img = bitmapify(r_img, img_shape, img_rez, invert=True)
 
             fields = {f'x (V={np.mean(x):.3f})': x,
                       f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
