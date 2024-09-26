@@ -264,8 +264,7 @@ objective_type: {self.objective_type}
         self._update_evaluation_plot()
 
         if self.show_plot or show_now:
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
+            self.fig.canvas.draw_idle()
             plt.pause(1e-3)
 
     def _prepare_fields(self, x):
@@ -273,11 +272,11 @@ objective_type: {self.objective_type}
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
         x_img = bitmapify(self.metamaterial.x.copy(deepcopy=True), self.img_shape, self.img_resolution, invert=True)
-        fields = {fr'$x$ (V={np.mean(x):.3f})': x,
-                    fr'$\tilde{{x}}$ (V={np.mean(x_tilde):.3f})': x_tilde,
-                    fr'$\bar{{x}}$ ($\beta$={int(beta):d})': x_bar,
-                    fr'$\bar{{x}}$ image': x_img,
-                    fr'Image tiling': np.tile(x_img, (3, 3))}
+        fields = {r'$\rho$': x,
+                  r'$\tilde{\rho}$)': x_tilde,
+                  fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
+                  r'$\bar{\rho}$ bitmap': x_img,
+                  'Image tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
             raise ValueError(f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
         return fields
