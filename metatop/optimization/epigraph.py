@@ -138,13 +138,15 @@ class ExtremalConstraints:
         self.plot_interval = plot_interval
         self.w = w
         self.evals = []
+        self.show_plot = show_plot
+        self.img_resolution = (200, 200)
+        self.img_shape = (self.metamaterial.width, self.metamaterial.height)
 
         self.n_constraints = 2 if 'ratio' in self.objective_type else 3
         self.eps = 1.
 
-        if show_plot:
-            plt.ion()
-        self.fig = plt.figure(figsize=(15, 6))
+        plt.ion() if self.show_plot else plt.ioff()
+        self.fig = plt.figure(figsize=(15, 8))
         grid_spec = gridspec.GridSpec(2, 5, )
         self.ax1 = [plt.subplot(grid_spec[0, 0]), 
                     plt.subplot(grid_spec[0, 1]), 
@@ -153,6 +155,15 @@ class ExtremalConstraints:
                     plt.subplot(grid_spec[0, 4]), 
                     ]
         self.ax2 = plt.subplot(grid_spec[1, :])
+        self.ax2.grid(True)
+        self.ax2.set(xlabel='Iterations',
+                     ylabel='Function Evaluations',
+                     xlim=(0, 10),
+                     title='Optimization Progress')
+        self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
+        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+        self.epoch_lines = []
+        self.last_epoch_plotted = -1
 
         if self.verbose:
             print(f"""
@@ -247,22 +258,31 @@ objective_type: {self.objective_type}
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             self.update_plot(x)
 
-    def update_plot(self, x):
+    def update_plot(self, x, show_now=False):
+        fields = self._prepare_fields(x)
+        self._update_image_plots(fields)
+        self._update_evaluation_plot()
+
+        if self.show_plot or show_now:
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+            plt.pause(1e-3)
+
+    def _prepare_fields(self, x):
         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
-        img_resolution = (200, 200)
-        img_shape = (self.metamaterial.width, self.metamaterial.height)
-        r_img = self.metamaterial.x.copy(deepcopy=True)
-        x_img = bitmapify(r_img, img_shape, img_resolution, invert=True)
-        fields = {f'x (V={np.mean(x):.3f})': x,
-                    f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                    f'x_bar beta={int(beta):d} (V={np.mean(x_bar):.3f})': x_bar,
-                    f'x_img': x_img,
-                    f'Tiling': np.tile(x_img, (3, 3))}
+        x_img = bitmapify(self.metamaterial.x.copy(deepcopy=True), self.img_shape, self.img_resolution, invert=True)
+        fields = {fr'$x$ (V={np.mean(x):.3f})': x,
+                    fr'$\tilde{{x}}$ (V={np.mean(x_tilde):.3f})': x_tilde,
+                    fr'$\bar{{x}}$ ($\beta$={int(beta):d})': x_bar,
+                    fr'$\bar{{x}}$ image': x_img,
+                    fr'Image tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
-            raise ValueError("Number of fields must match number of axes")
+            raise ValueError(f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
+        return fields
 
+    def _update_image_plots(self, fields):
         r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
             if field.shape[0] == self.metamaterial.R.dim():
@@ -274,19 +294,21 @@ objective_type: {self.objective_type}
             ax.set_xticks([])
             ax.set_yticks([])
 
-        self.ax2.clear()
-        f_arr = np.asarray(self.evals)
-        self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')
-        self.ax2.grid(True)
+    def _update_evaluation_plot(self):
+        x_data = range(1, len(self.evals)+1)
+        y_data = np.asarray(self.evals)
+        for i, line in enumerate(self.evals_lines):
+            line.set_data(x_data, y_data[:, i])
+        self.ax2.relim()
+        self.ax2.autoscale_view()
         self.ax2.set_xlim(left=0, right=len(self.evals) + 2)
 
-        for iter_val in self.ops.epoch_iter_tracker:
-            self.ax2.axvline(x=iter_val, color='black',
-                             linestyle='--', alpha=0.5, linewidth=3.)
-
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
-        plt.pause(1e-3)
+        # we only want to update epoch lines if there is a new one
+        for idx in self.ops.epoch_iter_tracker:
+            if idx > self.last_epoch_plotted:
+                self.last_epoch_plotted = idx
+                self.epoch_lines.append(self.ax2.axvline(x=idx, color='black',
+                                                         linestyle='--', alpha=0.5, linewidth=3.))
 
     def plot_density(self, r_in, title=None, ax=None):
         r = fe.Function(r_in.function_space())
