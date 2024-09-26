@@ -10,7 +10,8 @@ from matplotlib import pyplot as plt
 
 from metatop import V_DICT
 from metatop.filters import jax_projection, setup_filter
-from metatop.helpers import forward_solve, log_values
+from metatop.helpers import (forward_solve, log_values, save_bmp_and_artifact,
+                             save_fig_and_artifact)
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
@@ -48,10 +49,11 @@ def config():
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, weight_scaling_factor, seed):
 
+    run_id = ex.current_run._id
     dirname = './output/epigraph'
     if not os.path.exists(dirname):
         os.makedirs(dirname)
-    fname = f'{ex.current_run._id}'
+    fname = str(run_id)
     fname += f'_{basis_v}'
     fname += f'_m_{extremal_mode}'
     fname += f'_seed_{seed}'
@@ -111,6 +113,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     x_history = [x.copy()]
     for i in range(n_epochs):
         for n, beta in enumerate(betas, 1):
+            print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
             ops.beta, ops.epoch = beta, n
             x[:] = opt.optimize(x)
             x_history.append(x.copy())
@@ -126,16 +129,13 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
         g_ext.update_plot(x[:-1])
-        g_ext.fig.savefig(f"{outname}_timeline_e-{i+1}.png")
-        ex.add_artifact(f"{outname}_timeline_e-{i+1}.png")
+        save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline_e-{i+1}.png')
 
         metamate.x.vector()[:] = x[:-1]
         log_values(ex, forward_solve(x[:-1], metamate, ops))
 
         x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-        fcellname = f"{outname}_cell_e-{i+1}.png"
-        plt.imsave(fcellname, x_img, cmap='gray')
-        ex.add_artifact(fcellname)
+        save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.bmp')
 
     # ===== End Optimization Loop =====
 
@@ -157,13 +157,17 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
 
     with open(f'{outname}.pkl', 'wb') as f:
         pickle.dump({'x': x,
-                     'x_history': x_history},
+                     'x_history': x_history,
+                     'evals': g_ext.evals},
                     f)
 
-    g_ext.fig.savefig(f"{outname}_timeline.png")
+    save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline.png')
     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-    plt.imsave(f"{outname}.png", x_img, cmap='gray')
-    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
+    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.bmp')
+    save_bmp_and_artifact(ex, np.tile(x_img, (4,4)), outname, f'{run_id}_array.bmp')
+    # g_ext.fig.savefig(f"{outname}_timeline.png")
+    # plt.imsave(f"{outname}.png", x_img, cmap='gray')
+    # plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
 
     ex.info['final_C'] = final_C
     ex.info['eigvals'] = w
@@ -173,6 +177,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
     ex.add_artifact(f'{outname}.pkl')
-    ex.add_artifact(f'{outname}_timeline.png')
-    ex.add_artifact(f"{outname}.png")
-    ex.add_artifact(f"{outname}_array.png")
+    # ex.add_artifact(f'{outname}_timeline.png')
+    # ex.add_artifact(f"{outname}.png")
+    # ex.add_artifact(f"{outname}_array.png")
+    if g_ext.show_plot:
+        plt.close(g_ext.fig)
