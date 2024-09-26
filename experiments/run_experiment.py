@@ -1,4 +1,5 @@
 import argparse
+import subprocess
 
 from andreassen import ex as andreassen_ex
 from extremal import ex as extremal_ex
@@ -21,7 +22,8 @@ def select_experiment(name):
     return experiments[name]
 
 def run_experiment(experiment_name, num_runs, sacred_args):
-    ex = select_experiment(experiment_name)
+    # ex = select_experiment(experiment_name)
+    experiment_name = experiment_name.rstrip('.py') + '.py'
     
     print(f"Running experiment '{experiment_name}' with arguments: {sacred_args[1:]}")
     
@@ -29,7 +31,8 @@ def run_experiment(experiment_name, num_runs, sacred_args):
         print(f"Starting run {run_id}/{num_runs}")
         # the dummy is needed because Sacred expects the first argument to be the script name
         # otherwise the args are passed formated as if they were passed to the script
-        ex.run_commandline(['dummy'] + sacred_args)
+        # ex.run_commandline(['dummy'] + sacred_args)
+        subprocess.run(['python', 'experiments/' + experiment_name] + sacred_args)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the specific experiment with Sacred')
