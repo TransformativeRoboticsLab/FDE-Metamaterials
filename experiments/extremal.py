@@ -135,7 +135,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         log_values(ex, forward_solve(x[:-1], metamate, ops))
 
         x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-        save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.bmp')
+        save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
 
     # ===== End Optimization Loop =====
 
@@ -163,11 +163,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
 
     save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline.png')
     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.bmp')
-    save_bmp_and_artifact(ex, np.tile(x_img, (4,4)), outname, f'{run_id}_array.bmp')
-    # g_ext.fig.savefig(f"{outname}_timeline.png")
-    # plt.imsave(f"{outname}.png", x_img, cmap='gray')
-    # plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
+    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.png')
+    save_bmp_and_artifact(ex, np.tile(x_img, (4,4)), outname, f'{run_id}_array.png')
 
     ex.info['final_C'] = final_C
     ex.info['eigvals'] = w
@@ -177,8 +174,5 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
     ex.add_artifact(f'{outname}.pkl')
-    # ex.add_artifact(f'{outname}_timeline.png')
-    # ex.add_artifact(f"{outname}.png")
-    # ex.add_artifact(f"{outname}_array.png")
     if g_ext.show_plot:
         plt.close(g_ext.fig)
