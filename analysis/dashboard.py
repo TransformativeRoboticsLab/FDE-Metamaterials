@@ -88,18 +88,11 @@ app.layout = html.Div([
 )
 
 def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, n_intervals, relayout_data):
-    scatter_data = {
-        'x': [],
-        'y': [],
-        'Combined Color': [],
-        'Run ID': [],
-        'Mode': []
-    }
 
     global experiments_cache
     experiments = experiments_cache
 
-    df = build_scatter_dataframe(x_metric, y_metric, color_params, scatter_data, experiments)
+    df = build_scatter_dataframe(x_metric, y_metric, color_params, experiments)
 
     fig = px.scatter(
         df,

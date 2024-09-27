@@ -214,39 +214,44 @@ def customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle
 
     fig.update_traces(marker=dict(size=12), mode='markers')
 
-def build_scatter_dataframe(x_metric, y_metric, color_params, scatter_data, experiments):
+def build_scatter_dataframe(x_metric, y_metric, color_params, experiments):
     """
-    Builds a DataFrame for scatter plot visualization from given Incense Experiment list.
+    Builds a pandas DataFrame for scatter plot visualization from a list of experiments.
     Parameters:
     x_metric (str): The metric to be used for the x-axis.
     y_metric (str): The metric to be used for the y-axis.
-    color_params (list of str): List of configuration parameters to combine for coloring the scatter plot.
-    scatter_data (dict): Dictionary to store scatter plot data with keys 'x', 'y', 'Combined Color', 'Run ID', and 'Mode'.
-    experiments (list): List of experiment objects, each containing 'metrics' and 'config' attributes.
+    color_params (list of str): List of parameters to combine for the color coding.
+    experiments (list of Experiment): List of experiment objects containing metrics and configurations.
     Returns:
-    pd.DataFrame: A DataFrame containing the scatter plot data, sorted by 'Mode' in descending order.
-    Notes:
-    - Each experiment must have the specified x_metric and y_metric in its metrics to be included in the DataFrame.
-    - The 'Combined Color' column is created by concatenating the values of the specified color_params from the experiment's config.
-    - The 'Run ID' column is formatted as 'Run ID: {experiment_id}'.
-    - The 'Mode' column is determined based on the 'extremal_mode' config parameter, with 'Unimode' for a value of 1 and 'Bimode' for 2.
+    pd.DataFrame: A DataFrame containing the x and y values, combined color, run ID, and mode for each experiment.
     """
+    
+    # Create a list of dictionaries (records) to build DataFrame efficiently in one step
+    records = []
+    
+    mode_map = {1: 'Unimode', 2: 'Bimode'}
     
     for e in experiments:
         if x_metric not in e.metrics or y_metric not in e.metrics:
-            print(f"Skipping experiment {e.id} because it doesn't have the required metrics.")
             continue
-        scatter_data['x'].append(e.metrics.get(x_metric, None).iloc[-1])
-        scatter_data['y'].append(e.metrics.get(y_metric, None).iloc[-1])
-        
-        # Dynamically combine selected config params for color
-        combined_color = '_'.join([str(e.config.get(param, 'None')) for param in color_params])
-        scatter_data['Combined Color'].append(combined_color)
-        
-        scatter_data['Run ID'].append(f'Run ID: {e.id}')  # Format run_id here
-        mode_map = {1: 'Unimode', 2: 'Bimode'}
-        scatter_data['Mode'].append(mode_map.get(e.config.get('extremal_mode', None), 'Unknown'))
 
-    df = pd.DataFrame(scatter_data)
+        x_value = e.metrics.get(x_metric, None).iloc[-1]
+        y_value = e.metrics.get(y_metric, None).iloc[-1]
+        
+        combined_color = '_'.join([str(e.config.get(param, 'None')) for param in color_params])
+        
+        mode = mode_map.get(e.config.get('extremal_mode', None), 'Unknown')
+        
+        records.append({
+            'x': x_value,
+            'y': y_value,
+            'Combined Color': combined_color,
+            'Run ID': f'Run ID: {e.id}',
+            'Mode': mode
+        })
+
+    df = pd.DataFrame.from_records(records)
+    
     df.sort_values(by='Mode', ascending=False, inplace=True)
+    
     return df
