@@ -26,10 +26,6 @@ def load_experiments_async(loader, experiment_name, filter_tags=[], poll_interva
         print(f"Updated experiments cache at {time.ctime(last_update_time)}.")
         time.sleep(poll_interval)
 
-
-load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
-load_thread.start()
-    
 app = dash.Dash(__name__)
 app.layout = html.Div([
     html.H1('Meta-Top Analysis Dashboard'),
@@ -70,7 +66,7 @@ app.layout = html.Div([
         
     dcc.Interval(
         id='interval-component',
-        interval=30*1000,  # in milliseconds
+        interval=5*1000,  # in milliseconds
         n_intervals=0
     ),
     dcc.Graph(id='scatter-plot'),
@@ -150,9 +146,9 @@ def update_scatter_plot(x_metric, y_metric, color_param, toggle_values, n_interv
     # x_upper = max(max(df['x']), 1.05)
     # y_lower = min(min(df['y']), -.05)
     # y_upper = max(max(df['y']), 1.05)
-    fig.update_xaxes(title_text=x_metric)
+    # fig.update_xaxes(title_text=x_metric)
     # fig.update_xaxes(range=[x_lower, x_upper], title_text=x_metric)
-    fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
+    # fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
     fig.update_traces(marker=dict(size=12), mode='markers')
     metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
     
@@ -171,4 +167,7 @@ def update_image_on_hover(hover_data):
     return ''
 
 if __name__ == '__main__':
-    app.run_server(debug=True, host='localhost', port=8050)
+    load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
+    load_thread.daemon = True
+    load_thread.start()
+    app.run_server(debug=True, use_reloader=True, host='localhost', port=8050)
