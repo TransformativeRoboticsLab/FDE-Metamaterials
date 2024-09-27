@@ -25,7 +25,7 @@ def run_experiment(experiment_name, num_runs, sacred_args):
     # ex = select_experiment(experiment_name)
     experiment_name = experiment_name.rstrip('.py') + '.py'
     
-    print(f"Running experiment '{experiment_name}' with arguments: {sacred_args[1:]}")
+    print(f"Running experiment '{experiment_name}' with updated config parameters: {sacred_args[1:]}")
     
     for run_id in range(1, num_runs+1):
         print(f"Starting run {run_id}/{num_runs}")
