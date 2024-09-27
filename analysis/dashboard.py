@@ -49,9 +49,10 @@ app.layout = html.Div([
         html.Div([
             html.Label('Color by Config Parameter'),
             dcc.Dropdown(
-                id='color-dropdown',
+                id='color-multiselect',
                 options=[],
-                value='basis_v'
+                value=['basis_v', 'objective_type'],
+                multi=True
             ),
         ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
         html.Div([
@@ -66,7 +67,7 @@ app.layout = html.Div([
         
     dcc.Interval(
         id='interval-component',
-        interval=5*1000,  # in milliseconds
+        interval=2*1000,  # in milliseconds
         n_intervals=0
     ),
     dcc.Graph(id='scatter-plot'),
@@ -77,82 +78,46 @@ app.layout = html.Div([
     [Output('scatter-plot', 'figure'),
      Output('x-axis-dropdown', 'options'),
      Output('y-axis-dropdown', 'options'),
-     Output('color-dropdown', 'options')],
+     Output('color-multiselect', 'options')],
     Input('x-axis-dropdown', 'value'),
     Input('y-axis-dropdown', 'value'),
-    Input('color-dropdown', 'value'),
+    Input('color-multiselect', 'value'),
     Input('yx-line-toggle', 'value'),
-    Input('interval-component', 'n_intervals')
+    Input('interval-component', 'n_intervals'),
+    Input('scatter-plot', 'relayoutData')
 )
 
-def update_scatter_plot(x_metric, y_metric, color_param, toggle_values, n_intervals):
-
-    global experiments_cache
-    experiments = experiments_cache
-
+def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, n_intervals, relayout_data):
     scatter_data = {
         'x': [],
         'y': [],
-        color_param: [],
+        'Combined Color': [],
         'Run ID': [],
         'Mode': []
     }
 
-    for e in experiments:
-        if x_metric not in e.metrics or y_metric not in e.metrics:
-            print(f"Skipping experiment {e.id} because it doesn't have the required metrics.")
-            continue
-        scatter_data['x'].append(e.metrics.get(x_metric, None).iloc[-1])
-        scatter_data['y'].append(e.metrics.get(y_metric, None).iloc[-1])
-        scatter_data[color_param].append(e.config.get(color_param, None))
-        scatter_data['Run ID'].append(f'Run ID: {e.id}')  # Format run_id here
-        mode = 'Unimode' if e.config.get('extremal_mode', None) == 1 else 'Bimode'
-        scatter_data['Mode'].append(mode)
+    global experiments_cache
+    experiments = experiments_cache
 
-    df = pd.DataFrame(scatter_data)
+    df = build_scatter_dataframe(x_metric, y_metric, color_params, scatter_data, experiments)
 
     fig = px.scatter(
         df,
         x='x',
         y='y',
-        color=color_param,
+        color='Combined Color',
         hover_name='Run ID',
         hover_data=['Mode'],
         symbol='Mode',
         symbol_map={'Unimode': 'square', 'Bimode': 'triangle-up'},
     )
     
-    if 'plot_yx' in toggle_values:
-        fig.update_layout(
-            shapes=[
-                {
-                    'type': 'line',
-                    'x0': 0,
-                    'y0': 0,
-                    'x1': 1,
-                    'y1': 1,
-                    'line': {
-                        'color': 'Black',
-                        'width': 2,
-                        'dash': 'dash'
-                    },
-                }
-            ]
-        )
-    
-    fig.update_layout(title=f"{len(experiments):d} Data Points", width=1000, height=1000)
+    customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle_values)
 
-    # x_lower = min(min(df['x']), -.05)
-    # x_upper = max(max(df['x']), 1.05)
-    # y_lower = min(min(df['y']), -.05)
-    # y_upper = max(max(df['y']), 1.05)
-    # fig.update_xaxes(title_text=x_metric)
-    # fig.update_xaxes(range=[x_lower, x_upper], title_text=x_metric)
-    # fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
-    fig.update_traces(marker=dict(size=12), mode='markers')
     metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
     
     return fig, metric_dropdowns, metric_dropdowns, config_dropdowns
+
 
 @app.callback(
     Output('hover-image', 'src'),
@@ -166,8 +131,11 @@ def update_image_on_hover(hover_data):
         return img_src
     return ''
 
-if __name__ == '__main__':
+def main():
     load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
     load_thread.daemon = True
     load_thread.start()
     app.run_server(debug=True, use_reloader=True, host='localhost', port=8050)
+
+if __name__ == '__main__':
+    main()

@@ -1,5 +1,7 @@
 import base64
 
+import pandas as pd
+
 
 def filter_experiments_by_tag(experiments, filter_tags):
     """
@@ -93,17 +95,37 @@ def reorganize_artifacts(artifacts):
     artifacts.update(new_artifacts)
 
 def update_dropdown_options(experiments):
-    
-    if experiments:
-        metric_names = sorted(list(set(experiments[-2].metrics.keys())))
-        config_names = sorted(list(set(experiments[-2].config.keys())))
-        metric_dropdowns = [{'label': name, 'value': name} for name in metric_names]
-        config_dropdowns = [{'label': name, 'value': name} for name in config_names]
+    """
+    Generates dropdown options for configuration parameters and metrics from a list of experiments.
+    Args:
+        experiments (list): A list of Incense Experiment objects. Each experiment object should have 
+                            'config' and 'metrics' attributes, where 'config' is a dictionary 
+                            of configuration parameters and 'metrics' is a dictionary of metrics.
+    Returns:
+        tuple: A tuple containing two lists:
+            - metric_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each metric.
+            - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
+    """
+
+    all_config_params = set()
+    for e in experiments:
+        all_config_params.update(e.config.keys())
         
-        return metric_dropdowns, config_dropdowns
-    return [], [], []
+    config_dropdowns = [{'label': param, 'value': param} for param in sorted(all_config_params)]
+    metric_dropdowns = [{'label': metric, 'value': metric} for metric in sorted(experiments[-2].metrics.keys())]
+    
+    return metric_dropdowns, config_dropdowns
 
 def get_image_from_experiment(loader, id):
+    """
+    Retrieves an image from an experiment based on the provided ID. Goes and does a new search for the experiment by ID using the loader.
+    Args:
+        loader (object): An Incense ExperimentLoader that provides a method `find_by_id` to retrieve experiments.
+        id (str or int): The run ID of the experiment from which to retrieve the image.
+    Returns:
+        bytes: The image data content in 'image/png' format if found, otherwise None.
+    """
+    
     exp=loader.find_by_id(id)
     img = None
     for k, v in exp.artifacts.items():
@@ -112,4 +134,119 @@ def get_image_from_experiment(loader, id):
     return img
 
 def encode_image(data):
+    """
+    Encodes binary image data to a base64 ASCII string.
+    Args:
+        data (bytes): The binary image data to encode.
+    Returns:
+        str: The base64 encoded ASCII string representation of the image data.
+    """
+    
     return base64.b64encode(data).decode('ascii')
+
+def reapply_current_zoom(relayout_data, fig):
+    """
+    Reapply the current zoom level to a Plotly figure based on the provided relayout data.
+    Parameters:
+    relayout_data (dict): A dictionary containing the current zoom level information. 
+                          Expected keys are 'xaxis.range[0]', 'xaxis.range[1]', 
+                          'yaxis.range[0]', and 'yaxis.range[1]'.
+    fig (plotly.graph_objs._figure.Figure): The Plotly figure object to update.
+    Returns:
+    None: This function updates the figure in place and does not return any value.
+    """
+    
+    if relayout_data and 'xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data:
+        fig.update_xaxes(range=[relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']])
+    if relayout_data and 'yaxis.range[0]' in relayout_data and 'yaxis.range[1]' in relayout_data:
+        fig.update_yaxes(range=[relayout_data['yaxis.range[0]'], relayout_data['yaxis.range[1]']])
+
+def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
+    """
+    Adds a dashed y=x line to the given figure.
+    Parameters:
+    fig (plotly.graph_objs._figure.Figure): The figure to which the line will be added.
+    xs (tuple, optional): A tuple containing the start and end x-coordinates of the line. Defaults to (0., 1.).
+    ys (tuple, optional): A tuple containing the start and end y-coordinates of the line. Defaults to (0., 1.).
+    Returns:
+    None
+    """
+    
+    x0, x1 = xs
+    y0, y1 = ys
+    fig.update_layout(
+            shapes=[
+                {
+                    'type': 'line',
+                    'x0': x0,
+                    'y0': y0,
+                    'x1': x1,
+                    'y1': y1,
+                    'line': {
+                        'color': 'Black',
+                        'width': 2,
+                        'dash': 'dash'
+                    },
+                }
+            ]
+        )
+
+def customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle_values=[]):
+    """
+    Customizes a given figure with specified metrics, layout, and toggle options.
+    Parameters:
+    x_metric (str): The label for the x-axis.
+    y_metric (str): The label for the y-axis.
+    relayout_data (dict): Data used to reapply the current zoom level.
+    experiments (list): A list of experiments to be plotted.
+    fig (plotly.graph_objs._figure.Figure): The figure object to be customized.
+    toggle_values (list, optional): A list of toggle options to apply specific customizations. Defaults to an empty list.
+    Returns:
+    None
+    """
+    
+    plot_yx(fig) if 'plot_yx' in toggle_values else None
+    fig.update_layout(title=f"{len(experiments):d} Data Points", width=1000, height=1000)
+
+    fig.update_xaxes(title_text=x_metric)
+    fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
+    reapply_current_zoom(relayout_data, fig)
+
+    fig.update_traces(marker=dict(size=12), mode='markers')
+
+def build_scatter_dataframe(x_metric, y_metric, color_params, scatter_data, experiments):
+    """
+    Builds a DataFrame for scatter plot visualization from given Incense Experiment list.
+    Parameters:
+    x_metric (str): The metric to be used for the x-axis.
+    y_metric (str): The metric to be used for the y-axis.
+    color_params (list of str): List of configuration parameters to combine for coloring the scatter plot.
+    scatter_data (dict): Dictionary to store scatter plot data with keys 'x', 'y', 'Combined Color', 'Run ID', and 'Mode'.
+    experiments (list): List of experiment objects, each containing 'metrics' and 'config' attributes.
+    Returns:
+    pd.DataFrame: A DataFrame containing the scatter plot data, sorted by 'Mode' in descending order.
+    Notes:
+    - Each experiment must have the specified x_metric and y_metric in its metrics to be included in the DataFrame.
+    - The 'Combined Color' column is created by concatenating the values of the specified color_params from the experiment's config.
+    - The 'Run ID' column is formatted as 'Run ID: {experiment_id}'.
+    - The 'Mode' column is determined based on the 'extremal_mode' config parameter, with 'Unimode' for a value of 1 and 'Bimode' for 2.
+    """
+    
+    for e in experiments:
+        if x_metric not in e.metrics or y_metric not in e.metrics:
+            print(f"Skipping experiment {e.id} because it doesn't have the required metrics.")
+            continue
+        scatter_data['x'].append(e.metrics.get(x_metric, None).iloc[-1])
+        scatter_data['y'].append(e.metrics.get(y_metric, None).iloc[-1])
+        
+        # Dynamically combine selected config params for color
+        combined_color = '_'.join([str(e.config.get(param, 'None')) for param in color_params])
+        scatter_data['Combined Color'].append(combined_color)
+        
+        scatter_data['Run ID'].append(f'Run ID: {e.id}')  # Format run_id here
+        mode_map = {1: 'Unimode', 2: 'Bimode'}
+        scatter_data['Mode'].append(mode_map.get(e.config.get('extremal_mode', None), 'Unknown'))
+
+    df = pd.DataFrame(scatter_data)
+    df.sort_values(by='Mode', ascending=False, inplace=True)
+    return df
