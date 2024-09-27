@@ -191,7 +191,7 @@ def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
             ]
         )
 
-def customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle_values=[]):
+def customize_figure(x_metric, y_metric, experiments, fig, toggle_values=[]):
     """
     Customizes a given figure with specified metrics, layout, and toggle options.
     Parameters:
@@ -210,7 +210,7 @@ def customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle
 
     fig.update_xaxes(title_text=x_metric)
     fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
-    reapply_current_zoom(relayout_data, fig)
+    # reapply_current_zoom(relayout_data, fig)
 
     fig.update_traces(marker=dict(size=12), mode='markers')
 
@@ -246,6 +246,7 @@ def build_scatter_dataframe(x_metric, y_metric, color_params, experiments):
             'x': x_value,
             'y': y_value,
             'Combined Color': combined_color,
+            'Combined Symbol': combined_color,
             'Run ID': f'Run ID: {e.id}',
             'Mode': mode
         })

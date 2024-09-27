@@ -62,14 +62,8 @@ app.layout = html.Div([
                 value=['plot_yx']  # Empty by default (unchecked)
             )
         ]),
+        html.Button('Refresh Data', id='refresh-button', n_clicks=0)
     ]),
-    
-        
-    dcc.Interval(
-        id='interval-component',
-        interval=2*1000,  # in milliseconds
-        n_intervals=0
-    ),
     dcc.Graph(id='scatter-plot'),
     html.Img(id='hover-image', src='', style={'max-height': '400px', 'max-width': '400px'})
 ])
@@ -83,12 +77,12 @@ app.layout = html.Div([
     Input('y-axis-dropdown', 'value'),
     Input('color-multiselect', 'value'),
     Input('yx-line-toggle', 'value'),
-    Input('interval-component', 'n_intervals'),
-    Input('scatter-plot', 'relayoutData')
+    Input('refresh-button', 'n_clicks')
 )
 
-def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, n_intervals, relayout_data):
+def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, _):
 
+    # print(f"Updating scatter plot with x={x_metric}, y={y_metric}, color={color_params}, toggle={toggle_values}")
     global experiments_cache
     experiments = experiments_cache
 
@@ -102,10 +96,10 @@ def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, n_inter
         hover_name='Run ID',
         hover_data=['Mode'],
         symbol='Mode',
-        symbol_map={'Unimode': 'square', 'Bimode': 'triangle-up'},
+        symbol_map={'Unimode': 'square', 'Bimode': 'circle'},
     )
     
-    customize_figure(x_metric, y_metric, relayout_data, experiments, fig, toggle_values)
+    customize_figure(x_metric, y_metric, experiments, fig, toggle_values)
 
     metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
     
@@ -128,7 +122,7 @@ def main():
     load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
     load_thread.daemon = True
     load_thread.start()
-    app.run_server(debug=True, use_reloader=True, host='localhost', port=8050)
+    app.run_server(debug=True, host='localhost', port=8050)
 
 if __name__ == '__main__':
     main()
