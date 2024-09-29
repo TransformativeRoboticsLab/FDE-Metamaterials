@@ -42,15 +42,26 @@ def run_experiment(experiment_name, num_runs, sacred_args, random_params):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run the specific experiment with Sacred, allowing parameter specification or randomization.')
-    parser.add_argument('experiment_name', type=str, help='The experiment to run.')
+    description = """
+Run the specific experiment with Sacred, allowing parameter specification or randomization. 
+A typical use looks like:
+
+`python run_experiment.py extremal 10 with param1=value1 param2=value2 --randomize param3 param4`
+
+This will run the `extremal` experiment 10 times with the specified parameters for params 1 and 2 and randomize `param3` and `param4` each time.
+
+Note:
+- `num_runs` can be set to -1 for infinite runs.
+    """
+    parser = argparse.ArgumentParser(description=description,
+                                     formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('experiment_name', type=str, help='The python experiment file to run. Can use the format `experiment_name.py` or `experiment_name`.')
     parser.add_argument('num_runs', type=int, help='The number of runs to execute. -1 for infinite runs.')
     parser.add_argument('sacred_args', nargs='*', help="Sacred CLI style arguments to pass to the experiment (e.g., `with param1=value1 param2=value2`). Note: Parameters must be preceded by the word 'with'.")
     parser.add_argument('--randomize', nargs='*', help="List of parameters to randomize (e.g., `--randomize param3 param4`)")
 
     args = parser.parse_args()
 
-    # Validate the sacred args format if provided
     for arg in args.sacred_args:
         if '=' in arg:
             param, value = arg.split('=')
