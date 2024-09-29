@@ -1,27 +1,9 @@
 import argparse
 import subprocess
 
-from andreassen import ex as andreassen_ex
-from extremal import ex as extremal_ex
 from nlopt import ForcedStop
 from utils import get_random_value, validate_param_value
 
-from metatop import V_DICT
-
-
-def select_experiment(name):
-    name = name.rstrip('.py')
-    
-    experiments = {
-        'andreassen': andreassen_ex,
-        'extremal': extremal_ex
-    }
-
-    if name not in experiments:
-        valid_names = ', '.join(experiments.keys())
-        raise ValueError(f"Experiment '{name}' not found. Valid names are: [{valid_names}]")
-    
-    return experiments[name]
 
 def run_experiment(experiment_name, num_runs, sacred_args, random_params):
     experiment_name = experiment_name.rstrip('.py') + '.py'
