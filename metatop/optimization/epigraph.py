@@ -9,10 +9,16 @@ import nlopt
 import numpy as np
 from jax.numpy.linalg import norm as jnorm
 from matplotlib import gridspec
+from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
 
+
+def stop_on_nan(x):
+    if np.isnan(x).any():
+        print("NaN value detected in objective function. Terminating optimization run.")
+        raise ForcedStop
 
 class EpigraphOptimizer(nlopt.opt):
     
@@ -233,6 +239,7 @@ objective_type: {self.objective_type}
                 raise ValueError('Objective type must be either "rayleigh" or "norm"')
 
         c, cs = obj(jnp.asarray(Chom))
+        stop_on_nan(c)
         results[:] = c - t
 
         if dummy_run:
@@ -463,6 +470,7 @@ class EigenvectorConstraint:
             return jnp.log(jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])/self.eps), jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])
 
         c, cs = obj(np.asarray(Chom))
+        stop_on_nan(c)
         results[:] = c - t
 
         if dummy_run:
