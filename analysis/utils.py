@@ -1,5 +1,7 @@
 import base64
+from io import StringIO
 
+import numpy as np
 import pandas as pd
 
 
@@ -132,6 +134,17 @@ def get_image_from_experiment(loader, id):
         if 'array' in k.lower():
             img = v.as_content_type('image/png').content
     return img
+
+def get_text_from_experiment(loader, id):
+    exp=loader.find_by_id(id)
+    sio = StringIO()
+    sio.write('C:\n')
+    sio.write(np.array2string(np.matrix(exp.info.final_C), precision=3, separator=', ', suppress_small=True, max_line_width=26))
+    print(sio.getvalue())
+    # np.savetxt(sio, exp.info.final_C, fmt='%.3f', delimiter=', ')
+    # print(sio.getvalue())   
+    # return sio.getvalue()
+    return sio.getvalue()
 
 def encode_image(data):
     """

@@ -65,7 +65,10 @@ app.layout = html.Div([
         html.Button('Refresh Data', id='refresh-button', n_clicks=0)
     ]),
     dcc.Graph(id='scatter-plot'),
-    html.Img(id='hover-image', src='', style={'max-height': '400px', 'max-width': '400px'})
+    html.Div([
+    html.Img(id='hover-image', src='', style={'max-height': '400px', 'max-width': '400px'}),
+    html.Pre(id='hover-text', style={'width': '400px', 'height': '400px', 'marginLeft': '20px', 'border': '1px solid black', 'padding': '10px'})
+    ], style={'display': 'flex', 'alignItems': 'center'})
 ])
 
 @app.callback(
@@ -107,16 +110,18 @@ def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, _):
 
 
 @app.callback(
-    Output('hover-image', 'src'),
+    [Output('hover-image', 'src'),
+     Output('hover-text', 'children')],
     Input('scatter-plot', 'hoverData')
 )
-def update_image_on_hover(hover_data):
+def update_on_hover(hover_data):
     if hover_data:
         run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
-        image_data = get_image_from_experiment(loader, run_id)
-        img_src = f"data:image/png;base64,{encode_image(image_data)}"
-        return img_src
-    return ''
+        exp_img = get_image_from_experiment(loader, run_id)
+        img_src = f"data:image/png;base64,{encode_image(exp_img)}"
+        exp_txt = get_text_from_experiment(loader, run_id)
+        return img_src, exp_txt
+    return '', 'Hover over a point to see details here.'
 
 def main():
     load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
