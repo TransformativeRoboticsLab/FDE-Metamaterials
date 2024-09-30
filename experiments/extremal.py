@@ -34,7 +34,9 @@ ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop
 def config():
     E_max, E_min, nu = 1., 1./60., 0.45
     start_beta, n_betas = 8, 4
-    n_epochs, epoch_duration = 4, 50
+    n_epochs, epoch_duration, starting_epoch_duration = 4, 50, -1
+    if starting_epoch_duration == -1:
+        starting_epoch_duration = 2*epoch_duration
     extremal_mode = 1
     basis_v = 'BULK'
     objective_type = 'ray_sq' # rayleigh or norm or ratio
@@ -48,7 +50,7 @@ def config():
     weight_scaling_factor = 1.
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, weight_scaling_factor, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, weight_scaling_factor, seed):
 
     run_id = ex.current_run._id
     dirname = './output/epigraph'
@@ -108,7 +110,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
     opt.active_constraints = [g_ext, g_trc]
     opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.setup()
-    opt.set_maxeval(2*epoch_duration)
+    opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
