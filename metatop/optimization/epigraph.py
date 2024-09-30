@@ -126,6 +126,9 @@ class Epigraph:
         if grad.size > 0:
             grad[:-1], grad[-1] = 0., 1.
 
+        if t > 1e10:
+            raise ForcedStop("Objective function value is too large. Terminating optimization run.")
+
         return t
 
 
@@ -271,7 +274,7 @@ objective_type: {self.objective_type}
         self._update_evaluation_plot()
 
         if self.show_plot or show_now:
-            self.fig.canvas.draw_idle()
+            self.fig.canvas.draw()
             plt.pause(1e-3)
 
     def _prepare_fields(self, x):
