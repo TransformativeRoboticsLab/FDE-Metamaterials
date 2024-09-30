@@ -1,5 +1,6 @@
 import os
 import pickle
+import sys
 
 import jax
 
@@ -119,7 +120,11 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         for n, beta in enumerate(betas, 1):
             print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
             ops.beta, ops.epoch = beta, n
-            x[:] = opt.optimize(x)
+            try:
+                x[:] = opt.optimize(x)
+            except nlopt.ForcedStop as e:
+                print(f"Optimization stopped: {e}")
+                sys.exit(1)
             x_history.append(x.copy())
             opt.set_maxeval(epoch_duration)
 
