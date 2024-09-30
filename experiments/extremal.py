@@ -19,7 +19,8 @@ from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
-                                           ExtremalConstraints)
+                                           ExtremalConstraints,
+                                           TraceConstraint)
 
 np.set_printoptions(precision=5)
 
@@ -101,9 +102,10 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
                                   ops=ops, 
                                   eps=g_vec_eps, 
                                   verbose=verbose)
+    g_trc = TraceConstraint(ops=ops, bound=0.3, verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, ]
+    opt.active_constraints = [g_ext, g_trc]
     opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.setup()
     opt.set_maxeval(2*epoch_duration)
