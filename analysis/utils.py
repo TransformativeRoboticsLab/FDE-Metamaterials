@@ -1,6 +1,10 @@
 import base64
+import io
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from PIL import Image
 
 
 def filter_experiments_by_tag(experiments, filter_tags):
@@ -37,12 +41,24 @@ def load_experiments(loader, experiment_name, filter_tags=[]):
         experiments = loader.find({'experiment.name': experiment_name})
         experiments = [e for e in experiments if e.status == 'COMPLETED']
         experiments = filter_experiments_by_tag(experiments, filter_tags)
-        for e in experiments:
-            reorganize_artifacts(e.artifacts)
-        return experiments
+        return process_experiments(experiments)
     except Exception as e:
         print(f"Error loading experiments: {e}")
         return []
+
+def process_experiments(experiments):
+    
+    for e in experiments:
+        reorganize_artifacts(e.artifacts)
+        if 'volume_fraction' not in e.metrics:
+            e.metrics['volume_fraction'] = pd.Series([compute_volume_fraction(e)])
+            
+    return experiments
+
+def compute_volume_fraction(e):
+    img_byte = e.artifacts['cells'][-1].as_content_type('image/png').content
+    img = Image.open(io.BytesIO(img_byte)).convert('1')
+    return 1. - np.mean(img)
 
 def reorganize_artifacts(artifacts):
     """

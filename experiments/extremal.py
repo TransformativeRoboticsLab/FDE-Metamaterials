@@ -132,6 +132,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, extrem
         save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline_e-{i+1}.png')
 
         metamate.x.vector()[:] = x[:-1]
+        ex.log_scalar('volume_fraction', metamate.volume_fraction)
         log_values(ex, forward_solve(x[:-1], metamate, ops))
 
         x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)

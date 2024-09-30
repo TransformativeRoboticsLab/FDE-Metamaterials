@@ -141,7 +141,7 @@ class Metamaterial:
         # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
         # if we don't need the uChom matrix, the doing assemble might be faster again
 
-        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol / self.domain_vol
+        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol / self.domain_volume
         # remember the matrix is symmetric so we don't care about row/column order
         Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
 
@@ -176,8 +176,12 @@ class Metamaterial:
         return (x_max - x_min) / self.nelx, (y_max - y_min) / self.nely
 
     @cached_property
-    def domain_vol(self):
+    def domain_volume(self):
         return fe.assemble(fe.Constant(1)*fe.dx(domain=self.mesh))
+
+    @property 
+    def volume_fraction(self):
+        return fe.assemble(self.x * fe.dx)
     
     @cached_property
     def width(self):
