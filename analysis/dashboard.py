@@ -3,6 +3,7 @@ import threading
 import time
 
 import dash
+import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -27,96 +28,132 @@ def load_experiments_async(loader, experiment_name, filter_tags=[], poll_interva
         time.sleep(poll_interval)
 
 app = dash.Dash(__name__)
-app.layout = html.Div([
-    html.H1('Meta-Top Analysis Dashboard'),
-    html.Div([
-        html.Div([
-            html.Label('X-axis Metric'),
-            dcc.Dropdown(
-                id='x-axis-dropdown',
-                options=[],
-                value='Normed_Eigenvalue_0'
-            ),
-        ], style={'width': '20%', 'display': 'inline-block'}),
-        html.Div([
-            html.Label('Y-axis Metric'),
-            dcc.Dropdown(
-                id='y-axis-dropdown',
-                options=[],
-                value='Normed_Eigenvalue_1'
-            ),
-        ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
-        html.Div([
-            html.Label('Color by Config Parameter'),
-            dcc.Dropdown(
-                id='color-multiselect',
-                options=[],
-                value=['basis_v', 'objective_type'],
-                multi=True
-            ),
-        ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
-        html.Div([
-            dcc.Checklist(
-                id='yx-line-toggle',
-                options=[{'label': 'Plot y=x', 'value': 'plot_yx'}],
-                value=['plot_yx']  # Empty by default (unchecked)
-            )
-        ]),
-        html.Button('Refresh Data', id='refresh-button', n_clicks=0)
-    ]),
-    dcc.Graph(id='scatter-plot'),
-    html.Img(id='hover-image', src='', style={'max-height': '400px', 'max-width': '400px'})
-])
+app.layout = dbc.Container([
+    html.Div([html.Div(), html.Div(),
+              html.Div(), html.Div()],
+        style={
+        'width': 340,
+        'margin-left': 35,
+        'margin-top': 35,
+        'margin-bottom': 35
+    }),
+    html.Div(
+        [html.Div(style={'width': 790}),
+         html.Div(style={'width': 200})],
+        style={
+            'width': 990,
+            'margin-top': 35,
+            'margin-right': 35,
+            'margin-bottom': 35
+        })
+],
+    fluid=True,
+    style={'display': 'flex'},
+    className='dashboard-container')
+# app.layout = html.Div([
+#     html.H1('Meta-Top Analysis Dashboard'),
+#     html.Div([
+#         html.Div([
+#             html.Label('X-axis Metric'),
+#             dcc.Dropdown(
+#                 id='x-axis-dropdown',
+#                 options=[],
+#                 value='Normed_Eigenvalue_0'
+#             ),
+#         ], style={'width': '20%', 'display': 'inline-block'}),
+#         html.Div([
+#             html.Label('Y-axis Metric'),
+#             dcc.Dropdown(
+#                 id='y-axis-dropdown',
+#                 options=[],
+#                 value='Normed_Eigenvalue_1'
+#             ),
+#         ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
+#         html.Div([
+#             html.Label('Color by Config Parameter'),
+#             dcc.Dropdown(
+#                 id='color-multiselect',
+#                 options=[],
+#                 value=['basis_v', 'objective_type'],
+#                 multi=True
+#             ),
+#         ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
+#         html.Div([
+#            html.Label('Filter'),
+#            dcc.Checklist(
+#                 id = 'filter-checklist',
+#                 options=[],
+#                 value=[],
+#                 multi=True
+#            ),
+#         ]), style={'width': '20%', 'display': 'inline-block', 'marginLeft': '5%'}),
+#         html.Div([
+#             dcc.Checklist(
+#                 id='yx-line-toggle',
+#                 options=[{'label': 'Plot y=x', 'value': 'plot_yx'}],
+#                 value=['plot_yx']  # Empty by default (unchecked)
+#             )
+#         ]),
+#         html.Button('Refresh Data', id='refresh-button', n_clicks=0)
+#     ]),
+#     dcc.Graph(id='scatter-plot'),
+#     html.Div([
+#     html.Img(id='hover-image', src='', style={'max-height': '400px', 'max-width': '400px'}),
+#     html.Pre(id='hover-text', style={'width': '400px', 'height': '400px', 'marginLeft': '20px', 'border': '1px solid black', 'padding': '10px'})
+#     ], style={'display': 'flex', 'alignItems': 'center'})
+# ])
 
-@app.callback(
-    [Output('scatter-plot', 'figure'),
-     Output('x-axis-dropdown', 'options'),
-     Output('y-axis-dropdown', 'options'),
-     Output('color-multiselect', 'options')],
-    Input('x-axis-dropdown', 'value'),
-    Input('y-axis-dropdown', 'value'),
-    Input('color-multiselect', 'value'),
-    Input('yx-line-toggle', 'value'),
-    Input('refresh-button', 'n_clicks')
-)
+# @app.callback(
+#     [Output('scatter-plot', 'figure'),
+#      Output('x-axis-dropdown', 'options'),
+#      Output('y-axis-dropdown', 'options'),
+#      Output('color-multiselect', 'options')],
+#     Input('x-axis-dropdown', 'value'),
+#     Input('y-axis-dropdown', 'value'),
+#     Input('color-multiselect', 'value'),
+#     Input('yx-line-toggle', 'value'),
+#     Input('refresh-button', 'n_clicks')
+# )
 
-def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, _):
+# def update_scatter_plot(x_metric, y_metric, color_params, toggle_values, _):
 
-    # print(f"Updating scatter plot with x={x_metric}, y={y_metric}, color={color_params}, toggle={toggle_values}")
-    global experiments_cache
-    experiments = experiments_cache
+#     # print(f"Updating scatter plot with x={x_metric}, y={y_metric}, color={color_params}, toggle={toggle_values}")
+#     global experiments_cache
+#     experiments = experiments_cache
 
-    df = build_scatter_dataframe(x_metric, y_metric, color_params, experiments)
+#     df = build_scatter_dataframe(x_metric, y_metric, color_params, experiments)
 
-    fig = px.scatter(
-        df,
-        x='x',
-        y='y',
-        color='Combined Color',
-        hover_name='Run ID',
-        hover_data=['Mode'],
-        symbol='Mode',
-        symbol_map={'Unimode': 'square', 'Bimode': 'circle'},
-    )
+#     fig = px.scatter(
+#         df,
+#         x='x',
+#         y='y',
+#         color='Combined Color',
+#         hover_name='Run ID',
+#         hover_data=['Mode'],
+#         symbol='Mode',
+#         symbol_map={'Unimode': 'square', 'Bimode': 'circle'},
+#     )
     
-    customize_figure(x_metric, y_metric, experiments, fig, toggle_values)
+#     customize_figure(x_metric, y_metric, experiments, fig, toggle_values)
 
-    metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
+#     metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
     
-    return fig, metric_dropdowns, metric_dropdowns, config_dropdowns
+#     return fig, metric_dropdowns, metric_dropdowns, config_dropdowns
 
 
-@app.callback(
-    Output('hover-image', 'src'),
-    Input('scatter-plot', 'hoverData')
-)
-def update_image_on_hover(hover_data):
-    if hover_data:
-        run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
-        image_data = get_image_from_experiment(loader, run_id)
-        img_src = f"data:image/png;base64,{encode_image(image_data)}"
-        return img_src
-    return ''
+# @app.callback(
+#     [Output('hover-image', 'src'),
+#      Output('hover-text', 'children')],
+#     Input('scatter-plot', 'hoverData')
+# )
+# def update_on_hover(hover_data):
+#     if hover_data:
+#         run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
+#         exp_img = get_image_from_experiment(loader, run_id)
+#         img_src = f"data:image/png;base64,{encode_image(exp_img)}"
+#         exp_txt = get_text_from_experiment(loader, run_id)
+#         return img_src, exp_txt
+#     return '', 'Hover over a point to see details here.'
 
 def main():
     load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
