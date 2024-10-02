@@ -125,3 +125,4 @@ dmypy.json
 
 output/
 sacred_runs/
+.env

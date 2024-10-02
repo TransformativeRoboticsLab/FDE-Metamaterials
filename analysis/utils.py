@@ -1,8 +1,10 @@
 import base64
+import io
 from io import StringIO
 
 import numpy as np
 import pandas as pd
+from PIL import Image
 
 
 def filter_experiments_by_tag(experiments, filter_tags):
@@ -39,12 +41,24 @@ def load_experiments(loader, experiment_name, filter_tags=[]):
         experiments = loader.find({'experiment.name': experiment_name})
         experiments = [e for e in experiments if e.status == 'COMPLETED']
         experiments = filter_experiments_by_tag(experiments, filter_tags)
-        for e in experiments:
-            reorganize_artifacts(e.artifacts)
-        return experiments
+        return process_experiments(experiments)
     except Exception as e:
         print(f"Error loading experiments: {e}")
         return []
+
+def process_experiments(experiments):
+    
+    for e in experiments:
+        reorganize_artifacts(e.artifacts)
+        if 'volume_fraction' not in e.metrics:
+            e.metrics['volume_fraction'] = pd.Series([compute_volume_fraction(e)])
+            
+    return experiments
+
+def compute_volume_fraction(e):
+    img_byte = e.artifacts['cells'][-1].as_content_type('image/png').content
+    img = Image.open(io.BytesIO(img_byte)).convert('1')
+    return 1. - np.mean(img)
 
 def reorganize_artifacts(artifacts):
     """
@@ -109,14 +123,16 @@ def update_dropdown_options(experiments):
             - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
     """
 
-    all_config_params = set()
-    for e in experiments:
-        all_config_params.update(e.config.keys())
+    all_config_params = {k for e in experiments for k in e.config.keys()}
         
-    config_dropdowns = [{'label': param, 'value': param} for param in sorted(all_config_params)]
-    metric_dropdowns = [{'label': metric, 'value': metric} for metric in sorted(experiments[-2].metrics.keys())]
+    config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
+    metric_dropdowns = [{'label': m, 'value': m} for m in sorted(experiments[-2].metrics.keys())]
     
     return metric_dropdowns, config_dropdowns
+
+def get_fields(experiments, field):
+    
+    return sorted({e.config.get(field, 'None') for e in experiments})
 
 def get_image_from_experiment(loader, id):
     """
@@ -204,7 +220,7 @@ def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
             ]
         )
 
-def customize_figure(x_metric, y_metric, experiments, fig, toggle_values=[]):
+def customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line=[], size=(1000, 1000)):
     """
     Customizes a given figure with specified metrics, layout, and toggle options.
     Parameters:
@@ -218,8 +234,8 @@ def customize_figure(x_metric, y_metric, experiments, fig, toggle_values=[]):
     None
     """
     
-    plot_yx(fig) if 'plot_yx' in toggle_values else None
-    fig.update_layout(title=f"{len(experiments):d} Data Points", width=1000, height=1000)
+    plot_yx(fig) if 'plot_yx' in plot_yx_line else None
+    fig.update_layout(title=f"{len(experiments):d} Data Points", width=size[0], height=size[1])
 
     fig.update_xaxes(title_text=x_metric)
     fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
@@ -227,18 +243,7 @@ def customize_figure(x_metric, y_metric, experiments, fig, toggle_values=[]):
 
     fig.update_traces(marker=dict(size=12), mode='markers')
 
-def build_scatter_dataframe(x_metric, y_metric, color_params, experiments):
-    """
-    Builds a pandas DataFrame for scatter plot visualization from a list of experiments.
-    Parameters:
-    x_metric (str): The metric to be used for the x-axis.
-    y_metric (str): The metric to be used for the y-axis.
-    color_params (list of str): List of parameters to combine for the color coding.
-    experiments (list of Experiment): List of experiment objects containing metrics and configurations.
-    Returns:
-    pd.DataFrame: A DataFrame containing the x and y values, combined color, run ID, and mode for each experiment.
-    """
-    
+def build_scatter_dataframe(x_metric, y_metric, experiments):
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
     records = []
     
@@ -251,21 +256,32 @@ def build_scatter_dataframe(x_metric, y_metric, color_params, experiments):
         x_value = e.metrics.get(x_metric, None).iloc[-1]
         y_value = e.metrics.get(y_metric, None).iloc[-1]
         
-        combined_color = '_'.join([str(e.config.get(param, 'None')) for param in color_params])
+        # combined_color = '_'.join([str(e.config.get(param, 'None')) for param in config_filter_values])
         
-        mode = mode_map.get(e.config.get('extremal_mode', None), 'Unknown')
+        # mode = mode_map.get(e.config.get('extremal_mode', None), 'Unknown')
         
         records.append({
             'x': x_value,
             'y': y_value,
-            'Combined Color': combined_color,
-            'Combined Symbol': combined_color,
+            # 'Combined Color': combined_color,
+            # 'Combined Symbol': combined_color,
             'Run ID': f'Run ID: {e.id}',
-            'Mode': mode
+            # 'extremal_mode': e.config.get('extremal_mode', -1),
+            # 'basis_v': e.config.get('basis_v', 'None'),
+            'extremal_mode': e.config.get('extremal_mode', 'None'),
+            'basis_v': e.config.get('basis_v', 'None'),
+            # color_filter_value: e.config.get(color_filter_value, 'None'),
+            # marker_filter_value: e.config.get(marker_filter_value, 'None'),
         })
 
     df = pd.DataFrame.from_records(records)
     
-    df.sort_values(by='Mode', ascending=False, inplace=True)
+    df.sort_values(by='extremal_mode', ascending=True, inplace=True)
     
     return df
+
+PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'star', 'hexagram', 'pentagon', 'hourglass']
+
+def build_symbol_map(experiments, marker_filter_value):
+    unique_marker_values = {e.config.get(marker_filter_value) for e in experiments if e.config.get(marker_filter_value) is not None}
+    return {marker_value: PLOT_SYMBOLS[i % len(PLOT_SYMBOLS)] for i, marker_value in enumerate(unique_marker_values)}

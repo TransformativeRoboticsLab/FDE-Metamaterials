@@ -1,18 +1,22 @@
+import jax
+
+jax.config.update("jax_enable_x64", True)
+
 import os
 import pickle
 import sys
 
-import jax
-
-jax.config.update("jax_enable_x64", True)
 import nlopt
 import numpy as np
+from dotenv import load_dotenv
 from matplotlib import pyplot as plt
+from sacred import Experiment
 
+from experiments.utils import (forward_solve, log_values,
+                               save_bmp_and_artifact, save_fig_and_artifact,
+                               setup_observer)
 from metatop import V_DICT
-from metatop.filters import jax_projection, setup_filter
-from metatop.helpers import (forward_solve, log_values, save_bmp_and_artifact,
-                             save_fig_and_artifact)
+from metatop.filters import setup_filter
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
@@ -25,11 +29,11 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
 
 np.set_printoptions(precision=5)
 
-from sacred import Experiment
-from sacred.observers import MongoObserver
+load_dotenv()
+mongo_uri = os.getenv('MONGO_URI')
 
 ex = Experiment('extremal')
-ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop'))
+ex.observers.append(setup_observer(mongo_uri, 'metatop'))
 
 @ex.config
 def config():
@@ -141,6 +145,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline_e-{i+1}.png')
 
         metamate.x.vector()[:] = x[:-1]
+        ex.log_scalar('volume_fraction', metamate.volume_fraction)
         log_values(ex, forward_solve(x[:-1], metamate, ops))
 
         x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
