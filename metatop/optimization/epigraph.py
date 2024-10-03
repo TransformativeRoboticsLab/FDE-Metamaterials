@@ -517,13 +517,7 @@ class TraceConstraint:
             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
             grad[-1]  = 0.
 
-        if self.verbose:
-            print(f"Trace: {-c:.3f} (Target >={self.bound:.3f})")
-            # w,v = np.linalg.eigh(m@Chom@m)
-            # print(f"Eigenvalues: {w}")
-            # print(f"Rel. Eigenvalues: {w/np.max(w)}")
-            # print(f"Sum(w): {np.sum(w):.3f}")
-            # print(f"Eigenvectors:\n{v}")
+        print(f"\tg_trc(x): {-c:.3f} (Target >={self.bound:.3f})")
 
         return float(self.bound + c)
 
