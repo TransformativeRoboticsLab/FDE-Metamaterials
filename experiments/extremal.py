@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
-from experiments.utils import (forward_solve, log_values,
+from experiments.utils import (forward_solve, log_values, run_optimization,
                                save_bmp_and_artifact, save_fig_and_artifact,
                                setup_mongo_observer)
 from metatop import V_DICT
@@ -124,17 +124,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     x_history = [x.copy()]
     for i in range(n_epochs):
         for n, beta in enumerate(betas, 1):
-            print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
-            ops.beta, ops.epoch = beta, n
-            try:
-                x[:] = opt.optimize(x)
-            except nlopt.ForcedStop as e:
-                print(f"Optimization stopped: {e}")
-                sys.exit(1)
-            x_history.append(x.copy())
-            opt.set_maxeval(epoch_duration)
-
-            ops.epoch_iter_tracker.append(len(g_ext.evals))
+            run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta)
 
         print(f"\n===== Epoch Summary: {i+1} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
