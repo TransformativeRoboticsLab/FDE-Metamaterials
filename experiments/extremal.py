@@ -2,24 +2,15 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-import os
-import pickle
-import sys
-
 import nlopt
 import numpy as np
 from dotenv import load_dotenv
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
-from experiments.utils import (forward_solve, log_values, run_optimization,
-                               save_bmp_and_artifact, save_fig_and_artifact,
-                               setup_mongo_observer)
+from experiments.utils import *
 from metatop import V_DICT
 from metatop.filters import setup_filter
-from metatop.image import bitmapify
-from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
-                               matrix_invariants)
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
@@ -59,15 +50,7 @@ def config():
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, seed):
 
-    run_id = ex.current_run._id
-    dirname = './output/epigraph'
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-    fname = str(run_id)
-    fname += f'_{basis_v}'
-    fname += f'_m_{extremal_mode}'
-    fname += f'_seed_{seed}'
-    outname = dirname + '/' + fname
+    run_id, outname = generate_output_filepath(ex, extremal_mode, basis_v, seed)
 
     weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array([1., weight_scaling_factor, weight_scaling_factor])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
@@ -127,59 +110,24 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         for n, beta in enumerate(betas, 1):
             run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta)
 
-        print(f"\n===== Epoch Summary: {i+1} =====")
-        print(f"Final Objective: {opt.last_optimum_value():.3f}")
-        print(f"Result Code: {opt.last_optimize_result()}")
-        print(f"===== End Epoch Summary: {i+1} =====\n")
-        
+        print_epoch_summary(opt, i)
+        log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, i)
+
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
-
-        g_ext.update_plot(x[:-1])
-        save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline_e-{i+1}.png')
-
-        metamate.x.vector()[:] = x[:-1]
-        ex.log_scalar('volume_fraction', metamate.volume_fraction)
-        log_values(ex, forward_solve(x[:-1], metamate, ops))
-
-        x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-        save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
 
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    final_C = forward_solve(x[:-1], metamate, ops)
-    
-    w, v = np.linalg.eigh(final_C)
-    print('Final C:\n', final_C)
-    print('Final Eigenvalues:\n', w)
-    print('Final Eigenvalue Ratios:\n', w / np.max(w))
-    print('Final Eigenvectors:\n', v)
+    save_results(ex, 
+                 run_id, 
+                 outname, 
+                 metamate, 
+                 img_rez, 
+                 img_shape, 
+                 ops, 
+                 x, 
+                 g_ext, 
+                 x_history)
 
-    ASU = anisotropy_index(final_C, input_style='mandel')
-    elastic_constants = calculate_elastic_constants(final_C, input_style='mandel')
-    invariants = matrix_invariants(final_C)
-    print('Final ASU:', ASU)
-    print('Final Elastic Constants:', elastic_constants)
-    print('Final Invariants:', invariants)
-
-    with open(f'{outname}.pkl', 'wb') as f:
-        pickle.dump({'x': x,
-                     'x_history': x_history,
-                     'evals': g_ext.evals},
-                    f)
-
-    save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline.png')
-    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.png')
-    save_bmp_and_artifact(ex, np.tile(x_img, (4,4)), outname, f'{run_id}_array.png')
-
-    ex.info['final_C'] = final_C
-    ex.info['eigvals'] = w
-    ex.info['norm_eigvals'] = w / np.max(w)
-    ex.info['eigvecs'] = v
-    ex.info['ASU'] = ASU
-    ex.info['elastic_constants'] = elastic_constants
-    ex.info['invariants'] = invariants
-    ex.add_artifact(f'{outname}.pkl')
     if g_ext.show_plot:
         plt.close(g_ext.fig)
