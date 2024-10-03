@@ -52,10 +52,12 @@ def config():
     vector_constraint = True
     tighten_vector_constraint = True
     g_vec_eps = 1.
+    trace_constraint = True
+    g_trc_bnd = 0.3
     weight_scaling_factor = 1.
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, weight_scaling_factor, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, seed):
 
     run_id = ex.current_run._id
     dirname = './output/epigraph'
@@ -109,11 +111,12 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                   ops=ops, 
                                   eps=g_vec_eps, 
                                   verbose=verbose)
-    g_trc = TraceConstraint(ops=ops, bound=0.3, verbose=verbose)
+    g_trc = TraceConstraint(ops=ops, bound=g_trc_bnd, verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
-    opt.active_constraints = [g_ext, g_trc]
+    opt.active_constraints = [g_ext, ]
     opt.active_constraints.append(g_vec) if vector_constraint else None
+    opt.active_constraints.append(g_trc) if trace_constraint else None
     opt.setup()
     opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
