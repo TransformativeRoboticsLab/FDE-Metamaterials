@@ -21,6 +21,7 @@ class OptimizationState:
     filt_fn: partial = None
     epoch: int = 0
     epoch_iter_tracker: list = field(default_factory=list)
+    evals: list = field(default_factory=list)
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem):
         self.sols = sols

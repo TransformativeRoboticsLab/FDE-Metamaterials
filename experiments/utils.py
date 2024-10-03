@@ -246,7 +246,7 @@ def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, be
     x_history.append(x.copy())
     opt.set_maxeval(epoch_duration)
 
-    ops.epoch_iter_tracker.append(len(g_ext.evals))
+    ops.epoch_iter_tracker.append(len(ops.evals))
 
 if __name__ == "__main__":
     for _ in range(10_000):
@@ -303,7 +303,7 @@ def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ex
     with open(f'{outname}.pkl', 'wb') as f:
         pickle.dump({'x': x,
                      'x_history': x_history,
-                     'evals': g_ext.evals},
+                     'evals': ops.evals},
                     f)
 
     save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline.png')

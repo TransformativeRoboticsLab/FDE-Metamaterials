@@ -146,7 +146,7 @@ class ExtremalConstraints:
         self.verbose = verbose
         self.plot_interval = plot_interval
         self.w = w
-        self.evals = []
+        # self.evals = []
         self.show_plot = show_plot
         self.img_resolution = (200, 200)
         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
@@ -169,7 +169,10 @@ class ExtremalConstraints:
                      ylabel='Function Evaluations',
                      xlim=(0, 10),
                      title='Optimization Progress')
-        self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
+        if 'ratio' in self.objective_type:
+            self.evals_lines = self.ax2.plot([np.ones(3)], [np.ones(3)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)/(v_2^T C v_2)$', r'$(v_1^T C v_1)/(v_3^T C v_3)$'])
+        else:
+            self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
         self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
         self.epoch_lines = []
         self.last_epoch_plotted = -1
@@ -190,15 +193,7 @@ objective_type: {self.objective_type}
 
         x, t = x[:-1], x[-1]
 
-        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
-
-        def filter_and_project(x):
-            x = filt_fn(x)
-            x = jax_projection(x, beta, eta)
-            # x = jax_simp(x, 3.)
-            return x
-
-        x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
+        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
 
         self.metamaterial.x.vector()[:] = x_fem
         sols, Chom, _ = self.metamaterial.solve()
@@ -254,19 +249,25 @@ objective_type: {self.objective_type}
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = -1.
 
-        self.evals.append([t, *c])
+        self.ops.evals.append([t, *c])
         if self.verbose:
             print("-" * 30)
             print(
-                f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
+                f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
             print(f"t: {t:.3e} g_ext(x): {c}")
             print(f"Actual Values: {cs}")
         else:
-            print(f"{len(self.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
+            print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
 
-        if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
+        if (len(self.ops.evals) % self.plot_interval == 1) and self.fig is not None:
             self.update_plot(x)
+
+    def filter_and_project(self, x):
+        x = self.ops.filt_fn(x)
+        x = jax_projection(x, self.ops.beta, self.ops.eta)
+        # x = jax_simp(x, self.ops.pen)
+        return x
 
     def update_plot(self, x, show_now=False):
         fields = self._prepare_fields(x)
@@ -304,13 +305,13 @@ objective_type: {self.objective_type}
             ax.set_yticks([])
 
     def _update_evaluation_plot(self):
-        x_data = range(1, len(self.evals)+1)
-        y_data = np.asarray(self.evals)
+        x_data = range(1, len(self.ops.evals)+1)
+        y_data = np.asarray(self.ops.evals)
         for i, line in enumerate(self.evals_lines):
             line.set_data(x_data, y_data[:, i])
         self.ax2.relim()
         self.ax2.autoscale_view()
-        self.ax2.set_xlim(left=0, right=len(self.evals) + 2)
+        self.ax2.set_xlim(left=0, right=len(self.ops.evals) + 2)
 
         # we only want to update epoch lines if there is a new one
         for idx in self.ops.epoch_iter_tracker:
@@ -854,7 +855,6 @@ class EpigraphBulkModulusConstraint:
         if self.verbose == True:
             print(
                 f"- Bulk Modulus: {-c:.2e} (Target ≥{self.aK:.2e}) [{'Satisfied' if -c >= self.aK else 'Not Satisfied'}]")
-# ≤
 
         return self.aK + float(c)
 
