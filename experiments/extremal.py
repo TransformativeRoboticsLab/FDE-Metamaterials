@@ -30,7 +30,8 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
 np.set_printoptions(precision=5)
 
 load_dotenv()
-mongo_uri = os.getenv('MONGO_URI')
+# mongo_uri = os.getenv('MONGO_URI')
+mongo_uri = 'mongodb://localhost:27017'
 
 ex = Experiment('extremal')
 ex.observers.append(setup_mongo_observer(mongo_uri, 'metatop'))
