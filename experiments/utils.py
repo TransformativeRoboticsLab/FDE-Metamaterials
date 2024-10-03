@@ -1,5 +1,7 @@
 import random
+import sys
 
+import nlopt
 import numpy as np
 from PIL import Image
 from pymongo.mongo_client import MongoClient
@@ -126,7 +128,26 @@ def validate_param_value(param, value, verbose=True):
         print(f"Parameter '{param}' validated successfully with value: {value}")
 
 
-def setup_observer(mongo_uri, db_name):
+def setup_mongo_observer(mongo_uri, db_name):
+    """
+    Sets up a MongoDB observer for experiment tracking.
+
+    This function attempts to connect to a MongoDB instance using the provided
+    URI and database name. If the connection is successful, it returns a 
+    MongoObserver object. If the connection fails, it falls back to a 
+    FileStorageObserver.
+
+    Args:
+        mongo_uri (str): The URI for connecting to the MongoDB instance.
+        db_name (str): The name of the database to use for storing experiment data.
+
+    Returns:
+        MongoObserver: If the connection to MongoDB is successful.
+        FileStorageObserver: If the connection to MongoDB fails.
+
+    Raises:
+        Exception: If there is an error connecting to the MongoDB instance.
+    """
     try:
         client = MongoClient(mongo_uri, server_api=ServerApi('1'))
         if client.address and client.address[0] == 'localhost':
@@ -209,6 +230,19 @@ def save_bmp_and_artifact(experiment, data, outname, artifact_name):
         print(f"Successfully saved image {fname} and added to artifacts under name {artifact_name}")
     except Exception as e:
         print(f"Error saving image: {e}")
+
+def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta):
+    print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
+    ops.beta, ops.epoch = beta, n
+    try:
+        x[:] = opt.optimize(x)
+    except nlopt.ForcedStop as e:
+        print(f"Optimization stopped: {e}")
+        sys.exit(1)
+    x_history.append(x.copy())
+    opt.set_maxeval(epoch_duration)
+
+    ops.epoch_iter_tracker.append(len(g_ext.evals))
 
 if __name__ == "__main__":
     for _ in range(10_000):

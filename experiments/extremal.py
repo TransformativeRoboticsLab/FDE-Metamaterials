@@ -14,7 +14,7 @@ from sacred import Experiment
 
 from experiments.utils import (forward_solve, log_values,
                                save_bmp_and_artifact, save_fig_and_artifact,
-                               setup_observer)
+                               setup_mongo_observer)
 from metatop import V_DICT
 from metatop.filters import setup_filter
 from metatop.image import bitmapify
@@ -33,7 +33,7 @@ load_dotenv()
 mongo_uri = os.getenv('MONGO_URI')
 
 ex = Experiment('extremal')
-ex.observers.append(setup_observer(mongo_uri, 'metatop'))
+ex.observers.append(setup_mongo_observer(mongo_uri, 'metatop'))
 
 @ex.config
 def config():
