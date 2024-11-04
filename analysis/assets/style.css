@@ -3,8 +3,8 @@ body {
 }
 
 .dashboard-container {
-    width: 2000px;
-    height: 1000px;
+    width: 1920;
+    height: 1080px;
     margin-left: auto;
     margin-right: auto;
     margin-top: 50px;
@@ -12,6 +12,14 @@ body {
     display: 'flex';
     justify-content: 'center';
     align-items: 'center';
+    background-color: orange;
+}
+
+.level-1 {
+    /* margin-left: auto;
+    margin-right: auto; */
+    display: 'flex';
+    background-color: purple;
 }
 
 h1 {

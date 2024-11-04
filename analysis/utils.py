@@ -243,11 +243,11 @@ def customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line=[], size
 
     fig.update_traces(marker=dict(size=12), mode='markers')
 
-def build_scatter_dataframe(x_metric, y_metric, experiments):
+def build_scatter_dataframe(x_metric, y_metric, experiments, marker_filters=[], color_filters=[], size_filters=[]):
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
     records = []
     
-    mode_map = {1: 'Unimode', 2: 'Bimode'}
+    # mode_map = {1: 'Unimode', 2: 'Bimode'}
     
     for e in experiments:
         if x_metric not in e.metrics or y_metric not in e.metrics:
@@ -256,8 +256,9 @@ def build_scatter_dataframe(x_metric, y_metric, experiments):
         x_value = e.metrics.get(x_metric, None).iloc[-1]
         y_value = e.metrics.get(y_metric, None).iloc[-1]
         
-        # combined_color = '_'.join([str(e.config.get(param, 'None')) for param in config_filter_values])
-        
+        marker_filter = "_".join([str(e.config.get(mf, 'None')) for mf in marker_filters])
+        color_filter = "_".join([str(e.config.get(mf, 'None')) for mf in color_filters])
+        size_filter = "_".join([str(e.config.get(mf, 'None')) for mf in size_filters])
         # mode = mode_map.get(e.config.get('extremal_mode', None), 'Unknown')
         
         records.append({
@@ -271,7 +272,9 @@ def build_scatter_dataframe(x_metric, y_metric, experiments):
             'extremal_mode': e.config.get('extremal_mode', 'None'),
             'basis_v': e.config.get('basis_v', 'None'),
             # color_filter_value: e.config.get(color_filter_value, 'None'),
-            # marker_filter_value: e.config.get(marker_filter_value, 'None'),
+            'marker': marker_filter,
+            'color': color_filter,
+            'size': size_filter,
         })
 
     df = pd.DataFrame.from_records(records)

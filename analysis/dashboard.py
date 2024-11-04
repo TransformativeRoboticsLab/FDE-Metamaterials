@@ -1,10 +1,8 @@
-import base64
 import threading
 import time
 
 import dash
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import dcc, html
@@ -44,7 +42,8 @@ app.layout = dbc.Container([
             style={'vertical-alignment': 'top',
                    'border': '1px solid black',
                 #    'height': 260,
-                   }),
+                   },
+            className='level-1'),
         # Metrics
         html.Div([
             html.H2("Metrics"),
@@ -72,25 +71,23 @@ app.layout = dbc.Container([
                 #    'height': 300,
                     'padding': 15,
                    'border': '1px solid black',
-                   }),
+                   },
+            className='level-1'),
         html.Div([
             html.H2("Filters"),
             html.Div([
-                html.Label('Filter by Mode'),
-                dcc.Checklist(id='mode-filter',
-                              options=[
-                                  {'label': 'Unimode', 'value': 1},
-                                  {'label': 'Bimode',  'value': 2},],
-                              value=[1, 2],
-                              inline=True,
-                              ),
-                ],
-            ),
-            html.Div([
-                html.Label('Filter by Basis'),
-                dcc.Dropdown(id='basis-filter',
+                html.Label('Marker Filters'),
+                dcc.Dropdown(id='marker-filters',
                              options=[],
-                             value=[],
+                             value=['extremal_mode'],
+                             multi=True,
+                             clearable=True),
+            ]),
+            html.Div([
+                html.Label('Color Filters'),
+                dcc.Dropdown(id='color-filters',
+                             options=[],
+                             value=['basis_v'],
                              multi=True,
                              clearable=True),
             ]),
@@ -128,7 +125,7 @@ app.layout = dbc.Container([
     # Main content
     html.Div([
         # Graph
-        html.Div(dcc.Graph(id='scatter-plot'), 
+        html.Div(dcc.Graph(id='scatter-plot',), 
                  style={'width': 1200,
                         'display': 'flex',
                         'border': '1px solid black',}),
@@ -137,8 +134,8 @@ app.layout = dbc.Container([
             # Image
                 html.Img(id='hover-image',
                          src='assets/placeholder.jpg',
-                         style={'max-height': '400px',
-                                'max-width': '400px',}),
+                         style={'max-height': '200px',
+                                'max-width': '200px',}),
                 # html.Pre(id='hover-text',
                 #          style={'width': '200px',
                 #                 'padding': '10px'}),
@@ -152,7 +149,8 @@ app.layout = dbc.Container([
                 'margin-right': 35,
                 'margin-bottom': 35,
                 'display': 'flex',
-                'border': '1px solid black',}),
+                'border': '1px solid black',},
+        className='level-1'),
     ],
     fluid=True,
     style={'display': 'flex',
@@ -161,48 +159,47 @@ app.layout = dbc.Container([
     id='dashboard-container',)
 
 @app.callback(
-    [Output('scatter-plot', 'figure'),
+    [Output('scatter-plot',    'figure'),
      Output('x-axis-dropdown', 'options'),
      Output('y-axis-dropdown', 'options'),
-     Output('basis-filter', 'options')],
+     Output('marker-filters',  'options'),
+     Output('color-filters',   'options')],
     Input('x-axis-dropdown', 'value'),
     Input('y-axis-dropdown', 'value'),
-    Input('mode-filter', 'value'),
-    Input('basis-filter', 'value'),
-    Input('yx-line-toggle', 'value'),
+    Input('marker-filters',  'value'),
+    Input('color-filters',   'value'),
+    Input('yx-line-toggle',  'value'),
 )
-def update_scatter_plot(x_metric, y_metric, mode_filter, basis_filter, plot_yx_line):
+def update_scatter_plot(x_metric, y_metric, marker_filters, color_filters, plot_yx_line):
 
     global experiments_cache
     experiments = experiments_cache
 
-    df = build_scatter_dataframe(x_metric, y_metric, experiments)
+    df = build_scatter_dataframe(x_metric, y_metric, experiments, marker_filters=marker_filters, color_filters=color_filters)
     
     # symbol_map = build_symbol_map(experiments, marker_filter_value)
-    
-    df = df[df['extremal_mode'].isin(mode_filter)]
-    if len(basis_filter) > 0:
-        df = df[df['basis_v'].isin(basis_filter)]
- 
+    print(marker_filters)
+    print(df.head())
     fig = px.scatter(
         df,
         x='x',
         y='y',
-        # color='extremal_mode',
         hover_name='Run ID',
-        # hover_data=['extremal_mode'],
-        symbol='extremal_mode',
-        symbol_map={1: 'circle', 2: 'square'},
-        # symbol=marker_filter_value,
-        # symbol_map=symbol_map,
+        symbol='marker',
+        color='color',
     )
     
-    customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line)
+    fig.update_traces(marker=dict(size=12,
+                                  line=dict(width=2,
+                                            color='DarkSlateGrey')),
+                      selector=dict(mode='markers'))
+    
+    customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line, size=(500,500))
 
     metric_dropdowns, config_dropdowns = update_dropdown_options(experiments)
     basis_dropdowns = get_fields(experiments, 'basis_v')
     
-    return fig, metric_dropdowns, metric_dropdowns, basis_dropdowns
+    return fig, metric_dropdowns, metric_dropdowns, config_dropdowns, config_dropdowns
 
 
 @app.callback(
