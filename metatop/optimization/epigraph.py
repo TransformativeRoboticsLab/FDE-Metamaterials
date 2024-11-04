@@ -284,7 +284,7 @@ objective_type: {self.objective_type}
         x_bar = jax_projection(x_tilde, beta, eta)
         x_img = bitmapify(self.metamaterial.x.copy(deepcopy=True), self.img_shape, self.img_resolution, invert=True)
         fields = {r'$\rho$': x,
-                  r'$\tilde{\rho}$)': x_tilde,
+                  r'$\tilde{\rho}$': x_tilde,
                   fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
                   r'$\bar{\rho}$ bitmap': x_img,
                   'Image tiling': np.tile(x_img, (3, 3))}
@@ -769,24 +769,56 @@ class GeometricConstraints:
         return grad_y, grad_x
 
 
-class OffDiagonalConstraint(VectorConstraint):
-
-    def __init__(self, v, **kwargs):
-        super().__init__(**kwargs)
+class OffDiagonalConstraint:
+    def __init__(self, v, ops, eps=1e-3, verbose=True):
         self.v = v
-        self.constraints = [self.g1]
-        self.bounds = [lambda t: self.eps * t]
-        self.dbdt = np.ones(self.n_constraints) * self.eps
+        self.ops = ops
+        self.eps = eps
+        self.verbose = verbose
 
-    def g1(self, C):
-        m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+        self.n_constraints = 1
+        
+    def __call__(self, x, grad):
+        
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+        c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
+        
+        if grad.size > 0:
+            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+            
+        print(f"\tg_dia(x): {c}")
+            
+        return float(c)
+        
+    def obj(self, C):
+        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
         C = m @ C @ m
-        C /= jnp.linalg.norm(C, ord=2)
         vCv = self.v.T @ C @ self.v
-        return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
-
+        return jnp.log((vCv[0,1]**2 + vCv[0,2]**2 + vCv[1,2]**2)/self.eps)
+        # return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
+        
     def __str__(self):
         return "OffDiagonalConstraint"
+    
+# class OffDiagonalConstraint(VectorConstraint):
+
+#     def __init__(self, v, **kwargs):
+#         super().__init__(**kwargs)
+#         self.v = v
+#         self.constraints = [self.g1]
+#         self.bounds = [lambda t: self.eps * t]
+#         self.dbdt = np.ones(self.n_constraints) * self.eps
+
+#     def g1(self, C):
+#         m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+#         C = m @ C @ m
+#         # C /= jnp.linalg.norm(C, ord=2)
+#         vCv = self.v.T @ C @ self.v
+#         return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
+
+#     def __str__(self):
+#         return "OffDiagonalConstraint"
 
 
 class MaterialSymmetryConstraints(VectorConstraint):
