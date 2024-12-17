@@ -29,13 +29,13 @@ ex.observers.append(setup_mongo_observer(mongo_uri, 'metatop'))
 
 @ex.config
 def config():
-    E_max, E_min, nu = 1., 1./60., 0.45
+    E_max, E_min, nu = 1., 1./40., 0.0
     start_beta, n_betas = 8, 4
     n_epochs, epoch_duration, starting_epoch_duration = 4, 50, None
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'ray_sq' # rayleigh or norm or ratio
+    objective_type = 'norm' # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = False
@@ -43,7 +43,7 @@ def config():
     vector_constraint = True
     tighten_vector_constraint = True
     g_vec_eps = 1.
-    trace_constraint = True
+    trace_constraint = False
     g_trc_bnd = 0.3
     weight_scaling_factor = 1.
 

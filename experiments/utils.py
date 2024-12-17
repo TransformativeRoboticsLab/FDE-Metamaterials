@@ -71,7 +71,7 @@ PARAMETER_SPECS = {
     },
     'g_vec_eps': {
         'type': 'float',
-        'values': tuple(10**(-n) for n in range(6)),
+        'values': tuple(10**(-n) for n in range(3)),
     },
     'weight_scaling_factor': {
         'type': 'float',

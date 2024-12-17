@@ -41,6 +41,8 @@ def load_experiments(loader, experiment_name, filter_tags=[]):
         experiments = loader.find({'experiment.name': experiment_name})
         experiments = [e for e in experiments if e.status == 'COMPLETED']
         experiments = filter_experiments_by_tag(experiments, filter_tags)
+        # a very, very bad manual coding to exclude all the sims that were run before we realized the foam PR is actually much closer to zero than anything else
+        experiments = [e for e in experiments if e.config.nu < 1e-3]
         return process_experiments(experiments)
     except Exception as e:
         print(f"Error loading experiments: {e}")
@@ -203,6 +205,20 @@ def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
     
     x0, x1 = xs
     y0, y1 = ys
+
+    x2 = np.linspace(0, 1/np.sqrt(2), 100)
+    y2 = x2 / np.sqrt(1. - x2**2)
+    p2 = f'M {x2[0]},{y2[0]} ' + ' '.join(f'L {x},{y}' for x, y in zip(x2[1:], y2[1:]))
+    
+    theta = np.linspace(np.pi/4, np.pi/2, 100)
+    x3 = np.cos(theta)
+    y3 = np.sin(theta)
+    p3 = f'M {x3[0]},{y3[0]} ' + ' '.join(f'L {x},{y}' for x, y in zip(x3[1:], y3[1:]))
+
+    x4 = np.linspace(0, 0.5, 100)
+    y4 = x4 / (1 - x4)
+    p4 = f'M {x4[0]},{y4[0]} ' + ' '.join(f'L {x},{y}' for x, y in zip(x4[1:], y4[1:]))
+
     fig.update_layout(
             shapes=[
                 {
@@ -216,6 +232,44 @@ def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
                         'width': 2,
                         'dash': 'dash'
                     },
+                } ,           {
+                'type': 'line',
+                'x0': 0.,
+                'y0': 1.,
+                'x1': 0.5,
+                'y1': 0.5,
+                'line': {
+                    'color': 'Black',
+                    'width': 2,
+                    'dash': 'dash'
+                    },
+                },
+                {
+                    'type': 'path',
+                    'path': p3,
+                    'line': {
+                        'color': 'Black',
+                        'width': 2,
+                        'dash': 'dash'
+                    },
+                },
+                {
+                    'type': 'path',
+                    'path': p2,
+                    'line': {
+                        'color': 'Black',
+                        'width': 2,
+                        'dash': 'dash'
+                    }
+                },
+                {
+                    'type': 'path',
+                    'path': p4,
+                    'line': {
+                        'color': 'Black',
+                        'width': 2,
+                        'dash': 'dash'
+                    }
                 }
             ]
         )

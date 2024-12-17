@@ -202,7 +202,7 @@ class Properties:
     E_min: float
     nu: float
     K: float = field(init=False)
-    lambda_: float = field(init=False)
+    ambda_: float = field(init=False)
     mu_: float = field(init=False)
 
     def __post_init__(self):
