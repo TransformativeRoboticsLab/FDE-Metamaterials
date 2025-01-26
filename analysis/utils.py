@@ -4,6 +4,7 @@ from io import StringIO
 
 import numpy as np
 import pandas as pd
+from mechanics import generate_planar_values, isotropic_elasticity_matrix
 from PIL import Image
 
 
@@ -136,12 +137,13 @@ def get_fields(experiments, field):
     
     return sorted({e.config.get(field, 'None') for e in experiments})
 
-def get_image_from_experiment(loader, id):
+def get_image_from_experiment(loader, id, img_type='array'):
     """
     Retrieves an image from an experiment based on the provided ID. Goes and does a new search for the experiment by ID using the loader.
     Args:
         loader (object): An Incense ExperimentLoader that provides a method `find_by_id` to retrieve experiments.
         id (str or int): The run ID of the experiment from which to retrieve the image.
+        img_type: Can be 'array' or 'cell' depending on what you want to return.
     Returns:
         bytes: The image data content in 'image/png' format if found, otherwise None.
     """
@@ -149,7 +151,7 @@ def get_image_from_experiment(loader, id):
     exp=loader.find_by_id(id)
     img = None
     for k, v in exp.artifacts.items():
-        if 'array' in k.lower():
+        if img_type in k.lower():
             img = v.as_content_type('image/png').content
     return img
 
@@ -342,3 +344,73 @@ PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'sta
 def build_symbol_map(experiments, marker_filter_value):
     unique_marker_values = {e.config.get(marker_filter_value) for e in experiments if e.config.get(marker_filter_value) is not None}
     return {marker_value: PLOT_SYMBOLS[i % len(PLOT_SYMBOLS)] for i, marker_value in enumerate(unique_marker_values)}
+
+def flatten_C(C):
+    return np.array([C[0, 0],
+                     C[1, 1],
+                     C[2, 2],
+                     C[1, 2],
+                     C[0, 2],
+                     C[0, 1]])
+    
+def build_df(experiments):
+    records = []
+    
+    for e in experiments:
+        _, Es, Gs, nus = generate_planar_values(e.info.final_C, input_style='standard')
+        flat_C = flatten_C(e.info.final_C)
+        records.append({
+            'id': e.id,
+            'C11': flat_C[0],
+            'C22': flat_C[1],
+            'C33': flat_C[2],
+            'C23': flat_C[3],
+            'C13': flat_C[4],
+            'C12': flat_C[5],
+            'extremal_mode': e.config.get('extremal_mode', -1),
+            'basis_v': e.config.get('basis_v', 'None'),
+            'w1': e.info.eigvals[0],
+            'w2': e.info.eigvals[1],
+            'w3': e.info.eigvals[2],
+            'nu_max': np.max(nus),
+            'nu_min': np.min(nus),
+            'E_max': np.max(Es),
+            'E_min': np.min(Es),
+            'G_max': np.max(Gs),
+            'G_min': np.min(Gs),
+            'Es': Es,
+            'Gs': Gs,
+            'nus': nus,
+        })
+        
+    df = pd.DataFrame.from_records(records)
+    C = flatten_C(isotropic_elasticity_matrix(E=1, nu=0.45, output_style='standard'))
+    df.loc[len(df)] = {'id': -1,
+                       'C11': C[0],
+                       'C22': C[1],
+                       'C33': C[2],
+                       'C23': C[3],
+                       'C13': C[4],
+                       'C12': C[5],
+                       'extremal_mode': 0,
+                       'basis_v': 'BULK',
+                       'w1': np.nan,
+                       'w2': np.nan,
+                       'w3': np.nan,
+                       'nu_max': 0.45,
+                       'nu_min': 0.45,
+                       'E_max': 1.,
+                       'E_min': 1.,
+                       'G_max': 100.,
+                       'G_min': 100.,
+                       'Es': 1.,
+                       'Gs': 100.,
+                       'nus': 0.45,
+    }
+                       
+    df['marker'] = df.apply(lambda row: f"{row['basis_v']}_{row['extremal_mode']}", axis=1)
+    
+    df.sort_values(by='extremal_mode', ascending=True, inplace=True)
+    
+    return df
+    

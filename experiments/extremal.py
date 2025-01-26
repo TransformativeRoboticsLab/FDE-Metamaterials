@@ -29,7 +29,7 @@ ex.observers.append(setup_mongo_observer(mongo_uri, 'metatop'))
 
 @ex.config
 def config():
-    E_max, E_min, nu = 1., 1./40., 0.0
+    E_max, E_min, nu = 1., 1./40., 0.1
     start_beta, n_betas = 8, 4
     n_epochs, epoch_duration, starting_epoch_duration = 4, 50, None
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
