@@ -5,6 +5,8 @@ import sys
 
 import nlopt
 import numpy as np
+from incense import ExperimentLoader
+from incense.artifact import PickleArtifact as PA
 from PIL import Image
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -15,6 +17,9 @@ from metatop.filters import jax_projection, jax_simp
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
+
+MONGO_URI = 'mongodb://localhost:27017'
+DB_NAME = 'metatop'
 
 PARAMETER_SPECS = {
     'E_max': {
@@ -55,7 +60,7 @@ PARAMETER_SPECS = {
     },
     'objective_type': {
         'type': 'cat',
-        'values': ('ray', 'ray_sq')
+        'values': ('ray', 'ray_sq', 'ratio')
     },
     'nelx': {
         'type': 'int',
@@ -319,3 +324,42 @@ def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ex
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
     ex.add_artifact(f'{outname}.pkl')
+    
+def seed_density(init_run_idx, size):
+    '''
+    Seed the initial density, either with the final output density from another run, or with random distribution
+    '''
+    if init_run_idx is not None:
+        pickle_artifact = extract_pickle_artifact(init_run_idx)
+        if pickle_artifact is not None:
+            # Use the final output density from another run, dropping the final t value
+            x = pickle_artifact.as_type(PA).render()['x'][:-1]
+            if not isinstance(x, np.ndarray):
+                print(f"It looks like 'x' from the pickle artifact from run {init_run_idx} was not a numpy array.")
+                print(f"Falling back to random density instead.")
+                init_run_idx = None
+            elif np.size(x) != size:
+                print(f"It looks like the loaded initial density from run {init_run_idx} is a different size than needed for this run.")
+                print(f"loaded density size {np.size(x)}, function space size: {size}")
+                print(f"Falling back to random density instead.")
+                init_run_idx = None
+            else:
+                print(f"Successfully seeded intial density with final density from run {init_run_idx}.")
+        else:
+            print(f"Pickle artifact not found for index {init_run_idx:d}")
+            print("Seeding with random density instead.")
+            init_run_idx = None  # Fallback to random seeding
+    if init_run_idx is None:
+        print("Seeding with random density")
+        x = np.random.uniform(0., 1., size)
+    
+    # Append 1 for t value
+    x = np.append(x, 1.)
+    return x
+
+
+def extract_pickle_artifact(init_run_idx):
+    loader = ExperimentLoader(mongo_uri=MONGO_URI, db_name=DB_NAME)
+    exp = loader.find_by_id(init_run_idx)
+    # sift through the artifacts of the experiment and return the pickle artifact or None if nothing is found
+    return next((v for k, v in exp.artifacts.items() if '.pkl' in k), None)

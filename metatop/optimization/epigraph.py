@@ -234,7 +234,7 @@ objective_type: {self.objective_type}
             elif self.objective_type == 'ratio_c1sq':
                 return jnp.log(jnp.array([c1**2/c2, c1**2/c3, ])), jnp.array([c1, c2, c3])
             else:
-                raise ValueError('Objective type must be either "rayleigh" or "norm"')
+                raise ValueError('Objective type not found.')
 
         c, cs = obj(jnp.asarray(Chom))
         stop_on_nan(c)

@@ -1,10 +1,14 @@
+import incense.artifact
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
+import incense
 import nlopt
 import numpy as np
 from dotenv import load_dotenv
+from incense import ExperimentLoader
+from incense.artifact import PickleArtifact as PA
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
@@ -20,16 +24,15 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
 
 np.set_printoptions(precision=5)
 
-load_dotenv()
-# mongo_uri = os.getenv('MONGO_URI')
-mongo_uri = 'mongodb://localhost:27017'
+# use if we want to connect to the AWS db
+# load_dotenv()
 
 ex = Experiment('extremal')
-ex.observers.append(setup_mongo_observer(mongo_uri, 'metatop'))
+ex.observers.append(setup_mongo_observer(MONGO_URI, DB_NAME))
 
 @ex.config
 def config():
-    E_max, E_min, nu = 1., 1./40., 0.1
+    E_max, E_min, nu = 1., 1/10., 0.1
     start_beta, n_betas = 8, 4
     n_epochs, epoch_duration, starting_epoch_duration = 4, 50, None
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
@@ -46,9 +49,25 @@ def config():
     trace_constraint = False
     g_trc_bnd = 0.3
     weight_scaling_factor = 1.
+    init_run_idx = None # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
+    single_sim = False # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, seed):
+    
+    if single_sim:
+        print("SINGLE IS ENABLED. NOT RUNNING OPTIMIZATION. SETTINGS ARE FOR ONLY A SINGLE FORWARD SIMULATION")
+        n_betas = 1
+        n_epochs = 1
+        epoch_duration = 1
+        starting_epoch_duration = epoch_duration
+        interim_plot = False
+        vector_constraint = False
+        tighten_vector_constraint = False
+        g_vec_eps = 1.
+        trace_constraint = False
+        g_trc_bnd = 1.
+        weight_scaling_factor = 1.
 
     run_id, outname = generate_output_filepath(ex, extremal_mode, basis_v, seed)
 
@@ -74,9 +93,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             filt_fn = filt_fn,
                             epoch_iter_tracker=[1])
 
-    # seeding the initial density
-    x = np.random.uniform(0., 1., metamate.R.dim())
-    x = np.append(x, 1.)
+    x = seed_density(init_run_idx, metamate.R.dim())
+
     # ===== End Component Setup =====
     
     # ===== Optimizer setup ======
@@ -85,7 +103,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                 extremal_mode=extremal_mode,
                                 metamaterial=metamate,
                                 ops=ops,
-                                plot_interval=epoch_duration//2,
+                                plot_interval=max(epoch_duration//2, 1),
                                 show_plot=interim_plot,
                                 verbose=verbose,
                                 w=weights,
@@ -131,3 +149,4 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
 
     if g_ext.show_plot:
         plt.close(g_ext.fig)
+

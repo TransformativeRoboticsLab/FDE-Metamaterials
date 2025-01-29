@@ -19,7 +19,7 @@ from metatop.optimization.scalar import EnergyConstraints, EnergyObjective
 np.set_printoptions(precision=5)
 
 def main():
-    E_max, E_min, nu = 1., 1e-2, 0.45
+    E_max, E_min, nu = 1., 0.1, 0.1
     start_beta, n_betas = 8, 8
     epoch_duration = 50
     extremal_mode = 2
@@ -27,7 +27,7 @@ def main():
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = interim_plot = True
-    seed = 1 # 916723353 # 689993214
+    seed = 1
     # ===== End Preamble =====
 
     np.random.seed(seed)

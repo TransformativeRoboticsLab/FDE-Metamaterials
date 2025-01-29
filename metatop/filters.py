@@ -97,11 +97,12 @@ def filter_rho(rho: fe.Function, H: np.array, Hs: np.array):
 class DensityFilter:
     calculated_filters = {}
     
-    def __init__(self, mesh: fe.Mesh, radius: float, distance_method: str = 'periodic'):
+    def __init__(self, mesh: fe.Mesh, radius: float, distance_method: str = 'periodic', verbose=False, use_cached=True):
         self.mesh = mesh
         self.radius = radius
         self.distance_method = distance_method
         self.fn_space = fe.FunctionSpace(mesh, 'DG', 0)
+        self.verbose = verbose
 
         distance_methods = {
             'periodic': self._calculate_periodic_distances,
@@ -115,13 +116,14 @@ class DensityFilter:
         
         # calculating filters is expensive, so we cache them
         if os.path.exists('calculated_filters.pkl'):
+            if self.verbose:
+                print("Loading filter from cache")
             with open('calculated_filters.pkl', 'rb') as f:
                 self.calculated_filters = pickle.load(f)
                 
         self.key = (self.mesh.hash(), radius, distance_method)
         
         if self.key in self.calculated_filters:
-            print("Loading filter from cache")
             self.H, self.Hs, self.H_jax, self.Hs_jax = self.calculated_filters[self.key]
         else:
             print("Calculating filter for the first time")
