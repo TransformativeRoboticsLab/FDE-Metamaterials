@@ -19,7 +19,7 @@ def main():
     init_experiments_load()
     start_experiment_loader_thread()
 
-    app.layout = create_layout()
+    app.layout = create_layout
     register_callbacks(app)
 
     app.run_server(debug=True, host='localhost', port=8050)
