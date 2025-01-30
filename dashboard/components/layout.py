@@ -5,7 +5,6 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 from data.experiment_loader import get_cached_dropdown_options
 from loguru import logger
-from utils.plotting import EG_polar_fig, scatter_fig
 
 
 def create_layout():
@@ -84,7 +83,7 @@ def create_layout():
                                  multi=True,
                                  clearable=True),
                 ]),
-                html.Button('Clear All Filters', id='clear-button', n_clicks=0),
+                html.Button('Clear All Filters', id='clear-button'),
             ],
                     style={'margin-left': 15,
                             'margin-right': 15,
@@ -128,7 +127,8 @@ def create_layout():
                             style={'max-height': '200px',
                                     'max-width': '200px',}),
 
-                    dcc.Graph(figure=EG_polar_fig),
+                    dcc.Graph(id='EG-polar-plot',
+                              animate=True),
                     # html.Pre(id='hover-text',
                     #          style={'width': '200px',
                     #                 'padding': '10px'}),

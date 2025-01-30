@@ -2,9 +2,6 @@ import numpy as np
 import plotly.express as px
 from loguru import logger
 
-scatter_fig = {'data': [px.scatter()]}
-EG_polar_fig = {'data': [px.line_polar()],
-                'layout': {'width': 200, 'height': 200}}
 
 def build_scatter_figure(df, x_metric, y_metric, plot_yx_line=False, size=(750, 750)):
     logger.info("Building scatter figure")
