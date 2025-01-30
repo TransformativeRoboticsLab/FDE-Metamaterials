@@ -71,7 +71,7 @@ def process_experiments(experiments):
     return experiments
 
 
-def prepare_scatter_data(x_metric, y_metric, experiments, marker_filters=[], color_filters=[], nu_filters=[]):
+def prepare_scatter_data(x_metric, y_metric, experiments, nu_filter=[], E_filter=[]):
     print("Preparing scatter plot data")
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
     records = []
@@ -85,25 +85,26 @@ def prepare_scatter_data(x_metric, y_metric, experiments, marker_filters=[], col
         x_value = e.metrics[x_metric].iloc[-1]
         y_value = e.metrics[y_metric].iloc[-1]
         
-        marker_filter = "_".join([str(e.config.get(mf, 'None')) for mf in marker_filters])
-        color_filter = "_".join([str(e.config.get(mf, 'None')) for mf in color_filters])
-        
         records.append({
             'x': x_value,
             'y': y_value,
             'Run ID': f'Run ID: {e.id}',
             'extremal_mode': e.config.get('extremal_mode', 'None'),
             'basis_v': e.config.get('basis_v', 'None'),
-            'marker': marker_filter,
-            'color': color_filter,
-            'nu': e.config.nu
+            'marker': e.config.get('extremal_mode', 'None'),
+            'color': e.config.get('basis_v', 'None'),
+            'nu': e.config.nu,
+            'E_max': e.config.E_max,
+            'E_min': e.config.E_min,
         })
 
     df = pd.DataFrame.from_records(records)
     
     df.sort_values(by='extremal_mode', ascending=True, inplace=True)
-    if nu_filters:
-        df = df[df['nu'].isin(nu_filters)]
+    if nu_filter:
+        df = df[df['nu'].isin(nu_filter)]
+    if E_filter:
+        df = df[df['E_min'].isin(E_filter)]
     
     print("Done preparing data")
     return df

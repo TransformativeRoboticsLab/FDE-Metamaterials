@@ -52,24 +52,23 @@ def create_layout():
             html.Div([
                 html.H2("Filters"),
                 html.Div([
-                    html.Label('Marker Filters'),
-                    dcc.Dropdown(id='marker-filters',
-                                options=[],
-                                value=['extremal_mode'],
+                    html.Label('Basis'),
+                    dcc.Dropdown(id='basis-filter',
+                                options=['BULK', 'VERT', 'SHEAR', 'HSA'],
+                                value=[],
                                 multi=True,
                                 clearable=True),
                 ]),
                 html.Div([
-                    html.Label('Color Filters'),
-                    dcc.Dropdown(id='color-filters',
-                                options=[],
-                                value=['basis_v'],
+                    html.Label('Mode'),
+                    dcc.Dropdown(id='mode-filter',
+                                options=['Unimode', 'Bimode'],
+                                value=[],
                                 multi=True,
                                 clearable=True),
                 ]),
                 html.Div([
-                    html.Label("Input Values"),
-                    html.P("Poisson's Ratio"),
+                    html.Label("Poisson's Ratio"),
                     dcc.Dropdown(id='nu-filter',
                                 options=[],
                                 value=[],
@@ -77,6 +76,14 @@ def create_layout():
                                 clearable=True)
                     ]
                 ),
+                html.Div([
+                    html.Label("Young's Modulus"),
+                    dcc.Dropdown(id='E-filter',
+                                 options=[],
+                                 value=[],
+                                 multi=True,
+                                 clearable=True)
+                ])
             ],
                     style={'margin-left': 15,
                             'margin-right': 15,

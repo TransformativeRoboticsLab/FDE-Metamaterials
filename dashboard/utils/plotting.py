@@ -165,13 +165,15 @@ def update_dropdown_options(experiments):
             - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
     """
 
-    all_config_params = {k for e in experiments for k in e.config.keys()}
+    # all_config_params = {k for e in experiments for k in e.config.keys()}
         
-    config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
+    # config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
     metric_dropdowns = [{'label': m, 'value': m} for m in sorted(experiments[-2].metrics.keys())]
     
     # unique_nus = list(set(v for k, v in e.config.items() if 'nu' == k))
     unique_nus = list(set(e.config.nu for e in experiments))
     nu_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_nus)]
+    unique_Es = list(set(e.config.E_min for e in experiments))
+    E_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_Es)]
     
-    return metric_dropdowns, config_dropdowns, nu_dropdowns
+    return metric_dropdowns, nu_dropdowns, E_dropdowns
