@@ -1,4 +1,5 @@
 from dash import Input, Output
+from dash.exceptions import PreventUpdate
 from data.data_processing import prepare_scatter_data
 from data.experiment_loader import (get_cached_experiments,
                                     get_image_from_experiment)
@@ -8,6 +9,7 @@ from utils.utils import encode_image
 
 
 def register_callbacks(app):
+    logger.info('Registering callbacks')
     @app.callback(
         Output('scatter-plot',    'figure'),
         [
@@ -42,7 +44,7 @@ def register_callbacks(app):
         #  Output('hover-text', 'children')],
         Input('scatter-plot', 'hoverData')
     )
-    def update_on_hover_cb(hover_data):
+    def update_array_img_cb(hover_data):
         if hover_data:
             run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
             exp_img = get_image_from_experiment(run_id)
@@ -50,7 +52,7 @@ def register_callbacks(app):
             # exp_txt = get_text_from_experiment(loader, run_id)
             return img_src#, ''
         logger.debug("No hover_data for datapoint")
-        return ''#, 'Hover over a point to see details here.'
+        return ''
 
     @app.callback(
         [
@@ -62,6 +64,7 @@ def register_callbacks(app):
         [Input('clear-button', 'n_clicks')]   
     )
     def clear_dropdowns(n_clicks):
-        if n_clicks > 0:
+        if n_clicks is None:
+            raise PreventUpdate
+        else:
             return [], [], [], []
-        return [], [], [] , []
