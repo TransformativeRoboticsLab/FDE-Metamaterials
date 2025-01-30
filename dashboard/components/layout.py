@@ -1,9 +1,16 @@
 # components/layout.py
+import time
+
 import dash_bootstrap_components as dbc
 from dash import dcc, html
+from data.experiment_loader import get_cached_dropdown_options
+from loguru import logger
+from utils.plotting import EG_polar_fig, scatter_fig
 
 
 def create_layout():
+    logger.info("Creating layout")
+    doc = get_cached_dropdown_options()
     return dbc.Container([
         # Navigation
         html.Div(
@@ -26,7 +33,7 @@ def create_layout():
                 html.Div([
                     html.Label('X-axis'),
                     dcc.Dropdown(id='x-axis-dropdown',
-                                options=[],
+                                options=doc['x-axis'],
                                 value='E1',
                                 optionHeight=40,
                                 clearable=False),
@@ -35,7 +42,7 @@ def create_layout():
                 html.Div([
                     html.Label('Y-axis'),
                     dcc.Dropdown(id='y-axis-dropdown',
-                                options=[],
+                                options=doc['y-axis'],
                                 value='nu21',
                                 clearable=False),
                     ]),
@@ -58,32 +65,26 @@ def create_layout():
                                 value=[],
                                 multi=True,
                                 clearable=True),
-                ]),
-                html.Div([
                     html.Label('Mode'),
                     dcc.Dropdown(id='mode-filter',
                                 options=['Unimode', 'Bimode'],
                                 value=[],
                                 multi=True,
                                 clearable=True),
-                ]),
-                html.Div([
                     html.Label("Poisson's Ratio"),
                     dcc.Dropdown(id='nu-filter',
-                                options=[],
+                                options=doc['nu'],
                                 value=[],
                                 multi=True,
-                                clearable=True)
-                    ]
-                ),
-                html.Div([
-                    html.Label("Young's Modulus"),
+                                clearable=True),
+                    html.Label("Young's Modulus Ratio"),
                     dcc.Dropdown(id='E-filter',
-                                 options=[],
+                                 options=doc['E'],
                                  value=[],
                                  multi=True,
-                                 clearable=True)
-                ])
+                                 clearable=True),
+                ]),
+                html.Button('Clear All Filters', id='clear-button', n_clicks=0),
             ],
                     style={'margin-left': 15,
                             'margin-right': 15,
@@ -113,8 +114,10 @@ def create_layout():
         # Main content
         html.Div([
             # Graph
-            html.Div(dcc.Graph(id='scatter-plot',), 
-                    style={'width': 1200,
+            html.Div(dcc.Graph(id='scatter-plot',
+                               animate=True), 
+                    style={'width': '800px',
+                           'height': '800px',
                             'display': 'flex',
                             'border': '1px solid black',}),
             # Hover info
@@ -124,6 +127,8 @@ def create_layout():
                             src='assets/placeholder.jpg',
                             style={'max-height': '200px',
                                     'max-width': '200px',}),
+
+                    dcc.Graph(figure=EG_polar_fig),
                     # html.Pre(id='hover-text',
                     #          style={'width': '200px',
                     #                 'padding': '10px'}),

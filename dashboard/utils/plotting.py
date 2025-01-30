@@ -1,9 +1,13 @@
 import numpy as np
 import plotly.express as px
+from loguru import logger
 
+scatter_fig = {'data': [px.scatter()]}
+EG_polar_fig = {'data': [px.line_polar()],
+                'layout': {'width': 200, 'height': 200}}
 
-def build_scatter_figure(df, x_metric, y_metric, plot_yx_line=False, size=(500, 500)):
-    print("Building scatter figure")
+def build_scatter_figure(df, x_metric, y_metric, plot_yx_line=False, size=(750, 750)):
+    logger.info("Building scatter figure")
     fig = px.scatter(
         df,
         x='x',
@@ -23,9 +27,10 @@ def build_scatter_figure(df, x_metric, y_metric, plot_yx_line=False, size=(500, 
             line=dict(color="Black", dash='dash')
         )
         
-    fig.update_layout(title=f"{len(df)} Data Points", width=size[0], height=size[1])
+    # fig.update_layout(title=f"{len(df)} Data Points", width=size[0], height=size[1])
+    customize_figure(fig, x_metric, y_metric, len(df), size=size)
     
-    print("Done building scatter figure")
+    logger.info("Done building scatter figure")
     return fig
 
 
@@ -128,7 +133,7 @@ def plot_yx(fig, xs=(0., 1.), ys=(0., 1.)):
             ]
         )
 
-def customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line=[], size=(1000, 1000)):
+def customize_figure(fig, x_metric, y_metric, num_exps, plot_yx_line=[], size=(1000, 1000)):
     """
     Customizes a given figure with specified metrics, layout, and toggle options.
     Parameters:
@@ -143,7 +148,7 @@ def customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line=[], size
     """
     
     plot_yx(fig) if 'plot_yx' in plot_yx_line else None
-    fig.update_layout(title=f"{len(experiments):d} Data Points", width=size[0], height=size[1])
+    fig.update_layout(title=f"{num_exps:d} Data Points", width=size[0], height=size[1])
 
     fig.update_xaxes(title_text=x_metric)
     fig.update_yaxes(scaleanchor='x', scaleratio=1, title_text=y_metric)
@@ -152,28 +157,3 @@ def customize_figure(x_metric, y_metric, experiments, fig, plot_yx_line=[], size
     fig.update_traces(marker=dict(size=12), mode='markers')
     
     
-def update_dropdown_options(experiments):
-    """
-    Generates dropdown options for configuration parameters and metrics from a list of experiments.
-    Args:
-        experiments (list): A list of Incense Experiment objects. Each experiment object should have 
-                            'config' and 'metrics' attributes, where 'config' is a dictionary 
-                            of configuration parameters and 'metrics' is a dictionary of metrics.
-    Returns:
-        tuple: A tuple containing two lists:
-            - metric_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each metric.
-            - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
-    """
-
-    # all_config_params = {k for e in experiments for k in e.config.keys()}
-        
-    # config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
-    metric_dropdowns = [{'label': m, 'value': m} for m in sorted(experiments[-2].metrics.keys())]
-    
-    # unique_nus = list(set(v for k, v in e.config.items() if 'nu' == k))
-    unique_nus = list(set(e.config.nu for e in experiments))
-    nu_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_nus)]
-    unique_Es = list(set(e.config.E_min for e in experiments))
-    E_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_Es)]
-    
-    return metric_dropdowns, nu_dropdowns, E_dropdowns

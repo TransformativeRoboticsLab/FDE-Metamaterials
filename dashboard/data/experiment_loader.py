@@ -6,13 +6,23 @@ from io import StringIO
 import numpy as np
 from data.data_processing import process_experiments
 from incense import ExperimentLoader
+from loguru import logger
 
-loader = ExperimentLoader(mongo_uri='mongodb://localhost:27017', 
+DEFAULT_EXP_NAME = 'extremal'
+DEFAULT_FILTER_TAGS = ['bad']
+
+try:
+    loader = ExperimentLoader(mongo_uri='mongodb://localhost:27017', 
                             db_name='metatop')
+    logger.success("Incense loader created")
+except Exception as e:
+    logger.exception(f"Error creating incense loader: {e}")
+
 experiments_cache = []
+dropdown_options_cache = {}
 cache_lock = threading.Lock()
 
-def load_experiments(loader, experiment_name, filter_tags=[], process_exps=True):
+def load_experiments(experiment_name, filter_tags=[], process_exps=True):
     """
     Load and filter experiments based on the given experiment name and tags.
     This function retrieves experiments from the loader, filters them by their
@@ -26,39 +36,55 @@ def load_experiments(loader, experiment_name, filter_tags=[], process_exps=True)
     """
     
     try:
-        print(f"Loading experiments")
         experiments = loader.find({'experiment.name': experiment_name})
         experiments = [e for e in experiments if e.status == 'COMPLETED']
         experiments = filter_experiments_by_tag(experiments, filter_tags)
-        # a very, very bad manual coding to exclude all the sims that were run before we realized the foam PR is actually much closer to zero than anything else
-        # experiments = [e for e in experiments if e.config.nu < 1e-3]
         experiments = process_experiments(experiments) if process_exps else experiments
-        print(f"Loaded {len(experiments)} experiments")
-        return experiments
+        logger.info(f"Loaded {len(experiments)} experiments")
+        metric_dropdowns, nu_dropdowns, E_dropdowns = update_dropdown_options(experiments)
+        dropdown_options = {'x-axis': metric_dropdowns, 
+                             'y-axis': metric_dropdowns,
+                             'nu': nu_dropdowns,
+                             'E': E_dropdowns,}
+        logger.success(f"Updated experiments cache at {time.ctime()}")
+        return experiments, dropdown_options
     except Exception as e:
-        print(f"Error loading experiments: {e}")
-        return []
+        logger.exception(f"Error loading experiments: {e}")
+        return [], {}
 
-def load_experiments_async(loader, experiment_name, filter_tags=[], poll_interval=60):
-    global experiments_cache
+def init_experiments_load(experiment_name=DEFAULT_EXP_NAME, 
+                          filter_tags=DEFAULT_FILTER_TAGS, ):
+    logger.info("Initializing experiments")
+    global experiments_cache, dropdown_options_cache
+    with cache_lock:
+        experiments_cache, dropdown_options_cache = load_experiments(experiment_name, filter_tags)
+    logger.success(f"Done initializing experiments")
+
+def async_load_experiments(experiment_name, filter_tags=[], poll_interval=600):
+    global experiments_cache, dropdown_options_cache
     while True:
+        # delay up front because we do an initial sync load
+        time.sleep(poll_interval)
         try:
             with cache_lock:
-                experiments_cache = load_experiments(loader, experiment_name, filter_tags)
-                print(f"Updated experiments cache at {time.ctime()}")
+                experiments_cache, dropdown_options_cache = load_experiments(loader, experiment_name, filter_tags)
         except Exception as e:
-            print(f"Error updating experiments cache: {e}")
-        time.sleep(poll_interval)
+            logger.exception(f"Error updating experiments cache: {e}")
         
 def start_experiment_loader_thread():
-    filter_tags = ['bad']
-    load_thread = threading.Thread(target=load_experiments_async, args=(loader, 'extremal', filter_tags))
+    logger.info("Starting async experiment loader thread")
+    load_thread = threading.Thread(target=async_load_experiments, args=('extremal', DEFAULT_FILTER_TAGS))
     load_thread.daemon = True
     load_thread.start()
+    logger.success("Async loader thread started")
     
 def get_cached_experiments():
     with cache_lock:
         return experiments_cache
+
+def get_cached_dropdown_options():
+    with cache_lock:
+        return dropdown_options_cache
 
 def filter_experiments_by_tag(experiments, filter_tags):
     """
@@ -105,3 +131,29 @@ def get_image_from_experiment(id, img_type='array'):
         if img_type in k.lower():
             img = v.as_content_type('image/png').content
     return img
+
+def update_dropdown_options(experiments):
+    """
+    Generates dropdown options for configuration parameters and metrics from a list of experiments.
+    Args:
+        experiments (list): A list of Incense Experiment objects. Each experiment object should have 
+                            'config' and 'metrics' attributes, where 'config' is a dictionary 
+                            of configuration parameters and 'metrics' is a dictionary of metrics.
+    Returns:
+        tuple: A tuple containing two lists:
+            - metric_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each metric.
+            - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
+    """
+
+    # all_config_params = {k for e in experiments for k in e.config.keys()}
+        
+    # config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
+    metric_dropdowns = [{'label': m, 'value': m} for m in sorted(experiments[-2].metrics.keys())]
+    
+    # unique_nus = list(set(v for k, v in e.config.items() if 'nu' == k))
+    unique_nus = list(set(e.config.nu for e in experiments))
+    nu_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_nus)]
+    unique_Es = list(set(e.config.E_min for e in experiments))
+    E_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_Es)]
+    
+    return metric_dropdowns, nu_dropdowns, E_dropdowns

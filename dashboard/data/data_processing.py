@@ -2,6 +2,7 @@ import io
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 from PIL import Image
 from utils.mechanics import generate_planar_values, isotropic_elasticity_matrix
 
@@ -62,21 +63,21 @@ def reorganize_artifacts(artifacts):
     artifacts.update(new_artifacts)
 
 def process_experiments(experiments):
-    print(f"Processing experiments!")
+    logger.info(f"Processing experiments!")
     for e in experiments:
         reorganize_artifacts(e.artifacts)
         # if 'volume_fraction' not in e.metrics:
             # e.metrics['volume_fraction'] = pd.Series([compute_volume_fraction(e)])
-    print(f"Processed {len(experiments)} experiments")
+    logger.info(f"Processed {len(experiments)} experiments")
     return experiments
 
 
-def prepare_scatter_data(x_metric, y_metric, experiments, nu_filter=[], E_filter=[]):
-    print("Preparing scatter plot data")
+def prepare_scatter_data(x_metric, y_metric, experiments, filters={}):
+    logger.info("Preparing scatter plot data")
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
     records = []
     
-    # mode_map = {1: 'Unimode', 2: 'Bimode'}
+    mode_map = {1: 'Unimode', 2: 'Bimode', }
     
     for e in experiments:
         if x_metric not in e.metrics or y_metric not in e.metrics:
@@ -89,24 +90,25 @@ def prepare_scatter_data(x_metric, y_metric, experiments, nu_filter=[], E_filter
             'x': x_value,
             'y': y_value,
             'Run ID': f'Run ID: {e.id}',
-            'extremal_mode': e.config.get('extremal_mode', 'None'),
+            'extremal_mode': mode_map.get(e.config.get('extremal_mode', 'None'), 'NULL'),
             'basis_v': e.config.get('basis_v', 'None'),
             'marker': e.config.get('extremal_mode', 'None'),
             'color': e.config.get('basis_v', 'None'),
             'nu': e.config.nu,
-            'E_max': e.config.E_max,
+            # 'E_max': e.config.E_max,
             'E_min': e.config.E_min,
         })
 
     df = pd.DataFrame.from_records(records)
     
-    df.sort_values(by='extremal_mode', ascending=True, inplace=True)
-    if nu_filter:
-        df = df[df['nu'].isin(nu_filter)]
-    if E_filter:
-        df = df[df['E_min'].isin(E_filter)]
+    df.sort_values(by='extremal_mode', ascending=False, inplace=True)
     
-    print("Done preparing data")
+    # apply filters
+    for name, filter in filters.items():
+        # skip if filter is empty
+        df = df[df[name].isin(filter)] if filter else df
+    
+    logger.info("Done preparing data")
     return df
 
 PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'star', 'hexagram', 'pentagon', 'hourglass']
