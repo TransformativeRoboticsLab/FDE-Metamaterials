@@ -9,7 +9,12 @@ from incense import ExperimentLoader
 from loguru import logger
 
 DEFAULT_EXP_NAME = 'extremal'
-DEFAULT_FILTER_TAGS = ['bad']
+DEFAULT_FILTER_TAGS = ['Bad']
+DB_QUERY = {"$and": [
+    {'experiment.name': 'extremal'},
+    {'status': 'COMPLETED'},
+    {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}}
+]}
 
 try:
     loader = ExperimentLoader(mongo_uri='mongodb://localhost:27017', 
@@ -36,18 +41,12 @@ def load_experiments(experiment_name, filter_tags=[], process_exps=True):
     """
     
     try:
-        experiments = loader.find({'experiment.name': experiment_name})
-        experiments = [e for e in experiments if e.status == 'COMPLETED']
-        experiments = filter_experiments_by_tag(experiments, filter_tags)
-        experiments = process_experiments(experiments) if process_exps else experiments
-        logger.info(f"Loaded {len(experiments)} experiments")
-        metric_dropdowns, nu_dropdowns, E_dropdowns = update_dropdown_options(experiments)
-        dropdown_options = {'x-axis': metric_dropdowns, 
-                             'y-axis': metric_dropdowns,
-                             'nu': nu_dropdowns,
-                             'E': E_dropdowns,}
+        exps = loader.find(DB_QUERY)
+        logger.info(f"{len(exps)} found matching query")
+        logger.info(f"Loaded {len(exps)} experiments")
+        ddos = update_dropdown_options(exps)
         logger.success(f"Updated experiments cache at {time.ctime()}")
-        return experiments, dropdown_options
+        return exps, ddos
     except Exception as e:
         logger.exception(f"Error loading experiments: {e}")
         return [], {}
@@ -132,7 +131,7 @@ def get_image_from_experiment(id, img_type='array'):
             img = v.as_content_type('image/png').content
     return img
 
-def update_dropdown_options(experiments):
+def update_dropdown_options(exps):
     """
     Generates dropdown options for configuration parameters and metrics from a list of experiments.
     Args:
@@ -144,16 +143,13 @@ def update_dropdown_options(experiments):
             - metric_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each metric.
             - config_dropdowns (list): A list of dictionaries with 'label' and 'value' keys for each configuration parameter.
     """
+      
+    df = exps.project(on=['config.nu', 'config.E_min'])
 
-    # all_config_params = {k for e in experiments for k in e.config.keys()}
-        
-    # config_dropdowns = [{'label': p, 'value': p} for p in sorted(all_config_params)]
-    metric_dropdowns = [{'label': m, 'value': m} for m in sorted(experiments[-2].metrics.keys())]
+    ddos = {}
+    ddos['x-axis'] = [{'label': m, 'value': m} for m in sorted(exps[-1].metrics.keys())]
+    ddos['y-axis'] = ddos['x-axis']
+    ddos['nu']= [{'label': n, 'value': n} for n in sorted(df['nu'].unique())]
+    ddos['E'] = [{'label': e, 'value': e} for e in sorted(df['E_min'].unique())]
     
-    # unique_nus = list(set(v for k, v in e.config.items() if 'nu' == k))
-    unique_nus = list(set(e.config.nu for e in experiments))
-    nu_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_nus)]
-    unique_Es = list(set(e.config.E_min for e in experiments))
-    E_dropdowns = [{'label': n, 'value': n} for n in sorted(unique_Es)]
-    
-    return metric_dropdowns, nu_dropdowns, E_dropdowns
+    return ddos
