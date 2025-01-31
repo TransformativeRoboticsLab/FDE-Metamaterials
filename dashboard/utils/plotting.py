@@ -7,25 +7,24 @@ def build_scatter_figure(df, x_metric, y_metric, plot_yx_line=False, size=(750, 
     logger.info("Building scatter figure")
     fig = px.scatter(
         df,
-        x='x',
-        y='y',
+        x=x_metric,
+        y=y_metric,
         hover_name='Run ID',
-        symbol='marker',
-        color='color'
+        symbol='extremal_mode',
+        color='basis_v',
     )
     
-    if plot_yx_line:
-        fig.add_shape(
-            type='line',
-            x0=df['x'].min(),
-            y0=df['y'].min(),
-            x1=df['x'].max(),
-            y1=df['y'].max(),
-            line=dict(color="Black", dash='dash')
-        )
+    # if plot_yx_line:
+    #     fig.add_shape(
+    #         type='line',
+    #         x0=df['x'].min(),
+    #         y0=df['y'].min(),
+    #         x1=df['x'].max(),
+    #         y1=df['y'].max(),
+    #         line=dict(color="Black", dash='dash')
+    #     )
         
-    # fig.update_layout(title=f"{len(df)} Data Points", width=size[0], height=size[1])
-    customize_figure(fig, x_metric, y_metric, len(df), size=size)
+    fig = customize_figure(fig, x_metric, y_metric, len(df), size=size)
     
     logger.info("Done building scatter figure")
     return fig
@@ -143,7 +142,7 @@ def customize_figure(fig, x_metric, y_metric, num_exps, plot_yx_line=[], size=(1
     Returns:
     None
     """
-    
+    print(f"x: {x_metric}, y: {y_metric}")
     plot_yx(fig) if 'plot_yx' in plot_yx_line else None
     fig.update_layout(title=f"{num_exps:d} Data Points", width=size[0], height=size[1])
 
@@ -152,5 +151,7 @@ def customize_figure(fig, x_metric, y_metric, num_exps, plot_yx_line=[], size=(1
     # reapply_current_zoom(relayout_data, fig)
 
     fig.update_traces(marker=dict(size=12), mode='markers')
+    
+    return fig
     
     

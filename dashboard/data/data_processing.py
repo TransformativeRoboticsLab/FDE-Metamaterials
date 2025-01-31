@@ -72,34 +72,32 @@ def process_experiments(experiments):
     return experiments
 
 
-def prepare_scatter_data(x_metric, y_metric, experiments, filters={}):
+def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
     logger.info("Preparing scatter plot data")
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
-    records = []
     
+    # helpers
     mode_map = {1: 'Unimode', 2: 'Bimode', }
+    last = lambda x: x.iloc[-1]
     
-    for e in experiments:
-        if x_metric not in e.metrics or y_metric not in e.metrics:
-            continue
+    df = exps.project(on=[{f"metrics.{x_metric}": last}, 
+                          {f"metrics.{y_metric}": last},
+                          "id",
+                          "config.extremal_mode",
+                          "config.basis_v",
+                          "config.nu",
+                          "config.E_min"
+                          ])
+    # the projection to dataframe concatenates the metric with the function handle of last
+    # in this case last is a lambda so it looks like {x_metric}_<lambda>
+    # this remove _<lambda> from the metric column names
+    df.rename(columns={c: c.split('_<')[0] for c in df.columns},
+              inplace=True)
+    # Prettify other columns
+    df['id'] = df['id'].apply(lambda id: f"Run ID: {id}")
+    df.rename(columns={'id': 'Run ID'}, inplace=True)
 
-        x_value = e.metrics[x_metric].iloc[-1]
-        y_value = e.metrics[y_metric].iloc[-1]
-        
-        records.append({
-            'x': x_value,
-            'y': y_value,
-            'Run ID': f'Run ID: {e.id}',
-            'extremal_mode': mode_map.get(e.config.get('extremal_mode', 'None'), 'NULL'),
-            'basis_v': e.config.get('basis_v', 'None'),
-            'marker': e.config.get('extremal_mode', 'None'),
-            'color': e.config.get('basis_v', 'None'),
-            'nu': e.config.nu,
-            # 'E_max': e.config.E_max,
-            'E_min': e.config.E_min,
-        })
-
-    df = pd.DataFrame.from_records(records)
+    df['extremal_mode'] = df['extremal_mode'].map(mode_map)
     
     df.sort_values(by='extremal_mode', ascending=False, inplace=True)
     
