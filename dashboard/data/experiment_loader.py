@@ -14,7 +14,8 @@ DB_QUERY = {"$and": [
     {'experiment.name': 'extremal'},
     {'status': 'COMPLETED'},
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
-    {'config.nu': {'$eq': 0.1}}
+    {'config.nu': {'$eq': 0.1}},
+    {'config.single_sim': {'$eq': True}}
 ]}
 
 try:
