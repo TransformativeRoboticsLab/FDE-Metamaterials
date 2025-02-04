@@ -1,8 +1,8 @@
-import numpy.linalg as la
 import warnings as wn
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.linalg as la
 import pandas as pd
 
 
@@ -497,7 +497,7 @@ def polar_plot(M, input_style='mandel', orientation='horizontal', size=(1.5, 1.5
 
 
 def generate_planar_values(M, input_style):
-    thetas = np.linspace(0, 2*np.pi, num=1001, dtype=np.float64)
+    thetas = np.linspace(0, 2*np.pi, num=101, dtype=np.float64)
     Es, Gs, nus = [], [], []
 
     for theta in thetas:

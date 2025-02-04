@@ -7,6 +7,7 @@ import numpy as np
 from data.data_processing import process_experiments
 from incense import ExperimentLoader
 from loguru import logger
+from utils.mechanics import generate_planar_values
 
 DEFAULT_EXP_NAME = 'extremal'
 DEFAULT_FILTER_TAGS = ['Bad']
@@ -149,6 +150,10 @@ def get_image_from_experiment(id, img_type='array'):
         if img_type in k.lower():
             img = v.as_content_type('image/png').content
     return img
+
+
+def get_C_from_experiment(id):
+    return loader.find_by_id(id).info['final_C']
 
 
 def update_dropdown_options(exps):

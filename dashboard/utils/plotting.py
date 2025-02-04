@@ -2,6 +2,8 @@ import numpy as np
 import plotly.express as px
 from loguru import logger
 
+from data import get_cached_experiments
+
 
 def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     logger.info("Building scatter figure")
@@ -22,8 +24,6 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
             ordering='traces first'
         ),
         title=f"{len(df)} Data Points",
-        # width=size[0],
-        # height=size[1]
     )
 
     # fig.update_yaxes(scaleanchor='x', scaleratio=1)
@@ -33,28 +33,6 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     )
 
     logger.info("Done building scatter figure")
-    return fig
-
-
-def customize_figure(fig, num_exps, size=(800, 800)):
-    """
-    Customizes a given figure with specified metrics, layout, and toggle options.
-    Parameters:
-    x_metric (str): The label for the x-axis.
-    y_metric (str): The label for the y-axis.
-    relayout_data (dict): Data used to reapply the current zoom level.
-    experiments (list): A list of experiments to be plotted.
-    fig (plotly.graph_objs._figure.Figure): The figure object to be customized.
-    toggle_values (list, optional): A list of toggle options to apply specific customizations. Defaults to an empty list.
-    Returns:
-    None
-    """
-
-    fig.update_layout(title=f"{num_exps:d} Data Points",
-                      width=size[0], height=size[1])
-
-    fig.update_traces(marker=dict(size=12), mode='markers')
-
     return fig
 
 

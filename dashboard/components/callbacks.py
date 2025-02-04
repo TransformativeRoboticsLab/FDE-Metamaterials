@@ -1,9 +1,14 @@
+import numpy as np
+import pandas as pd
+import plotly.express as px
 from dash import Input, Output
 from dash.exceptions import PreventUpdate
 from data.data_processing import prepare_scatter_data
-from data.experiment_loader import (get_cached_experiments,
+from data.experiment_loader import (get_C_from_experiment,
+                                    get_cached_experiments,
                                     get_image_from_experiment)
 from loguru import logger
+from utils.mechanics import generate_planar_values
 from utils.plotting import build_scatter_figure
 from utils.utils import encode_image
 
@@ -52,7 +57,6 @@ def register_callbacks(app):
             run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
             exp_img = get_image_from_experiment(run_id)
             img_src = f"data:image/png;base64,{encode_image(exp_img)}"
-            # exp_txt = get_text_from_experiment(loader, run_id)
             return img_src  # , ''
         logger.debug("No hover_data for datapoint")
         return ''
@@ -69,7 +73,42 @@ def register_callbacks(app):
     def clear_dropdowns(n_clicks):
         if n_clicks is None:
             raise PreventUpdate
-        else:
-            return [], [], [], []
+        return [], [], [], []
+
+    @app.callback(
+        Output('EG-polar-plot', 'figure'),
+        Input('scatter-plot', 'hoverData')
+    )
+    def update_polar_plot(hover_data):
+        if hover_data is None:
+            raise PreventUpdate
+
+        run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
+        logger.debug
+        C = get_C_from_experiment(run_id)
+        thetas, Es, Gs, nus = generate_planar_values(
+            C, input_style='standard')
+        df = pd.DataFrame({
+            'theta': thetas*180/np.pi,
+            'E': Es,
+            'G': Gs,
+            'nu': nus
+        })
+
+        fig = px.line_polar(
+            df,
+            r='E',
+            theta='theta'
+        )
+
+        fig.update_layout(
+            transition=dict(
+                duration=500,
+                easing='cubic-in-out',
+                ordering='layout first'
+
+            )
+        )
+        return fig
 
     logger.info("CALLBACKS: Finished")
