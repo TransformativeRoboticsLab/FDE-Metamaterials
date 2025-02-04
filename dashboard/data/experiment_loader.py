@@ -13,7 +13,8 @@ DEFAULT_FILTER_TAGS = ['Bad']
 DB_QUERY = {"$and": [
     {'experiment.name': 'extremal'},
     {'status': 'COMPLETED'},
-    {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}}
+    {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
+    {'config.nu': {'$eq': 0.1}}
 ]}
 
 try:
