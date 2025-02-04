@@ -9,11 +9,11 @@ from loguru import logger
 def main():
     logger.success("Starting main app")
     try:
-        app = dash.Dash(__name__, external_stylesheets=["https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"])
+        app = dash.Dash(__name__, external_stylesheets=[
+                        "https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"])
         logger.success("Dashboard started")
     except Exception as e:
         logger.exception(f"Exception creating dash app: {e}")
-
 
     # start with synchronous load
     init_experiments_load()
@@ -23,6 +23,7 @@ def main():
     register_callbacks(app)
 
     app.run_server(debug=True, host='localhost', port=8050)
+
 
 if __name__ == "__main__":
     main()

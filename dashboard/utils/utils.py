@@ -9,5 +9,5 @@ def encode_image(data):
     Returns:
         str: The base64 encoded ASCII string representation of the image data.
     """
-    
+
     return base64.b64encode(data).decode('ascii')

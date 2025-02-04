@@ -12,6 +12,7 @@ def compute_volume_fraction(e):
     img = Image.open(io.BytesIO(img_byte)).convert('1')
     return 1. - np.mean(img)
 
+
 def reorganize_artifacts(artifacts):
     """
     Reorganizes a dictionary of artifacts into specific categories.
@@ -19,7 +20,7 @@ def reorganize_artifacts(artifacts):
     its items into 'timelines', 'cells', 'array', 'pickle', and 'misc'. 
     The categorized items are then stored in a new dictionary which updates 
     the original `artifacts` dictionary.
-    
+
     Why? This makes referencing artifacts that are similar in nature easier.
 
     Args:
@@ -43,31 +44,34 @@ def reorganize_artifacts(artifacts):
         'pickle': None,
         'misc': []
     }
-    
+
     for key, artifact in list(artifacts.items()):
         key_lower = key.lower()
-        
+
         if 'timeline' in key_lower:
-            new_artifacts['timelines'].append(artifact.as_content_type('image/png'))
+            new_artifacts['timelines'].append(
+                artifact.as_content_type('image/png'))
         elif 'cell' in key_lower:
-            new_artifacts['cells'].append(artifact.as_content_type('image/png'))
+            new_artifacts['cells'].append(
+                artifact.as_content_type('image/png'))
         elif 'array' in key_lower:
             new_artifacts['array'] = artifact.as_content_type('image/png')
         elif key.endswith('.pkl'):
             new_artifacts['pickle'] = artifact
         else:
             new_artifacts['misc'].append(artifact)
-        
+
         del artifacts[key]
-    
+
     artifacts.update(new_artifacts)
+
 
 def process_experiments(experiments):
     logger.info(f"Processing experiments!")
     for e in experiments:
         reorganize_artifacts(e.artifacts)
         # if 'volume_fraction' not in e.metrics:
-            # e.metrics['volume_fraction'] = pd.Series([compute_volume_fraction(e)])
+        # e.metrics['volume_fraction'] = pd.Series([compute_volume_fraction(e)])
     logger.info(f"Processed {len(experiments)} experiments")
     return experiments
 
@@ -75,12 +79,12 @@ def process_experiments(experiments):
 def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
     logger.info("Preparing scatter plot data")
     # Create a list of dictionaries (records) to build DataFrame efficiently in one step
-    
+
     # helpers
     mode_map = {1: 'Unimode', 2: 'Bimode', }
-    last = lambda x: x.iloc[-1]
-    
-    df = exps.project(on=[{f"metrics.{x_metric}": last}, 
+    def last(x): return x.iloc[-1]
+
+    df = exps.project(on=[{f"metrics.{x_metric}": last},
                           {f"metrics.{y_metric}": last},
                           "id",
                           "config.extremal_mode",
@@ -98,22 +102,27 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
     df.rename(columns={'id': 'Run ID'}, inplace=True)
 
     df['extremal_mode'] = df['extremal_mode'].map(mode_map)
-    
+
     df.sort_values(by='extremal_mode', ascending=False, inplace=True)
-    
+
     # apply filters
     for name, filter in filters.items():
         # skip if filter is empty
         df = df[df[name].isin(filter)] if filter else df
-    
+
     logger.info("Done preparing data")
     return df
 
-PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'star', 'hexagram', 'pentagon', 'hourglass']
+
+PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x',
+                'triangle-up', 'star', 'hexagram', 'pentagon', 'hourglass']
+
 
 def build_symbol_map(experiments, marker_filter_value):
-    unique_marker_values = {e.config.get(marker_filter_value) for e in experiments if e.config.get(marker_filter_value) is not None}
+    unique_marker_values = {e.config.get(
+        marker_filter_value) for e in experiments if e.config.get(marker_filter_value) is not None}
     return {marker_value: PLOT_SYMBOLS[i % len(PLOT_SYMBOLS)] for i, marker_value in enumerate(unique_marker_values)}
+
 
 def flatten_C(C):
     return np.array([C[0, 0],
@@ -122,7 +131,8 @@ def flatten_C(C):
                      C[1, 2],
                      C[0, 2],
                      C[0, 1]])
-    
+
+
 def get_fields(experiments, field):
-    
+
     return sorted({e.config.get(field, 'None') for e in experiments})

@@ -10,6 +10,7 @@ from utils.utils import encode_image
 
 def register_callbacks(app):
     logger.info('Registering callbacks')
+
     @app.callback(
         Output('scatter-plot',    'figure'),
         [
@@ -32,11 +33,14 @@ def register_callbacks(app):
         }
         experiments = get_cached_experiments()
         logger.info(f"{len(experiments)} experiments in update_scatter_plot()")
-        
-        scatter_df = prepare_scatter_data(x_metric, y_metric, experiments, filters)
-        
+
+        scatter_df = prepare_scatter_data(x_metric,
+                                          y_metric,
+                                          experiments,
+                                          filters)
+
         fig = build_scatter_figure(scatter_df, x_metric, y_metric, False, )
-        
+
         return fig
 
     @app.callback(
@@ -50,7 +54,7 @@ def register_callbacks(app):
             exp_img = get_image_from_experiment(run_id)
             img_src = f"data:image/png;base64,{encode_image(exp_img)}"
             # exp_txt = get_text_from_experiment(loader, run_id)
-            return img_src#, ''
+            return img_src  # , ''
         logger.debug("No hover_data for datapoint")
         return ''
 
@@ -61,7 +65,7 @@ def register_callbacks(app):
             Output('nu-filter', 'value'),
             Output('E-filter', 'value'),
         ],
-        [Input('clear-button', 'n_clicks')]   
+        [Input('clear-button', 'n_clicks')]
     )
     def clear_dropdowns(n_clicks):
         if n_clicks is None:
