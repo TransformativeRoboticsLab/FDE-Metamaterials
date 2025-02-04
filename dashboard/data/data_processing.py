@@ -78,10 +78,8 @@ def process_experiments(experiments):
 
 def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
     logger.info("Preparing scatter plot data")
-    # Create a list of dictionaries (records) to build DataFrame efficiently in one step
 
     # helpers
-    mode_map = {1: 'Unimode', 2: 'Bimode', }
     def last(x): return x.iloc[-1]
 
     df = exps.project(on=[{f"metrics.{x_metric}": last},
@@ -92,19 +90,8 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
                           "config.nu",
                           "config.E_min"
                           ])
-    # the projection to dataframe concatenates the metric with the function handle of last
-    # in this case last is a lambda so it looks like {x_metric}_<lambda>
-    # this remove _<lambda> from the metric column names
-    df.rename(columns={c: c.split('_<')[0] for c in df.columns},
-              inplace=True)
-    # Prettify other columns
-    df['id'] = df['id'].apply(lambda id: f"Run ID: {id}")
-    df.rename(columns={'id': 'Run ID'}, inplace=True)
 
-    df['extremal_mode'] = df['extremal_mode'].map(mode_map)
-
-    df.sort_values(by='extremal_mode', ascending=False, inplace=True)
-
+    clean_up_col_names(df)
     # apply filters
     for name, filter in filters.items():
         # skip if filter is empty
@@ -112,6 +99,25 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
 
     logger.info("Done preparing data")
     return df
+
+
+def clean_up_col_names(df):
+    """
+    Cleans up column names. Does this in place
+    """
+    # the projection to dataframe concatenates the metric with the function handle of last
+    # in this case the function is last so it tacks on a "_last" to the metric name
+    # this removes that last bit, but keeps any other underscores
+    df.rename(columns={c: c.removesuffix("_last") for c in df.columns},
+              inplace=True)
+    # Prettify other columns
+    df['id'] = df['id'].apply(lambda id: f"Run ID: {id}")
+    df.rename(columns={'id': 'Run ID'}, inplace=True)
+
+    mode_map = {1: 'Unimode', 2: 'Bimode', }
+    df['extremal_mode'] = df['extremal_mode'].map(mode_map)
+
+    df.sort_values(by='extremal_mode', ascending=False, inplace=True)
 
 
 PLOT_SYMBOLS = ['circle', 'square', 'diamond', 'cross', 'x',
