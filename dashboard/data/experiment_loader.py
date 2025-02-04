@@ -86,11 +86,13 @@ def start_experiment_loader_thread():
 
 
 def get_cached_experiments():
+    global experiments_cache
     with cache_lock:
         return experiments_cache
 
 
 def get_cached_dropdown_options():
+    global dropdown_options_cache
     with cache_lock:
         return dropdown_options_cache
 

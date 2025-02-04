@@ -39,7 +39,7 @@ def register_callbacks(app):
                                           experiments,
                                           filters)
 
-        fig = build_scatter_figure(scatter_df, x_metric, y_metric, False, )
+        fig = build_scatter_figure(scatter_df, x_metric, y_metric)
 
         return fig
 

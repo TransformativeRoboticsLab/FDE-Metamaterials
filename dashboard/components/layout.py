@@ -3,7 +3,8 @@ import time
 
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from data.experiment_loader import get_cached_dropdown_options
+from data.experiment_loader import (get_cached_dropdown_options,
+                                    get_cached_experiments)
 from loguru import logger
 
 
@@ -114,12 +115,12 @@ def create_layout():
         # Main content
         html.Div([
             # Graph
-            html.Div(dcc.Graph(id='scatter-plot',
-                               animate=True),
-                     style={'width': '800px',
-                            'height': '800px',
-                            'display': 'flex',
-                            'border': '1px solid black', }),
+            html.Div(
+                dcc.Graph(id='scatter-plot'),
+                style={'width': '800px',
+                       'height': '800px',
+                       'display': 'flex',
+                       'border': '1px solid black', }),
             # Hover info
             html.Div([
                 # Image
@@ -128,8 +129,7 @@ def create_layout():
                          style={'max-height': '200px',
                                 'max-width': '200px', }),
 
-                dcc.Graph(id='EG-polar-plot',
-                          animate=True),
+                dcc.Graph(id='EG-polar-plot'),
                 # html.Pre(id='hover-text',
                 #          style={'width': '200px',
                 #                 'padding': '10px'}),
