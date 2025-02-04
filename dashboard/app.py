@@ -1,6 +1,5 @@
 import dash
-from components.callbacks import register_callbacks
-from components.layout import create_layout
+from components import create_layout, register_callbacks
 from data.experiment_loader import (init_experiments_load,
                                     start_experiment_loader_thread)
 from loguru import logger

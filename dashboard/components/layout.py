@@ -1,153 +1,167 @@
-# components/layout.py
-import time
-
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from data.experiment_loader import (get_cached_dropdown_options,
-                                    get_cached_experiments)
+from data.experiment_loader import get_cached_dropdown_options
 from loguru import logger
 
 
 def create_layout():
-    logger.info("Creating layout")
+    logger.info("LAYOUT: Creating")
     doc = get_cached_dropdown_options()
-    return dbc.Container([
-        # Navigation
-        html.Div(
-            [
-                # Top Info
-                html.Div(
-                    [
-                        html.H1("Welcome"),
-                        html.P(
-                            "This is a dashboard for analyzing the results of the Meta-Top experiments."),
-                    ],
-                    style={'vertical-alignment': 'top',
-                           'border': '1px solid black',
-                           #    'height': 260,
-                           },
-                    className='level-1'),
-                # Metrics
-                html.Div([
-                    html.H2("Metrics"),
-                    # X-axis Metric
-                    html.Div([
-                        html.Label('X-axis'),
-                        dcc.Dropdown(id='x-axis-dropdown',
-                                     options=doc['x-axis'],
-                                     value='E1',
-                                     optionHeight=40,
-                                     clearable=False),
-                    ]),
-                    # Y-axis Metric
-                    html.Div([
-                        html.Label('Y-axis'),
-                        dcc.Dropdown(id='y-axis-dropdown',
-                                     options=doc['y-axis'],
-                                     value='nu21',
-                                     clearable=False),
-                    ]),
-                ],
-                    style={'margin-left': 15,
-                           'margin-right': 15,
-                           'margin-top': 30,
-                           #    'height': 300,
-                           'padding': 15,
-                           'border': '1px solid black',
-                           },
-                    className='level-1'),
-                # Filters
-                html.Div([
-                    html.H2("Input Parameter Filters"),
-                    html.Div([
-                        html.Label('Basis'),
-                        dcc.Dropdown(id='basis-filter',
-                                     options=['BULK', 'VERT', 'SHEAR', 'HSA'],
-                                     value=[],
-                                     multi=True,
-                                     clearable=True),
-                        html.Label('Mode'),
-                        dcc.Dropdown(id='mode-filter',
-                                     options=['Unimode', 'Bimode'],
-                                     value=[],
-                                     multi=True,
-                                     clearable=True),
-                        html.Label("Poisson's Ratio"),
-                        dcc.Dropdown(id='nu-filter',
-                                     options=doc['nu'],
-                                     value=[],
-                                     multi=True,
-                                     clearable=True),
-                        html.Label("Young's Modulus Ratio"),
-                        dcc.Dropdown(id='E-filter',
-                                     options=doc['E'],
-                                     value=[],
-                                     multi=True,
-                                     clearable=True),
-                    ]),
-                    html.Button('Clear All Filters', id='clear-button'),
-                ],
-                    style={'margin-left': 15,
-                           'margin-right': 15,
-                           'margin-top': 30,
-                           # 'height': 300,
-                           'padding': 15,
-                           'border': '1px solid black',
-                           }
-                ),
-                html.Div([
-                    html.H2("Plot Controls"),
-                    dcc.Checklist(id='yx-line-toggle',
-                                  options=[
-                                      {'label': 'Show y=x line', 'value': 'plot_yx'}],
-                                  value=['plot_yx'],
-                                  )
-                ],
-                    style={'margin': 15,
-                           'border': '1px solid black',
-                           'padding': 15, }),
-            ],
-            style={'width': 340,
-                   'margin-left': 35,
-                   'margin-top': 35,
-                   'margin-bottom': 35,
-                   }),
-        # Main content
-        html.Div([
-            # Graph
-            html.Div(
-                dcc.Graph(id='scatter-plot'),
-                style={'width': '800px',
-                       'height': '800px',
-                       'display': 'flex',
-                       'border': '1px solid black', }),
-            # Hover info
-            html.Div([
-                # Image
-                html.Img(id='hover-image',
-                         src='assets/placeholder.jpg',
-                         style={'max-height': '200px',
-                                'max-width': '200px', }),
 
-                dcc.Graph(id='EG-polar-plot'),
-                # html.Pre(id='hover-text',
-                #          style={'width': '200px',
-                #                 'padding': '10px'}),
+    # Combine Sidebar and Main Content in a Single Row
+    layout = dbc.Container(
+        dbc.Row([sidebar(doc),
+                 main_content()]),
+        fluid=True
+    )
+    logger.info("LAYOUT: Finished")
+    return layout
+
+
+def main_content():
+    main_content = dbc.Col(
+        dbc.Row(
+            [
+                dbc.Col(
+                    dcc.Graph(
+                        id='scatter-plot',
+                        config={'displayModeBar': False}
+                    ),
+                    width=6  # Allocates more space for the scatter plot
+                ),
+                dbc.Col(
+                    html.Img(
+                        id='hover-image',
+                        src='assets/placeholder.jpg',
+                        style={'max-width': '100%', 'height': 'auto'}
+                    ),
+                    width=3
+                ),
+                dbc.Col(
+                    dcc.Graph(
+                        id='EG-polar-plot',
+                        config={'displayModeBar': False}
+                    ),
+                    width=3
+                )
             ],
-                # Text
-                style={'width': 400,
-                       'display': 'flex', }),
+            align="center",
+            justify="around"
+        ),
+        width=9,
+        style={'border': '1px solid #ddd', 'margin': '15px'}
+    )
+
+    return main_content
+
+
+def sidebar(doc):
+    sidebar = dbc.Col(
+        [
+            welcome_div(),
+            metrics_div(doc),
+            filters_div(doc),
         ],
-            style={'width': 1400,
-                   'margin-top': 35,
-                   'margin-right': 35,
-                   'margin-bottom': 35,
-                   'display': 'flex',
-                   'border': '1px solid black', },
-            className='level-1'),
-    ],
-        fluid=True,
-        style={'display': 'flex',
-               'border': '1px solid black', },
-        className='dashboard-container',
-        id='dashboard-container',)
+        width=2,
+        style={'border': '1px solid #ddd', 'margin': '15px'}
+    )
+
+    return sidebar
+
+
+def filters_div(doc):
+    input_div = html.Div(
+        [
+            html.H2("Input Parameter Filters"),
+            html.Label('Basis'),
+            dcc.Dropdown(
+                id='basis-filter',
+                options=['BULK', 'VERT', 'SHEAR', 'HSA'],
+                value=[],
+                multi=True,
+                clearable=True
+            ),
+            html.Label('Mode'),
+            dcc.Dropdown(
+                id='mode-filter',
+                options=['Unimode', 'Bimode'],
+                value=[],
+                multi=True,
+                clearable=True
+            ),
+            html.Label("Poisson's Ratio"),
+            dcc.Dropdown(
+                id='nu-filter',
+                options=doc['nu'],
+                value=[],
+                multi=True,
+                clearable=True
+            ),
+            html.Label("Young's Modulus Ratio"),
+            dcc.Dropdown(
+                id='E-filter',
+                options=doc['E'],
+                value=[],
+                multi=True,
+                clearable=True
+            ),
+            html.Button('Clear All Filters', id='clear-button',
+                        style={'margin-top': '10px'})
+        ],
+        className='filters-container',
+        style={'padding': '10px', 'border-top': '1px solid #ccc'}
+    )
+
+    return input_div
+
+
+def metrics_div(doc):
+    metrics_div = html.Div(
+        [
+            html.H2("Metrics"),
+            html.Div(
+                [
+                    html.Label('X-axis'),
+                    dcc.Dropdown(
+                        id='x-axis-dropdown',
+                        options=doc['x-axis'],
+                        value='E1',
+                        clearable=False,
+                        # optionHeight can be set if you have many options
+                    )
+                ],
+                className='dropdown-container',
+                style={'margin-bottom': '10px'}
+            ),
+            html.Div(
+                [
+                    html.Label('Y-axis'),
+                    dcc.Dropdown(
+                        id='y-axis-dropdown',
+                        options=doc['y-axis'],
+                        value='nu21',
+                        clearable=False
+                    )
+                ],
+                className='dropdown-container'
+            ),
+        ],
+        className='metrics-container',
+        style={'padding': '10px', 'border-top': '1px solid #ccc'}
+    )
+
+    return metrics_div
+
+
+def welcome_div():
+    welcome_div = html.Div(
+        [
+            html.H1("Welcome"),
+            html.P(
+                "This is a dashboard for analyzing the results of the Meta-Top experiments.")
+        ],
+        className='sidebar-header',
+        style={'padding': '10px'}
+    )
+
+    return welcome_div

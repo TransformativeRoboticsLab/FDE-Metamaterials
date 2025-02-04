@@ -9,7 +9,7 @@ from utils.utils import encode_image
 
 
 def register_callbacks(app):
-    logger.info('Registering callbacks')
+    logger.info('CALLBACKS: Registering')
 
     @app.callback(
         Output('scatter-plot',    'figure'),
@@ -20,10 +20,9 @@ def register_callbacks(app):
             Input('E-filter', 'value'),
             Input('basis-filter', 'value'),
             Input('mode-filter', 'value'),
-            Input('yx-line-toggle',  'value')
         ],
     )
-    def update_scatter_plot_cb(x_metric, y_metric, nu_filter, E_filter, basis_filter, mode_filter, plot_yx_line):
+    def update_scatter_plot_cb(x_metric, y_metric, nu_filter, E_filter, basis_filter, mode_filter):
 
         filters = {
             'nu': nu_filter,
@@ -72,3 +71,5 @@ def register_callbacks(app):
             raise PreventUpdate
         else:
             return [], [], [], []
+
+    logger.info("CALLBACKS: Finished")
