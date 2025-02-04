@@ -3,7 +3,7 @@ import plotly.express as px
 from loguru import logger
 
 
-def build_scatter_figure(df, x_metric, y_metric):
+def build_scatter_figure(df, x_metric, y_metric, size=(800, 400)):
     logger.info("Building scatter figure")
     logger.debug(f"x_metric: {x_metric}")
     logger.debug(f"y_metric: {y_metric}")
@@ -20,7 +20,16 @@ def build_scatter_figure(df, x_metric, y_metric):
             duration=500,
             easing='cubic-in-out',
             ordering='traces first'
-        )
+        ),
+        title=f"{len(df)} Data Points",
+        width=size[0],
+        height=size[1]
+    )
+
+    # fig.update_yaxes(scaleanchor='x', scaleratio=1)
+
+    fig.update_traces(
+        marker=dict(size=12),
     )
 
     logger.info("Done building scatter figure")
