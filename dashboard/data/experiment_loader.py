@@ -10,9 +10,9 @@ from loguru import logger
 from utils.mechanics import generate_planar_values
 
 DEFAULT_EXP_NAME = 'extremal'
-DEFAULT_FILTER_TAGS = ['Bad']
+DEFAULT_FILTER_TAGS = ['BAD', 'DUPE']
 DB_QUERY = {"$and": [
-    {'experiment.name': 'extremal'},
+    {'experiment.name': DEFAULT_EXP_NAME},
     {'status': 'COMPLETED'},
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
     {'config.nu': {'$eq': 0.1}},
