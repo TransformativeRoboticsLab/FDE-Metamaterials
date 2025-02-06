@@ -1,18 +1,25 @@
 # data/experiment_loader.py
+import os
 import threading
 import time
 from io import StringIO
 
 import numpy as np
 from data.data_processing import process_experiments
+from dotenv import load_dotenv
 from incense import ExperimentLoader
 from loguru import logger
 from utils.mechanics import generate_planar_values
 
-DEFAULT_EXP_NAME = 'extremal'
+load_dotenv()
+
+MONGO_URI = os.getenv('LOCAL_MONGO_URI')
+MONGO_DB_NAME = os.getenv('LOCAL_MONGO_DB_NAME')
+MONGO_EXP_NAME = os.getenv('LOCAL_MONGO_EXP_NAME')
+
 DEFAULT_FILTER_TAGS = ['BAD', 'DUPE']
 DB_QUERY = {"$and": [
-    {'experiment.name': DEFAULT_EXP_NAME},
+    {'experiment.name': MONGO_EXP_NAME},
     {'status': 'COMPLETED'},
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
     {'config.nu': {'$eq': 0.1}},
@@ -20,8 +27,8 @@ DB_QUERY = {"$and": [
 ]}
 
 try:
-    loader = ExperimentLoader(mongo_uri='mongodb://localhost:27017',
-                              db_name='metatop')
+    loader = ExperimentLoader(mongo_uri=MONGO_URI,
+                              db_name=MONGO_DB_NAME)
     logger.success("Incense loader created")
 except Exception as e:
     logger.exception(f"Error creating incense loader: {e}")
@@ -56,7 +63,7 @@ def load_experiments(experiment_name, filter_tags=[], process_exps=True):
         return [], {}
 
 
-def init_experiments_load(experiment_name=DEFAULT_EXP_NAME,
+def init_experiments_load(experiment_name=MONGO_EXP_NAME,
                           filter_tags=DEFAULT_FILTER_TAGS, ):
     logger.info("Initializing experiments")
     global experiments_cache, dropdown_options_cache

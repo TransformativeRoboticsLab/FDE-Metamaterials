@@ -1,3 +1,6 @@
+from os import getenv as env
+
+import dotenv
 from extremal import ex
 from incense import ExperimentLoader
 from incense.artifact import PickleArtifact
@@ -6,22 +9,25 @@ from sacred import Experiment
 
 from experiments.utils import *
 
-MONGO_URI = 'mongodb://localhost:27017'
-DB_NAME = 'metatop'
+dotenv.load_dotenv()
+MONGO_URI = env('LOCAL_MONGO_URI')
+MONGO_DB_NAME = env('LOCAL_MONGO_DB_NAME')
+MONGO_EXP_NAME = env('LOCAL_MONGO_EXP_NAME')
+
 
 def main(idxs, E_min, nu):
     loader = ExperimentLoader(
         mongo_uri=MONGO_URI,
-        db_name=DB_NAME
+        db_name=MONGO_DB_NAME
     )
 
     exps = {}
     configs = {}
-    for idx in idxs:   
+    for idx in idxs:
         exp = loader.find_by_id(idx)
         exps[idx] = exp
         configs[idx] = exp.to_dict()['config']
-        
+
     # change config to new values
     for idx, c in configs.items():
         c['E_min'] = E_min
@@ -33,9 +39,10 @@ def main(idxs, E_min, nu):
         c['n_epochs'] = 1
         c['start_beta'] = 64
         c['n_betas'] = 1
-        
+
     for idx, c in configs.items():
         ex.run(config_updates=c)
+
 
 if __name__ == '__main__':
     idxs = (509, 510, 529, 539, 553, )

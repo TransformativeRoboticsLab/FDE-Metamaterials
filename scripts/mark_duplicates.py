@@ -1,9 +1,17 @@
 import sys
+from os import getenv as env
 
+import dotenv
 from loguru import logger
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, OperationFailure
+
+dotenv.load_dotenv()
+
+MONGO_URI = env('LOCAL_MONGO_URI')
+MONGO_DB_NAME = env('LOCAL_MONGO_DB_NAME')
+MONGO_EXP_NAME = env('LOCAL_MONGO_EXP_NAME')
 
 # Configure logger
 logger.remove()  # Remove default handler
@@ -15,10 +23,10 @@ logger.add(
 logger.add("mark_duplicates.log", rotation="10 MB", retention="1 week")
 
 
-def mark_duplicates(mongo_uri: str = 'mongodb://localhost:27017',
-                    db_name: str = 'metatop',
-                    exp_name: str = 'extremal',
-                    filter_tags: list = ['Bad'],
+def mark_duplicates(mongo_uri: str = MONGO_URI,
+                    db_name: str = MONGO_DB_NAME,
+                    exp_name: str = MONGO_EXP_NAME,
+                    filter_tags: list = ['BAD'],
                     nu: float = 0.1) -> None:
     """
     Mark duplicate runs in MongoDB based on specific criteria.

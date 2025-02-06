@@ -1,26 +1,25 @@
+from metatop.optimization.epigraph import (EigenvectorConstraint,
+                                           EpigraphOptimizer,
+                                           ExtremalConstraints,
+                                           TraceConstraint)
+from metatop.optimization import OptimizationState
+from metatop.metamaterial import setup_metamaterial
+from metatop.filters import setup_filter
+from metatop import V_DICT
+from experiments.utils import *
+from sacred import Experiment
+from matplotlib import pyplot as plt
+from incense.artifact import PickleArtifact as PA
+from incense import ExperimentLoader
+from dotenv import load_dotenv
+import numpy as np
+import nlopt
+import incense
 import incense.artifact
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
-import incense
-import nlopt
-import numpy as np
-from dotenv import load_dotenv
-from incense import ExperimentLoader
-from incense.artifact import PickleArtifact as PA
-from matplotlib import pyplot as plt
-from sacred import Experiment
-
-from experiments.utils import *
-from metatop import V_DICT
-from metatop.filters import setup_filter
-from metatop.metamaterial import setup_metamaterial
-from metatop.optimization import OptimizationState
-from metatop.optimization.epigraph import (EigenvectorConstraint,
-                                           EpigraphOptimizer,
-                                           ExtremalConstraints,
-                                           TraceConstraint)
 
 np.set_printoptions(precision=5)
 
@@ -28,7 +27,8 @@ np.set_printoptions(precision=5)
 # load_dotenv()
 
 ex = Experiment('extremal')
-ex.observers.append(setup_mongo_observer(MONGO_URI, DB_NAME))
+ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
+
 
 @ex.config
 def config():
@@ -38,7 +38,7 @@ def config():
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'norm' # rayleigh or norm or ratio
+    objective_type = 'norm'  # rayleigh or norm or ratio
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = False
@@ -49,12 +49,13 @@ def config():
     trace_constraint = False
     g_trc_bnd = 0.3
     weight_scaling_factor = 1.
-    init_run_idx = None # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
-    single_sim = False # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user 
+    init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
+    single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
+
 
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, seed):
-    
+
     if single_sim:
         print("SINGLE IS ENABLED. NOT RUNNING OPTIMIZATION. SETTINGS ARE FOR ONLY A SINGLE FORWARD SIMULATION")
         n_betas = 1
@@ -69,9 +70,11 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         g_trc_bnd = 1.
         weight_scaling_factor = 1.
 
-    run_id, outname = generate_output_filepath(ex, extremal_mode, basis_v, seed)
+    run_id, outname = generate_output_filepath(
+        ex, extremal_mode, basis_v, seed)
 
-    weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array([1., weight_scaling_factor, weight_scaling_factor])
+    weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array(
+        [1., weight_scaling_factor, weight_scaling_factor])
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
@@ -90,13 +93,13 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     ops = OptimizationState(beta=start_beta,
                             eta=0.5,
                             filt=filt,
-                            filt_fn = filt_fn,
+                            filt_fn=filt_fn,
                             epoch_iter_tracker=[1])
 
     x = seed_density(init_run_idx, metamate.R.dim())
 
     # ===== End Component Setup =====
-    
+
     # ===== Optimizer setup ======
     v = V_DICT[basis_v]
     g_ext = ExtremalConstraints(v=v,
@@ -108,9 +111,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                 verbose=verbose,
                                 w=weights,
                                 objective_type=objective_type)
-    g_vec = EigenvectorConstraint(v=v, 
-                                  ops=ops, 
-                                  eps=g_vec_eps, 
+    g_vec = EigenvectorConstraint(v=v,
+                                  ops=ops,
+                                  eps=g_vec_eps,
                                   verbose=verbose)
     g_trc = TraceConstraint(ops=ops, bound=g_trc_bnd, verbose=verbose)
 
@@ -126,27 +129,28 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     x_history = [x.copy()]
     for i in range(n_epochs):
         for n, beta in enumerate(betas, 1):
-            run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta)
+            run_optimization(epoch_duration, betas, ops, x,
+                             g_ext, opt, x_history, n, beta)
 
         print_epoch_summary(opt, i)
-        log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, i)
+        log_and_save_results(ex, run_id, outname, metamate,
+                             img_rez, img_shape, ops, x, g_ext, i)
 
         g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    save_results(ex, 
-                 run_id, 
-                 outname, 
-                 metamate, 
-                 img_rez, 
-                 img_shape, 
-                 ops, 
-                 x, 
-                 g_ext, 
+    save_results(ex,
+                 run_id,
+                 outname,
+                 metamate,
+                 img_rez,
+                 img_shape,
+                 ops,
+                 x,
+                 g_ext,
                  x_history)
 
     if g_ext.show_plot:
         plt.close(g_ext.fig)
-
