@@ -1,22 +1,23 @@
+import incense
+import incense.artifact
+import jax
+import nlopt
+import numpy as np
+from dotenv import load_dotenv
+from incense import ExperimentLoader
+from incense.artifact import PickleArtifact as PA
+from matplotlib import pyplot as plt
+from sacred import Experiment
+
+from experiments.utils import *
+from metatop import V_DICT
+from metatop.filters import setup_filter
+from metatop.metamaterial import setup_metamaterial
+from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
                                            ExtremalConstraints,
                                            TraceConstraint)
-from metatop.optimization import OptimizationState
-from metatop.metamaterial import setup_metamaterial
-from metatop.filters import setup_filter
-from metatop import V_DICT
-from experiments.utils import *
-from sacred import Experiment
-from matplotlib import pyplot as plt
-from incense.artifact import PickleArtifact as PA
-from incense import ExperimentLoader
-from dotenv import load_dotenv
-import numpy as np
-import nlopt
-import incense
-import incense.artifact
-import jax
 
 jax.config.update("jax_enable_x64", True)
 
