@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pint
+import pint_pandas
 
 
 def process_csv(file_path):
@@ -63,6 +66,79 @@ def clean_files(dir='.', target_str='Time'):
                         outfile.write(line)
                     continue
                 outfile.write(line)  # Write to outfile, not ofp
+
+
+def shift_strain(df, strain_threshold):
+    # find index of first compressive strain that is > X% to adjust for slack in test specimen
+    # the limit is arbitrary based on pre-analyzing and plotting the raw stress/strain data
+
+    # Check if any values are larger than strain_threshold
+
+    df_ = df.copy()
+    mask = df_['Compressive strain (Displacement)'] > strain_threshold
+    if not mask.any():
+        print(
+            f"Warning: No values found above strain threshold of {strain_threshold}")
+        return df
+
+    idx = df_.index[mask].tolist()[0]
+    # adjust all columns to be zeroed at this index
+    for col in df_.columns:
+        df_[col] = df_[col] - df_[col][idx]
+
+    return df_
+
+
+def linear_fit(df, x: str, y: str, x_min=None, x_max=None):
+    df_ = df.copy()
+    x_ = df[x]
+    y_ = df[y]
+
+    mask = np.ones_like(x_, dtype=bool)
+    if x_min is not None:
+        mask &= x_ >= x_min
+    if x_max is not None:
+        mask &= x_ <= x_max
+
+    x_filtered = x_[mask].pint.magnitude if hasattr(x_, 'pint') else x_
+    y_filtered = y_[mask].pint.magnitude if hasattr(x_, 'pint') else y_
+
+    m, b = np.polyfit(x_filtered, y_filtered, 1)
+
+    units = y_.pint.units if hasattr(y_, 'pint') else 1.
+    x_interp = x_.pint.magnitude if hasattr(x_, 'pint') else x_
+    df_[y + ' (Line Fit)'] = (m*x_interp + b)  # * units
+
+    return df_, (m, b)
+
+
+def load_samples(dir):
+    dfs = []
+    metadata = []
+    for file in sorted(Path(dir).rglob('*.csv')):
+        if 'clean' not in file.stem:
+            continue
+
+        df = pd.read_csv(file, header=[0, 1]).pint.quantify(level=-1)
+
+        strain_threshold = 0.0  # 2%
+        df = shift_strain(df, strain_threshold)
+
+        fit_strain_limits = (0.0, 0.1)
+        df, (m, b) = linear_fit(df,
+                                x='Compressive strain (Displacement)',
+                                y='Compressive stress',
+                                x_min=fit_strain_limits[0],
+                                x_max=fit_strain_limits[1])
+        dfs.append(df)
+
+        metadata.append({
+            'filename': file.stem,
+            'slope': m,
+            'intercept': b
+        })
+
+    return dfs, metadata
 
 
 if __name__ == "__main__":
