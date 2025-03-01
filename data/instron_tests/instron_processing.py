@@ -112,7 +112,9 @@ def linear_fit(df, x: str, y: str, x_min=None, x_max=None):
     return df_, (m, b)
 
 
-def load_samples(dir):
+def load_samples(dir, strain_threshold=-np.inf, fit_strain_limits=(0.0, 0.1)):
+    # strain_threshold sets the value for strain that we want to shift to the x=0 line if there was slack in the specimen. Defaults to -inf so that no shift occurs.
+    # fit_strain_limits bounds the linear fit of the stress-strain curve
     dfs = []
     metadata = []
     for file in sorted(Path(dir).rglob('*.csv')):
@@ -121,10 +123,8 @@ def load_samples(dir):
 
         df = pd.read_csv(file, header=[0, 1]).pint.quantify(level=-1)
 
-        strain_threshold = 0.0  # 2%
         df = shift_strain(df, strain_threshold)
 
-        fit_strain_limits = (0.0, 0.1)
         df, (m, b) = linear_fit(df,
                                 x='Compressive strain (Displacement)',
                                 y='Compressive stress',
