@@ -118,9 +118,11 @@ def load_samples(dir, strain_threshold=-np.inf, fit_strain_limits=(0.0, 0.1), fi
     dfs = []
     metadata = []
     for file in filter(filter_fn, sorted(Path(dir).rglob('*.csv'))):
+        header_start = find_header_line(
+            file, header_keyword='time,displacement')
 
-        df = pd.read_csv(file, header=[0, 1]).pint.quantify(level=-1)
-
+        df = pd.read_csv(
+            file, header=[header_start, header_start+1]).pint.quantify(level=-1)
         df = shift_strain(df, strain_threshold)
 
         df, (m, b) = linear_fit(df,
@@ -137,6 +139,42 @@ def load_samples(dir, strain_threshold=-np.inf, fit_strain_limits=(0.0, 0.1), fi
         })
 
     return dfs, metadata
+
+
+def find_header_line(file_path, header_keyword='time,displacement'):
+    """
+    Find the line number where data headers begin in a CSV file.
+    Only non-empty lines are counted in the line numbering.
+
+    Parameters:
+    -----------
+    file_path : str or Path
+        Path to the CSV file
+    header_keyword : str, default='time,displacement'
+        Case-insensitive string to identify the header line
+
+    Returns:
+    --------
+    int : Line number (0-based) of non-empty lines where the header is found
+    """
+    with open(file_path, 'r') as f:
+        non_empty_line_num = 0
+        for line in f:
+            # Skip empty lines without counting them
+            if not line.strip():
+                continue
+
+            # For debugging
+            # print(f"Non-empty line {non_empty_line_num}: {line.strip()}")
+
+            if header_keyword.lower() in line.lower():
+                return non_empty_line_num
+
+            non_empty_line_num += 1
+
+    # If we get here, we didn't find the header
+    raise ValueError(
+        f"Could not find header containing '{header_keyword}' in {file_path}")
 
 
 if __name__ == "__main__":
