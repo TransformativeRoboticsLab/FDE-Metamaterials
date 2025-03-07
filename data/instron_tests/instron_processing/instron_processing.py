@@ -3,7 +3,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pint
-import pint_pandas
+import pint_pandas as pp
+
+from . import Q_, ureg
 
 
 def process_csv(file_path):
@@ -89,27 +91,19 @@ def shift_strain(df, strain_threshold):
     return df_
 
 
-def linear_fit(df, x: str, y: str, x_min=None, x_max=None):
+def linear_fit(df: pd.DataFrame, x: str, y: str, x_min=None, x_max=None):
     df_ = df.copy()
-    x_ = df[x]
-    y_ = df[y]
+    x_ = df_[x]
+    y_ = df_[y]
 
-    mask = np.ones_like(x_, dtype=bool)
-    if x_min is not None:
-        mask &= x_ >= x_min
-    if x_max is not None:
-        mask &= x_ <= x_max
+    mask = (x_ >= x_min) & (x_ <= x_max)
+    m, b = np.polyfit(x_[mask].pint.magnitude, y_[mask].pint.magnitude, 1)
+    m *= y_.pint.u / x_.pint.u
+    b *= y_.pint.u
 
-    x_filtered = x_[mask].pint.magnitude if hasattr(x_, 'pint') else x_
-    y_filtered = y_[mask].pint.magnitude if hasattr(x_, 'pint') else y_
+    df_[y + ' (Line Fit)'] = m*x_ + b
 
-    m, b = np.polyfit(x_filtered, y_filtered, 1)
-
-    units = y_.pint.units if hasattr(y_, 'pint') else 1.
-    x_interp = x_.pint.magnitude if hasattr(x_, 'pint') else x_
-    df_[y + ' (Line Fit)'] = (m*x_interp + b)  # * units
-
-    return df_, (m, b)
+    return df_, (m.to('MPa'), b)
 
 
 def load_samples(dir, strain_threshold=-np.inf, fit_strain_limits=(0.0, 0.1), filter_fn=None):
