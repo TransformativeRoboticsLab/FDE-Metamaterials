@@ -1,8 +1,8 @@
 from setuptools import find_packages, setup
 
 setup(
-    name='metatop',
+    name='meta_design',
     version='0.0.0',
-    packages=find_packages(),
+    packages=find_packages(include=['metatop', 'instron_processing']),
     install_requires=[],
 )

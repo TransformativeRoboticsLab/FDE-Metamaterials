@@ -2,8 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pint
-import pint_pandas as pp
 
 from . import Q_, ureg
 
