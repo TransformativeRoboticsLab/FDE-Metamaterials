@@ -109,12 +109,23 @@ def load_samples(dir, strain_threshold=-np.inf, fit_strain_limits=(0.0, 0.1), fi
     # fit_strain_limits bounds the linear fit of the stress-strain curve
     dfs = []
     metadata = []
-    for file in filter(filter_fn, sorted(Path(dir).rglob('*.csv'))):
+    print(f"Loading csv files from {dir}")
+    files = list(filter(filter_fn, sorted(Path(dir).rglob('*.csv'))))
+    print(f"{len(files)} found")
+    if len(files) == 0:
+        print(f"No files found")
+        return
+
+    for file in files:
         header_start = find_header_line(
             file, header_keyword='time,displacement')
 
         df = pd.read_csv(
             file, header=[header_start, header_start+1]).pint.quantify(level=-1)
+        if df.empty:
+            print(f"Skipping empty DataFrame from file {file}")
+            continue
+
         df = shift_strain(df, strain_threshold)
 
         df, (m, b) = linear_fit(df,
