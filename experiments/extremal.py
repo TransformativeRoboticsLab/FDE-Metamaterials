@@ -33,7 +33,7 @@ ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
 
 @ex.config
 def config():
-    E_max, E_min, nu = 1., 1/10., 0.1
+    E_max, E_min, nu = 1., 1/30., 0.4
     start_beta, n_betas = 8, 4
     n_epochs, epoch_duration, starting_epoch_duration = 4, 50, None
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
