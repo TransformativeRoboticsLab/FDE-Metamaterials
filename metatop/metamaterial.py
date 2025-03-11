@@ -135,7 +135,6 @@ class Metamaterial:
 
         return projected_values
 
-    @profile_function(include_memory=True)
     def homogenized_C(self, u_list, E, nu):
         s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu)
                   for i, u in enumerate(u_list)]
@@ -148,14 +147,13 @@ class Metamaterial:
             for s_t in s_list
         ]
 
-        with profile_block("Projection"):
-            uChom_matrix = self._project_uChom_to_matrix(
-                uChom) * self.cell_vol / self.domain_volume
-            Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3, 3))
+        uChom_matrix = self._project_uChom_to_matrix(
+            uChom) * self.cell_vol / self.domain_volume
+        Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3, 3))
 
         return Chom, uChom_matrix
 
-    @profile_function(include_memory=True)
+    # @profile_function(include_memory=True)
     def solve(self):
         if not self.enable_profiling:
             # If profiling disabled, run without profiling
@@ -169,8 +167,7 @@ class Metamaterial:
         self.E.vector()[:] = self.prop.E_min + \
             (self.prop.E_max - self.prop.E_min) * self.x.vector()[:]
 
-        with profile_assembly():
-            A = fe.assemble(self.a_form)
+        A = fe.assemble(self.a_form)
 
         # Set the matrix for our reusable solver
         self.solver.set_operator(A)
@@ -180,18 +177,15 @@ class Metamaterial:
             w = fe.Function(self.W)
             self.m_strain.assign(macro_strain(j))
 
-            with profile_block(f"Assemble RHS {case}"):
-                b = fe.assemble(self.L_form)
+            b = fe.assemble(self.L_form)
 
-            with profile_solve(A):
-                # Use our reusable solver
-                self.solver.solve(w.vector(), b)
+            # Use our reusable solver
+            self.solver.solve(w.vector(), b)
 
             v = fe.split(w)[0]
             sols.append(v)
 
-        with profile_block("Homogenization"):
-            Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
+        Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
 
         return sols, Chom, uChom
 

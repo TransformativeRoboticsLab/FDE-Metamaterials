@@ -13,6 +13,7 @@ from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
+from metatop.profiling import profile_block, profile_function
 
 
 def stop_on_nan(x):
@@ -20,8 +21,9 @@ def stop_on_nan(x):
         print("NaN value detected in objective function. Terminating optimization run.")
         raise ForcedStop
 
+
 class EpigraphOptimizer(nlopt.opt):
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -40,10 +42,11 @@ class EpigraphOptimizer(nlopt.opt):
                 elif args_count == 2:
                     super().add_inequality_constraint(g, 0.)
                 else:
-                    raise ValueError(f"Constraint function {g} seems to take an incorrect number of arguments")
+                    raise ValueError(
+                        f"Constraint function {g} seems to take an incorrect number of arguments")
         else:
             raise Warning("No active constraints set")
-        
+
         self.set_lower_bounds(np.append(np.zeros(self.size - 1), -np.inf))
         self.set_upper_bounds(np.append(np.ones(self.size - 1), np.inf))
         self.set_param('dual_ftol_rel', 1e-6)
@@ -51,7 +54,7 @@ class EpigraphOptimizer(nlopt.opt):
     def optimize(self, x):
         self._update_t(x)
         return super().optimize(x)
-        
+
     def _update_t(self, x):
         print(f"Updating t...\nOld t value {x[-1]:.3e}")
         new_t = -np.inf
@@ -64,23 +67,25 @@ class EpigraphOptimizer(nlopt.opt):
                 new_t = max(new_t, *(results))
         x[-1] = new_t
         print(f"New t value: {x[-1]:.3e}")
-    
+
     def add_inequality_mconstraint(self, *args, uses_t=True):
         if uses_t:
             self.active_constraints.append(args[0])
         return super().add_inequality_mconstraint(*args)
-    
+
     def add_inequality_constraint(self, *args, uses_t=True):
         if uses_t:
             self.active_constraints.append(args[0])
         return super().add_inequality_constraint(*args)
-    
+
     def add_equality_constraint(self, *args):
-        raise NotImplementedError("Equality constraints are not supported for this optimizer")
-    
+        raise NotImplementedError(
+            "Equality constraints are not supported for this optimizer")
+
     def add_equality_mconstraint(self, *args):
-        raise NotImplementedError("Equality constraints are not supported for this optimizer")
-        
+        raise NotImplementedError(
+            "Equality constraints are not supported for this optimizer")
+
     @property
     def size(self):
         return self.get_dimension()
@@ -127,7 +132,8 @@ class Epigraph:
             grad[:-1], grad[-1] = 0., 1.
 
         if t > 1e10:
-            raise ForcedStop("Objective function value is too large. Terminating optimization run.")
+            raise ForcedStop(
+                "Objective function value is too large. Terminating optimization run.")
 
         return t
 
@@ -157,11 +163,11 @@ class ExtremalConstraints:
         plt.ion() if self.show_plot else plt.ioff()
         self.fig = plt.figure(figsize=(15, 8))
         grid_spec = gridspec.GridSpec(2, 5, )
-        self.ax1 = [plt.subplot(grid_spec[0, 0]), 
-                    plt.subplot(grid_spec[0, 1]), 
-                    plt.subplot(grid_spec[0, 2]), 
-                    plt.subplot(grid_spec[0, 3]), 
-                    plt.subplot(grid_spec[0, 4]), 
+        self.ax1 = [plt.subplot(grid_spec[0, 0]),
+                    plt.subplot(grid_spec[0, 1]),
+                    plt.subplot(grid_spec[0, 2]),
+                    plt.subplot(grid_spec[0, 3]),
+                    plt.subplot(grid_spec[0, 4]),
                     ]
         self.ax2 = plt.subplot(grid_spec[1, :])
         self.ax2.grid(True)
@@ -170,9 +176,11 @@ class ExtremalConstraints:
                      xlim=(0, 10),
                      title='Optimization Progress')
         if 'ratio' in self.objective_type:
-            self.evals_lines = self.ax2.plot([np.ones(3)], [np.ones(3)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)/(v_2^T C v_2)$', r'$(v_1^T C v_1)/(v_3^T C v_3)$'])
+            self.evals_lines = self.ax2.plot([np.ones(3)], [np.ones(3)], marker='.', label=[
+                                             r'$t$', r'$(v_1^T C v_1)/(v_2^T C v_2)$', r'$(v_1^T C v_1)/(v_3^T C v_3)$'])
         else:
-            self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
+            self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[
+                                             r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
         self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
         self.epoch_lines = []
         self.last_epoch_plotted = -1
@@ -189,6 +197,7 @@ plot_delay: {self.plot_interval}
 objective_type: {self.objective_type}
 """)
 
+    @profile_function()
     def __call__(self, results, x, grad, dummy_run=False):
 
         x, t = x[:-1], x[-1]
@@ -244,7 +253,8 @@ objective_type: {self.objective_type}
             return
 
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[0].reshape((self.n_constraints, 9))
+            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
+                0].reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = -1.
@@ -282,14 +292,16 @@ objective_type: {self.objective_type}
         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
-        x_img = bitmapify(self.metamaterial.x.copy(deepcopy=True), self.img_shape, self.img_resolution, invert=True)
+        x_img = bitmapify(self.metamaterial.x.copy(
+            deepcopy=True), self.img_shape, self.img_resolution, invert=True)
         fields = {r'$\rho$': x,
                   r'$\tilde{\rho}$': x_tilde,
                   fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
                   r'$\bar{\rho}$ bitmap': x_img,
                   'Image tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
-            raise ValueError(f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
+            raise ValueError(
+                f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
         return fields
 
     def _update_image_plots(self, fields):
@@ -350,25 +362,27 @@ objective_type: {self.objective_type}
     def __str__(self):
         return "ExtremalConstraints"
 
+
 class SpectralNormConstraint:
-    
+
     def __init__(self, ops, bound=1., verbose=True):
         self.ops = ops
         self.bound = bound
         self.verbose = verbose
-    
+
     def __call__(self, x, grad, ):
-        
-        Chom, dChom_dxfem, dxfem_dx_vjp  = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+
         def g(C):
             C = m @ C @ m
             return jnp.linalg.norm(C, ord=2)
             # return jnp.trace(C)
 
         c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
-        
+
         if grad.size > 0:
             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
             grad[-1] = 0.
@@ -381,6 +395,7 @@ class SpectralNormConstraint:
 
     def __str__(self):
         return "SpectralNormConstraint"
+
 
 class VectorConstraint:
     '''
@@ -433,7 +448,8 @@ class VectorConstraint:
 
         if grad.size > 0:
             for n in range(self.n_constraints):
-                grad[n, :-1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
+                grad[n, :-
+                     1] = dxfem_dx_vjp(dg_dChoms[n].flatten() @ dChom_dxfem)[0]
                 grad[n, -1] = -self.dbdt[n]
 
     @property
@@ -442,6 +458,7 @@ class VectorConstraint:
 
     def __str__(self):
         return "MinimaxConstraints"
+
 
 class EigenvectorConstraint:
 
@@ -481,7 +498,8 @@ class EigenvectorConstraint:
             return
 
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[0].reshape((self.n_constraints, 9))
+            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
+                0].reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = -1.
@@ -497,6 +515,7 @@ class EigenvectorConstraint:
     def __str__(self):
         return "EigenvectorConstraint"
 
+
 class TraceConstraint:
 
     def __init__(self, ops, bound=3e-1, verbose=True):
@@ -509,6 +528,7 @@ class TraceConstraint:
         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+
         def obj(C):
             return -jnp.trace(m@C@m)
 
@@ -516,7 +536,7 @@ class TraceConstraint:
 
         if grad.size > 0:
             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[-1]  = 0.
+            grad[-1] = 0.
 
         print(f"\tg_trc(x): {-c:.3f} (Target >={self.bound:.3f})")
 
@@ -524,6 +544,7 @@ class TraceConstraint:
 
     def __str__(self):
         return "TraceConstraint"
+
 
 class InvariantsConstraint:
 
@@ -559,7 +580,8 @@ class InvariantsConstraint:
             return
 
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints, 9))
+            dc_dChom = jax.jacrev(obj)(jnp.asarray(
+                Chom)).reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
                 grad[n, -1] = 0.
@@ -597,7 +619,7 @@ class GeometricConstraints:
 
         filt_fn = self.ops.filt_fn
         x, t = x[:-1], x[-1]
-        
+
         def g(x):
             x_tilde = filt_fn(x)
             a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
@@ -659,6 +681,7 @@ class GeometricConstraints:
             fe.inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
 
         r_tilde_img = x_tilde.reshape((nely, nelx))
+
         def fd_norm_sq(img):
             grad = self._fd_grad(img, h=1 / nelx)
             return grad[0]**2 + grad[1]**2
@@ -670,7 +693,6 @@ class GeometricConstraints:
         # d_check = jax.jacrev(self._fd_grad)(r_tilde_img)
         # d_check = jax.gradient(self._fd_grad)(r_tilde_img)
         # d_check = jax.jacrev(jnp.gradient)(r_tilde_img)
-        
 
         # fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
         # plt.sca(ax0)
@@ -777,30 +799,30 @@ class OffDiagonalConstraint:
         self.verbose = verbose
 
         self.n_constraints = 1
-        
+
     def __call__(self, x, grad):
-        
+
         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
         c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
-        
+
         if grad.size > 0:
             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            
+
         print(f"\tg_dia(x): {c}")
-            
+
         return float(c)
-        
+
     def obj(self, C):
         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
         C = m @ C @ m
         vCv = self.v.T @ C @ self.v
-        return jnp.log((vCv[0,1]**2 + vCv[0,2]**2 + vCv[1,2]**2)/self.eps)
+        return jnp.log((vCv[0, 1]**2 + vCv[0, 2]**2 + vCv[1, 2]**2)/self.eps)
         # return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
-        
+
     def __str__(self):
         return "OffDiagonalConstraint"
-    
+
 # class OffDiagonalConstraint(VectorConstraint):
 
 #     def __init__(self, v, **kwargs):
@@ -845,15 +867,18 @@ class MaterialSymmetryConstraints(VectorConstraint):
             self.constraints.extend([lambda C: jnp.log((C[0, 2]/C[0, 0])**2/self.eps),
                                      lambda C: jnp.log((C[1, 2]/C[1, 1])**2/self.eps)])
         if self.symmetry_order in self.symmetry_types_[2:]:
-            self.constraints.append(lambda C: jnp.log((1. - C[1, 1]/C[0, 0])**2)/self.eps)
+            self.constraints.append(lambda C: jnp.log(
+                (1. - C[1, 1]/C[0, 0])**2)/self.eps)
         if self.symmetry_order == 'isotropic':
-            self.constraints.append(lambda C: jnp.log((1. - C[0, 1]/C[0, 0] - C[2, 2]/C[0, 0])**2)/self.eps)
+            self.constraints.append(lambda C: jnp.log(
+                (1. - C[0, 1]/C[0, 0] - C[2, 2]/C[0, 0])**2)/self.eps)
 
         self.bounds = self.n_constraints * [lambda t: t]
         self.dbdt = np.ones(self.n_constraints)
 
     def __str__(self):
         return f"MaterialSymmetryConstraints_{self.symmetry_order}"
+
 
 class EpigraphBulkModulusConstraint:
 
@@ -897,27 +922,27 @@ class EpigraphBulkModulusConstraint:
         K_plane = 9.*K*G / (3.*K + 4.*G)
         return K_plane
 
-        
+
 class VolumeConstraint:
-    
+
     def __init__(self, ops, bound, verbose=True):
         self.ops = ops
         self.bound = bound
         self.verbose = verbose
-        
+
     def __call__(self, x, grad):
-        
+
         x_fem, dxfem_dx_vjp = self.ops.x_fem, self.ops.dxfem_dx_vjp
-        
+
         g, dg_dx_fem = jax.value_and_grad(jnp.mean)(x_fem)
-        
+
         if grad.size > 0:
             grad[:-1] = dxfem_dx_vjp(dg_dx_fem)[0]
             grad[-1] = 0.
-        
+
         if self.verbose:
             print(f"Volume: {g:.3f} (Target <= {self.bound:.3f})")
-        
+
         return float(g - self.bound)
 
     def __str__(self):
