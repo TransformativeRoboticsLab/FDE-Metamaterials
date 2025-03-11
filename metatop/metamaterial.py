@@ -7,34 +7,41 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from .boundary import PeriodicDomain
+from .fem_profiler import (fem_profiler, profile_assembly,
+                           profile_fem_solution, profile_solve)
 from .mechanics import (lame_parameters, linear_strain, linear_stress,
                         macro_strain)
+from .profiling import ProfileConfig, profile_block, profile_function
 
 fe.set_log_level(40)
 
+
 def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', domain_shape='square'):
-    metamaterial = Metamaterial(E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
+    metamaterial = Metamaterial(
+        E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
     if 'tri' in mesh_cell_type:
         P0 = fe.Point(0, 0)
         P1 = fe.Point(1, 1)
         if 'rect' in domain_shape:
             P1 = fe.Point(np.sqrt(3), 1)
             nelx = int(nelx * np.sqrt(3))
-            print(f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
+            print(
+                f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
         metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
         metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
-                                                 [nelx, nely],
-                                                 fe.CellType.Type.quadrilateral)
+                                                    [nelx, nely],
+                                                    fe.CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
     metamaterial.create_function_spaces()
     metamaterial.initialize_variational_forms()
     return metamaterial
 
+
 class Metamaterial:
-    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None):
+    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None, profile=False):
         self.prop = Properties(E_max, E_min, nu)
         self.nelx = nelx
         self.nely = nely
@@ -44,6 +51,11 @@ class Metamaterial:
         self.mirror_map = None
 
         self._run_times = []
+        self.enable_profiling = profile
+
+        # Initialize the solver once
+        self.solver = fe.LUSolver()
+        # No need to set operator yet, as the matrix doesn't exist
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
@@ -57,7 +69,7 @@ class Metamaterial:
                 plt.text(c.midpoint().x(), c.midpoint().y(), str(c.index()))
 
             # plt.scatter([m.x() for m in mids], [m.y()
-                        # for m in mids], marker='x', color='red')
+                # for m in mids], marker='x', color='red')
 
         plt.show(block=True)
 
@@ -84,10 +96,11 @@ class Metamaterial:
         # function spaces for rho (R), a continuous version of rho (R_cg), and the gradient of rho (R_grad).
         # R is discontinuous, so we need a continuous space to project to so we can calculate the gradient
         R = fe.FunctionSpace(self.mesh, 'DG', 0, constrained_domain=PBC)
-        # R = fe.FunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
         R_cg = fe.FunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
-        R_grad = fe.VectorFunctionSpace(self.mesh, 'CG', 1, constrained_domain=PBC)
-        R_tri = fe.FunctionSpace(fe.UnitSquareMesh(self.nelx, self.nely, 'crossed'), 'DG', 0)
+        R_grad = fe.VectorFunctionSpace(
+            self.mesh, 'CG', 1, constrained_domain=PBC)
+        R_tri = fe.FunctionSpace(fe.UnitSquareMesh(
+            self.nelx, self.nely, 'crossed'), 'DG', 0)
 
         self.x = fe.Function(R)
         self.PBC = PBC
@@ -98,15 +111,16 @@ class Metamaterial:
     def initialize_variational_forms(self):
         self.v_, self.lamb_ = fe.TestFunctions(self.W)
         self.dv, self.dlamb = fe.TrialFunctions(self.W)
-        
+
         self.E = fe.Function(self.x.function_space())
 
         self.m_strain = fe.Constant(((0., 0.), (0., 0.)))
-        
+
         self.a_form = fe.inner(
             linear_stress(linear_strain(self.dv), self.E, self.prop.nu),
             linear_strain(self.v_))*fe.dx
-        self.a_form += fe.dot(self.lamb_, self.dv)*fe.dx + fe.dot(self.dlamb, self.v_)*fe.dx
+        self.a_form += fe.dot(self.lamb_, self.dv)*fe.dx + \
+            fe.dot(self.dlamb, self.v_)*fe.dx
 
         self.L_form = -fe.inner(
             linear_stress(self.m_strain, self.E, self.prop.nu),
@@ -120,8 +134,8 @@ class Metamaterial:
             projected_values[idx, :] = projected_function.vector().get_local()
 
         return projected_values
- 
 
+    @profile_function(include_memory=True)
     def homogenized_C(self, u_list, E, nu):
         s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu)
                   for i, u in enumerate(u_list)]
@@ -133,37 +147,87 @@ class Metamaterial:
             ]
             for s_t in s_list
         ]
-        # Chom = [[assemble(uChom[i][j]*dx) for j in range(3)] for i in range(3)]
 
-        # Must scale by cell volume because we aren't having fenics account for that in the background
-        # note: this makes the assumption that the mesh is uniform
-        # note note: we can also sum up these rows to get our Chom, which is the same as doing the "assembly"
-        # summing the values is faster than the assembly, and since we have to make the uChom matrix anyway we might as well do it this way.
-        # if we don't need the uChom matrix, the doing assemble might be faster again
-
-        uChom_matrix = self._project_uChom_to_matrix(uChom) * self.cell_vol / self.domain_volume
-        # remember the matrix is symmetric so we don't care about row/column order
-        Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3,3))
+        with profile_block("Projection"):
+            uChom_matrix = self._project_uChom_to_matrix(
+                uChom) * self.cell_vol / self.domain_volume
+            Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3, 3))
 
         return Chom, uChom_matrix
 
+    @profile_function(include_memory=True)
     def solve(self):
-        self.E.vector()[:] = self.prop.E_min + (self.prop.E_max - self.prop.E_min) * self.x.vector()[:]
+        if not self.enable_profiling:
+            # If profiling disabled, run without profiling
+            return self._solve_impl()
 
-        A = fe.assemble(self.a_form)
-        
+        with profile_fem_solution():
+            return self._solve_impl()
+
+    def _solve_impl(self):
+        """Implementation of the solve method that can be called with or without profiling"""
+        self.E.vector()[:] = self.prop.E_min + \
+            (self.prop.E_max - self.prop.E_min) * self.x.vector()[:]
+
+        with profile_assembly():
+            A = fe.assemble(self.a_form)
+
+        # Set the matrix for our reusable solver
+        self.solver.set_operator(A)
+
         sols = []
         for (j, case) in enumerate(["Exx", "Eyy", "Exy"]):
             w = fe.Function(self.W)
             self.m_strain.assign(macro_strain(j))
-            b = fe.assemble(self.L_form)
-            fe.solve(A, w.vector(), b)
+
+            with profile_block(f"Assemble RHS {case}"):
+                b = fe.assemble(self.L_form)
+
+            with profile_solve(A):
+                # Use our reusable solver
+                self.solver.solve(w.vector(), b)
+
             v = fe.split(w)[0]
             sols.append(v)
 
-        Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
+        with profile_block("Homogenization"):
+            Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
 
         return sols, Chom, uChom
+
+    def enable_parallel_solving(self, use_mpi=True):
+        """Configure the solver to use parallel execution if available."""
+        try:
+            # Try to use parallel processing if available
+            if use_mpi and hasattr(fe, 'parameters'):
+                fe.parameters["form_compiler"]["optimize"] = True
+                fe.parameters["form_compiler"]["cpp_optimize"] = True
+                fe.parameters["form_compiler"]["representation"] = "quadrature"
+
+                # Memory optimizations
+                fe.parameters["form_compiler"]["quadrature_degree"] = 2
+                fe.parameters["form_compiler"]["cache_dir"] = "fenics_cache"
+
+                # Use C++ for JIT compilation
+                fe.parameters["form_compiler"]["cpp_optimize_flags"] = "-O3 -march=native"
+
+                return True
+        except Exception as e:
+            print(f"Warning: Couldn't enable parallel solving: {e}")
+            return False
+
+        return False
+
+    def get_profiling_report(self):
+        """Generate a profiling report summary"""
+        if not hasattr(self, 'enable_profiling') or not self.enable_profiling:
+            return "Profiling is disabled"
+
+        # Generate FEM profiler report
+        fem_profiler.calculate_metrics()
+        fem_profiler.report()
+
+        return "Profiling report generated"
 
     @cached_property
     def cell_vol(self):
@@ -179,14 +243,14 @@ class Metamaterial:
     def domain_volume(self):
         return fe.assemble(fe.Constant(1)*fe.dx(domain=self.mesh))
 
-    @property 
+    @property
     def volume_fraction(self):
         return fe.assemble(self.x * fe.dx)
-    
+
     @cached_property
     def width(self):
         return self.resolution[0] * self.nelx
-    
+
     @cached_property
     def height(self):
         return self.resolution[1] * self.nely

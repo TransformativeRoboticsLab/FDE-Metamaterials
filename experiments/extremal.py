@@ -18,6 +18,7 @@ from metatop.optimization.epigraph import (EigenvectorConstraint,
                                            EpigraphOptimizer,
                                            ExtremalConstraints,
                                            TraceConstraint)
+from metatop.profiling import ProfileConfig
 
 jax.config.update("jax_enable_x64", True)
 
@@ -52,11 +53,13 @@ def config():
     weight_scaling_factor = 1.
     init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
     single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
+    enable_profiling = True
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, enable_profiling, seed):
 
+    ProfileConfig.enabled = enable_profiling
     if single_sim:
         print("SINGLE IS ENABLED. NOT RUNNING OPTIMIZATION. SETTINGS ARE FOR ONLY A SINGLE FORWARD SIMULATION")
         n_betas = 1
@@ -85,6 +88,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                   nely,
                                   mesh_cell_type='tri',
                                   domain_shape='square')
+    metamate.enable_profiling = ProfileConfig.enabled
     img_rez = (200, 200)
     img_shape = (metamate.width, metamate.height)
 
