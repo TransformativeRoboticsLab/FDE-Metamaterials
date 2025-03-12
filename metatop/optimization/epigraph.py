@@ -143,15 +143,17 @@ class ExtremalConstraints:
     A class representing the original objective functions of the minimax problem.
     """
 
-    def __init__(self, v, extremal_mode, metamaterial, ops, objective_type, w=jnp.ones(3), verbose=True, plot_interval=10, show_plot=True):
-        self.v = v
+    def __init__(self, basis_v, extremal_mode, metamaterial, ops, objective_type, w=jnp.ones(3), verbose=True, plot_interval=10, show_plot=True, silent=False):
+        self.basis_v = basis_v
+        assert np.allclose(self.basis_v.T @ self.basis_v, np.eye(3))
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
         self.ops = ops
         self.objective_type = objective_type
         self.verbose = verbose
+        self.silent = silent
         self.plot_interval = plot_interval
-        self.w = w
+        self.w = jnp.asarray(w)
         # self.evals = []
         self.show_plot = show_plot
         self.img_resolution = (200, 200)
@@ -200,52 +202,11 @@ objective_type: {self.objective_type}
     # @profile_function()
     def __call__(self, results, x, grad, dummy_run=False):
 
-        x, t = x[:-1], x[-1]
+        # strip t off leaving all the other DOFs
+        x_, t = x[:-1], x[-1]
+        dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x_)
 
-        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
-
-        self.metamaterial.x.vector()[:] = x_fem
-        sols, Chom, _ = self.metamaterial.solve()
-        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
-        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
-
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-
-        def obj(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-            C = m @ C @ m
-            # NOTE: normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
-            # NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
-            S = jnp.linalg.inv(C)
-
-            if self.extremal_mode == 2:
-                C, S = S, C
-
-            if self.objective_type != 'ratio':
-                C /= jnorm(C, ord=2)
-                S /= jnorm(S, ord=2)
-
-            v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
-            Cv1, Cv2, Cv3 = C@v1, C@v2, C@v3
-            c1, c2, c3 = v1.T@Cv1, v2.T@Cv2, v3.T@Cv3
-            if self.objective_type == 'ray':
-                return jnp.log(self.w*jnp.array([c1, 1-c2, 1-c3])), jnp.array([c1, c2, c3])
-            elif self.objective_type == 'ray_sq':
-                return (jnp.log(self.w*jnp.array([c1**2, (1. - c2**2), (1. - c3**2), ])+1e-8), jnp.array([c1, c2, c3, ]))
-            elif self.objective_type == 'norm':
-                return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
-            elif self.objective_type == 'norm_sq':
-                return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
-            elif self.objective_type == 'ratio':
-                return jnp.log(jnp.array([c1/c2, c1/c3, ])), jnp.array([c1, c2, c3])
-            elif self.objective_type == 'ratio_sq':
-                return jnp.log(jnp.array([(c1/c2)**2, (c1/c3)**2, ])), jnp.array([c1, c2, c3])
-            elif self.objective_type == 'ratio_c1sq':
-                return jnp.log(jnp.array([c1**2/c2, c1**2/c3, ])), jnp.array([c1, c2, c3])
-            else:
-                raise ValueError('Objective type not found.')
-
-        c, cs = obj(jnp.asarray(Chom))
+        c, cs = self.obj(x_, Chom)
         stop_on_nan(c)
         results[:] = c - t
 
@@ -253,13 +214,18 @@ objective_type: {self.objective_type}
             return
 
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
-                0].reshape((self.n_constraints, 9))
-            for n in range(self.n_constraints):
-                grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-                grad[n, -1] = -1.
+            self.adjoint(x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem)
 
+        self.update_metrics(t, c, cs)
+
+        if (len(self.ops.evals) % self.plot_interval == 1):
+            self.update_plot(x_)
+
+    def update_metrics(self, t, c, cs):
         self.ops.evals.append([t, *c])
+        if self.silent:
+            return
+
         if self.verbose:
             print("-" * 30)
             print(
@@ -270,8 +236,63 @@ objective_type: {self.objective_type}
         else:
             print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
 
-        if (len(self.ops.evals) % self.plot_interval == 1) and self.fig is not None:
-            self.update_plot(x)
+    def adjoint(self, x, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
+        # argnums=1 because we only care about derivative w.r.t. Chom here
+        dc_dChom = jax.jacrev(self.obj, argnums=1, has_aux=True)(x, Chom)[
+            0].reshape((self.n_constraints, 9))
+        for n in range(self.n_constraints):
+            grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+            grad[n, -1] = -1.
+
+    def forward(self, x):
+
+        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
+
+        self.metamaterial.x.vector()[:] = x_fem
+        sols, Chom, _ = self.metamaterial.solve()
+        Chom = jnp.asarray(Chom)
+        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
+        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
+
+        return dxfem_dx_vjp, Chom, dChom_dxfem
+
+    def obj(self, x, C):
+        """
+        NOTE: We normalize the matrix to ensure the largest eigenvalue is 1, exploiting the fact that basis vectors v are unit length. This normalization simplifies controlling the magnitude of eigenvalues, where we aim to align v as the eigenvectors and adjust their associated eigenvalues. We achieve this by normalizing the matrix to its spectral norm. Subsequently, we calculate the norm of each vector in the basis, where the maximum possible value of the norm for C*v_n after normalization is 1. By evaluating 1 - norm(C*v_n), we attempt to maximize the vector's norm, effectively aligning the eigenvectors with the basis vectors while managing the eigenvalue magnitudes. This isn't perfect and v won't necessarily be the eigenvectors of C at the end of the optimization, but we can introduce additional constraints to help out with that if we need to.
+        NOTE: Because of the normalizaton step, we lose track of any kind of real stiffness of the true material. Thus we need to introduce some other kind of constraint on the system to ensure that the unnormalized homogenized C does not approach a trivial solution. One simple constraint to help out is tr(C) >= value. This will ensure that the homogenized C is not too small.
+        """
+
+        m = jnp.diag(jnp.array([1., 1., np.sqrt(2)]))
+        # M is C in Mandel notation
+        M = m @ C @ m
+        # we use S instead of C for bimode materials
+        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+        # We only need to normalize if we aren't doing the ratio method
+        if 'ratio' not in self.objective_type:
+            M /= jnorm(M, ord=2)
+
+        # Rayleigh quotients
+        V = self.basis_v
+        r1, r2, r3 = self.w*jnp.diag(V.T @ M @ V)
+        if self.objective_type == 'ray':
+            return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
+        elif self.objective_type == 'ray_sq':
+            return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
+        # elif self.objective_type == 'norm':
+            # return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
+        # elif self.objective_type == 'norm_sq':
+            # return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
+        elif self.objective_type == 'ratio':
+            return jnp.log(jnp.array([r1/r2, r1/r3, ])), jnp.array([r1, r2, r3])
+        elif self.objective_type == 'ratio_sq':
+            return jnp.log(jnp.array([(r1/r2)**2, (r1/r3)**2, ])), jnp.array([r1, r2, r3])
+        elif self.objective_type == 'ratio_c1sq':
+            return jnp.log(jnp.array([r1**2/r2, r1**2/r3, ])), jnp.array([r1, r2, r3])
+        else:
+            raise ValueError(
+                f"Objective '{self.objective_type}' type not found.")
 
     def filter_and_project(self, x):
         x = self.ops.filt_fn(x)
@@ -280,6 +301,9 @@ objective_type: {self.objective_type}
         return x
 
     def update_plot(self, x, show_now=False):
+        if self.fig is None:
+            return
+
         fields = self._prepare_fields(x)
         self._update_image_plots(fields)
         self._update_evaluation_plot()

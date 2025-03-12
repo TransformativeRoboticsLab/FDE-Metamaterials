@@ -3,8 +3,6 @@ from functools import partial
 
 import fenics as fe
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.testing as npt
@@ -15,7 +13,8 @@ from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
 from metatop.metamaterial import Metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.epigraph import (EigenvectorConstraint, Epigraph,
+from metatop.optimization.epigraph import (EigenvalueProblemConstraints,
+                                           EigenvectorConstraint, Epigraph,
                                            ExtremalConstraints,
                                            InvariantsConstraint,
                                            SpectralNormConstraint,
@@ -24,12 +23,12 @@ from metatop.optimization.examples import AndreassenOptimization
 from metatop.optimization.scalar import \
     BulkModulusConstraint as ScalarBulkModulusConstraint
 from metatop.optimization.scalar import EnergyObjective
-from metatop.optimization.scalar import \
-    IsotropicConstraint as ScalarIsotropicConstraint
-from metatop.optimization.scalar import \
-    VolumeConstraint as ScalarVolumeConstraint
+
+jax.config.update("jax_enable_x64", True)
+
 
 np.random.seed(0)
+
 
 def precompute_obj(obj, x):
     '''
@@ -45,16 +44,18 @@ def precompute_obj(obj, x):
     else:
         raise ValueError("Invalid number of arguments for primary objective")
 
-def finite_difference_checker(constraint, x, obj=None, epsilon=1e-6):
-    args_count = len(inspect.signature(constraint).parameters)
-    grad_fd = np.zeros(x.size) if args_count == 2 else np.zeros((constraint.n_constraints, x.size))
 
-    for i in tqdm(range(grad_fd.shape[grad_fd.ndim-1]), desc="Checking gradient"):
+def finite_difference_checker(constraint, x, obj=None, epsilon=1e-6, name=None):
+    args_count = len(inspect.signature(constraint).parameters)
+    grad_fd = np.zeros(x.size) if args_count == 2 else np.zeros(
+        (constraint.n_constraints, x.size))
+
+    for i in tqdm(range(grad_fd.shape[grad_fd.ndim-1]), desc=f"Checking gradient {name}"):
         perturb = np.zeros_like(x)
         perturb[i] = epsilon
         x_plus = x + perturb
         x_minus = x - perturb
-        
+
         empty_grad = np.array([])
 
         if args_count > 2:  # fn(results, x, grad)
@@ -77,9 +78,11 @@ def finite_difference_checker(constraint, x, obj=None, epsilon=1e-6):
 
             grad_fd[i] = (c_plus - c_minus) / (2 * epsilon)
         else:
-            raise ValueError("Invalid number of arguments for primary objective.")
+            raise ValueError(
+                "Invalid number of arguments for primary objective.")
 
     return grad_fd
+
 
 def plot_gradients(grad_analytical, grad_fd):
     fig, ax = plt.subplots(3, 1, figsize=(15, 10))
@@ -89,69 +92,73 @@ def plot_gradients(grad_analytical, grad_fd):
     diff = np.abs(grad_analytical - grad_fd).flatten()
     ax[1].plot(diff, label='Abs Difference')
     ax[1].legend()
-    ax[2].plot(diff / np.abs(grad_analytical).flatten(), label='Relative Difference')
+    ax[2].plot(diff / np.abs(grad_analytical).flatten(),
+               label='Relative Difference')
     plt.show(block=False)
-    
+
     return fig
 
-def create_constraint(constraint_name, params):
-    if constraint_name == 'Epigraph':
+
+def create_constraint(cname, p):
+    if cname == 'Epigraph':
         return Epigraph()
-    elif constraint_name == 'Extremal':
-        return ExtremalConstraints(v=params['v'], 
-                                   extremal_mode=params['extremal_mode'], 
-                                   metamaterial=params['metamaterial'], ops=params['ops'], 
-                                   verbose=params['verbose'], 
-                                   show_plot=params['plot'],
-                                   objective_type=params['objective_type'])
-    elif constraint_name == 'Energy':
-        return EnergyObjective(v=params['v'], 
-                               extremal_mode=params['extremal_mode'], 
-                               metamaterial=params['metamaterial'], ops=params['ops'], 
-                               verbose=params['verbose'], 
-                               plot=params['plot'])
-    elif constraint_name == 'Invariants':
-        return InvariantsConstraint(ops=params['ops'], 
-                                    verbose=params['verbose'])
-    elif constraint_name == 'Eigenvector':
-        return EigenvectorConstraint(v=params['v'],
-                                     ops=params['ops'],
-                                     verbose=params['verbose'])
-    elif constraint_name == 'SpectralNorm':
-        return SpectralNormConstraint(ops=params['ops'],
+    elif cname == 'Extremal':
+        return ExtremalConstraints(basis_v=p['v'],
+                                   extremal_mode=p['extremal_mode'],
+                                   metamaterial=p['metamaterial'], ops=p['ops'],
+                                   verbose=p['verbose'],
+                                   show_plot=p['plot'],
+                                   objective_type=p['objective_type'],
+                                   silent=p['silent'])
+    elif cname == 'Energy':
+        return EnergyObjective(v=p['v'],
+                               extremal_mode=p['extremal_mode'],
+                               metamaterial=p['metamaterial'], ops=p['ops'],
+                               verbose=p['verbose'],
+                               plot=p['plot'])
+    elif cname == 'Invariants':
+        return InvariantsConstraint(ops=p['ops'],
+                                    verbose=p['verbose'])
+    elif cname == 'Eigenvector':
+        return EigenvectorConstraint(v=p['v'],
+                                     ops=p['ops'],
+                                     verbose=p['verbose'])
+    elif cname == 'SpectralNorm':
+        return SpectralNormConstraint(ops=p['ops'],
                                       bound=1.,
-                                      verbose=params['verbose'])
-    elif constraint_name == 'Trace':
-        return TraceConstraint(ops=params['ops'], bound=1., verbose=params['verbose'])
+                                      verbose=p['verbose'])
+    elif cname == 'Trace':
+        return TraceConstraint(ops=p['ops'], bound=1., verbose=p['verbose'])
 
-    elif constraint_name == 'Volume':
-        return VolumeConstraint(ops=params['ops'], bound=0.5, verbose=params['verbose'])
-    elif constraint_name == 'ScalarBulk':
+    elif cname == 'Volume':
+        return VolumeConstraint(ops=p['ops'], bound=0.5, verbose=p['verbose'])
+    elif cname == 'ScalarBulk':
         return ScalarBulkModulusConstraint(
-            base_E=params['metamaterial'].prop.E_max,
-            base_nu=params['metamaterial'].prop.nu,
+            base_E=p['metamaterial'].prop.E_max,
+            base_nu=p['metamaterial'].prop.nu,
             a=0.2*1e-2,
-            ops=params['ops'],
-            verbose=params['verbose'])
+            ops=p['ops'],
+            verbose=p['verbose'])
 
-    elif constraint_name == 'ScalarVolume':
-        return ScalarVolumeConstraint(
-            V = 0.35,
-            ops=params['ops'],
-            verbose=params['verbose'])
-    elif constraint_name == 'ScalarIsotropic':
-        return ScalarIsotropicConstraint(
-            eps=1e-5,
-            ops=params['ops'],
-            verbose=params['verbose'])
-    elif constraint_name == 'Andreassen':
+    # elif constraint_name == 'ScalarVolume':
+    #     return ScalarVolumeConstraint(
+    #         V=0.35,
+    #         ops=params['ops'],
+    #         verbose=params['verbose'])
+    # elif constraint_name == 'ScalarIsotropic':
+    #     return ScalarIsotropicConstraint(
+    #         eps=1e-5,
+    #         ops=params['ops'],
+    #         verbose=params['verbose'])
+    elif cname == 'Andreassen':
         return AndreassenOptimization('pr',
-                                      metamaterial=params['metamaterial'],
-                                      ops=params['ops'],
-                                      verbose=params['verbose'],
-                                      plot=params['plot'])
+                                      metamaterial=p['metamaterial'],
+                                      ops=p['ops'],
+                                      verbose=p['verbose'],
+                                      plot=p['plot'])
     else:
-        raise ValueError(f"Constraint {constraint_name} not found")
+        raise ValueError(f"Constraint {cname} not found")
+
 
 def get_analytical_gradient(constraint, x):
     arg_nums = len(inspect.signature(constraint).parameters)
@@ -165,6 +172,7 @@ def get_analytical_gradient(constraint, x):
         raise ValueError("Invalid number of arguments")
     return grad_analytical
 
+
 def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=False):
     # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
     if epi_constraint:
@@ -176,7 +184,8 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=Fa
 
     constraint = create_constraint(constraint_name, params)
     grad_analytical = get_analytical_gradient(constraint, x)
-    grad_fd = finite_difference_checker(constraint, x, obj)
+    grad_fd = finite_difference_checker(
+        constraint, x, obj, name=constraint_name)
 
     if plot:
         plot_gradients(grad_analytical, grad_fd)
@@ -184,8 +193,10 @@ def handle_constraints(constraint_name, x, params, epi_constraint=False, plot=Fa
     diff = np.abs(grad_analytical - grad_fd)
     print(f"Max Abs Diff: {np.max(diff)}")
     print(f"Mean Abs Diff: {np.mean(diff)}")
-    print(f"Scaled Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
+    print(
+        f"Scaled Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
     npt.assert_allclose(grad_analytical, grad_fd, rtol=1e-5, atol=1e-5)
+
 
 def main():
     nelx = 5
@@ -205,20 +216,25 @@ def main():
                                         nelx, nely], fe.CellType.Type.quadrilateral)
     }
     mesh_type = 'tri'
-    v_basis = 'BULK'
+
+    # Generate a random 3x3 matrix
+    # Use QR decomposition to get an orthonormal basis
+    random_matrix = np.random.randn(3, 3)
+    basis_v = np.linalg.qr(random_matrix)[0]
 
     # Setup parameters and initial conditions
     params = {
         'metamaterial': Metamaterial(E_max=E_max, E_min=E_min, nu=nu, nelx=nelx, nely=nely, mesh=meshes[mesh_type]),
         'ops': OptimizationState(beta=beta, eta=eta),
-        'v': V_DICT[v_basis],
+        'v': basis_v,
         'extremal_mode': 1,
         'verbose': False,
         'plot': False,
-        'obj': None,  
+        'obj': None,
         'line_width': norm_line_width,
         'line_space': norm_line_space,
-        'objective_type': 'norm'
+        'objective_type': 'ray',
+        'silent': False,
     }
 
     metamate = params['metamaterial']
@@ -226,52 +242,53 @@ def main():
     metamate.initialize_variational_forms()
     if metamate.R.ufl_element().degree() > 0:
         print("Using Helmholtz filter")
-        filt = HelmholtzFilter(radius=norm_filter_radius, 
-                                fn_space=metamate.R)
+        filt = HelmholtzFilter(radius=norm_filter_radius,
+                               fn_space=metamate.R)
         filter_fn = partial(jax_helmholtz_filter, filt)
     elif metamate.R.ufl_element().degree() == 0:
         print("Using Density filter")
         filt = DensityFilter(mesh=metamate.mesh,
-                            radius=norm_filter_radius,
-                            distance_method='periodic')
+                             radius=norm_filter_radius,
+                             distance_method='periodic')
         filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
     else:
-        raise ValueError("Invalid filter type. Must be DensityFilter or HelmholtzFilter")
-                    
+        raise ValueError(
+            "Invalid filter type. Must be DensityFilter or HelmholtzFilter")
+
     params['ops'].filt = filt
     params['ops'].filt_fn = filter_fn
     # Initial design variables
     x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
 
-    # The three constraints that do not need another constraint to be run first
+    # The constraints that do not need another constraint to be run first
     # handle_constraints('Energy', x, params)
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
     # handle_constraints('Extremal', x, params, epi_constraint=True)
     handle_constraints('Andreassen', x, params, plot=True)
 
     # ===== Scalar Constraints =====
-    obj = EnergyObjective(v=params['v'],
-                            extremal_mode=params['extremal_mode'],
-                            metamaterial=params['metamaterial'],
-                            ops=params['ops'],
-                            verbose=params['verbose'],
-                            plot=params['plot'])
+    obj = EnergyObjective(basis_v=params['v'],
+                          extremal_mode=params['extremal_mode'],
+                          metamaterial=params['metamaterial'],
+                          ops=params['ops'],
+                          verbose=params['verbose'],
+                          plot=params['plot'])
     params['obj'] = obj
 
     # handle_constraints('ScalarBulk', x, params)
     # handle_constraints('ScalarVolume', x, params)
-    handle_constraints('ScalarIsotropic', x, params, plot=True)
+    # handle_constraints('ScalarIsotropic', x, params, plot=True)
 
     # ===== Epigraph Constraints =====
-    # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal': 
-    obj = ExtremalConstraints(v=params['v'], 
-                        extremal_mode=params['extremal_mode'], 
-                        metamaterial=params['metamaterial'], ops=params['ops'], 
-                        verbose=params['verbose'], 
-                        show_plot=params['plot'],
-                        objective_type=params['objective_type'])
+    # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal':
+    obj = ExtremalConstraints(basis_v=params['v'],
+                              extremal_mode=params['extremal_mode'],
+                              metamaterial=params['metamaterial'], ops=params['ops'],
+                              verbose=params['verbose'],
+                              show_plot=params['plot'],
+                              objective_type=params['objective_type'])
     params['obj'] = obj
-    
+
     # handle_constraints('Invariants', x, params, epi_constraint=True)
     # handle_constraints('Eigenvector', x, params, epi_constraint=True)
     # handle_constraints('Geometric', x, params, epi_constraint=True)
@@ -279,9 +296,8 @@ def main():
     # handle_constraints('Trace', x, params, epi_constraint=True)
     # handle_constraints('Volume', x, params, epi_constraint=True)
 
-
-
     plt.show(block=True)
+
 
 if __name__ == "__main__":
     main()

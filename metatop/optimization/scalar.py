@@ -12,8 +12,8 @@ from metatop.image import bitmapify
 
 
 class EnergyObjective:
-    def __init__(self, v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=10, plot=True):
-        self.v = v
+    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=10, plot=True):
+        self.basis_v = basis_v
         self.extremal_mode = extremal_mode
         self.metamaterial = metamaterial
         self.ops = ops
@@ -58,11 +58,12 @@ class EnergyObjective:
             if self.extremal_mode == 2:
                 C, S = S, C
 
-            vCv = self.v.T @ C @ self.v
+            vCv = self.basis_v.T @ C @ self.basis_v
             c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
             return jnp.log10(c1**2/c2/c3), jnp.array([c1, c2, c3])
 
-        (c, cs), dc_dChom = jax.value_and_grad(obj, has_aux=True)(jnp.asarray(Chom))
+        (c, cs), dc_dChom = jax.value_and_grad(
+            obj, has_aux=True)(jnp.asarray(Chom))
 
         self.evals.append(c)
 
@@ -81,7 +82,7 @@ class EnergyObjective:
         if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
             x_tilde = filt_fn(x)
             x_bar = jax_projection(x_tilde, beta, eta)
-            img_rez = (200,200)
+            img_rez = (200, 200)
             img_shape = (self.metamaterial.width, self.metamaterial.height)
             r_img = self.metamaterial.x.copy(deepcopy=True)
             x_img = bitmapify(r_img, img_shape, img_rez, invert=True)
@@ -144,7 +145,7 @@ class EnergyObjective:
             fig, ax = plt.subplots()
         ax.clear()
 
-        ax.margins(x=0,y=0)
+        ax.margins(x=0, y=0)
 
         # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
         # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
@@ -161,11 +162,12 @@ class EnergyObjective:
 
         p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
 
+
 class EnergyConstraints:
-    
-    def __init__(self, a, v, extremal_mode, ops, eps=1e-6, verbose=True):
+
+    def __init__(self, a, basis_v, extremal_mode, ops, eps=1e-6, verbose=True):
         self.a = a
-        self.v = v
+        self.basis_v = basis_v
         self.extremal_mode = extremal_mode
         self.ops = ops
         self.verbose = verbose
@@ -174,35 +176,37 @@ class EnergyConstraints:
         self.n_constraints = 2
 
     def __call__(self, results, x, grad, dummy_run=False):
-        
+
         def obj(C):
             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
             C = m @ C @ m
             S = jnp.linalg.inv(C)
-            
+
             if self.extremal_mode == 2:
                 C, S = S, C
-                
-            vCv = self.v.T @ C @ self.v
+
+            vCv = self.basis_v.T @ C @ self.basis_v
             c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
             return jnp.log10(jnp.array([c1/c2*self.a, c1/c3*self.a]))
 
         Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
-        
+
         c = obj(jnp.asarray(Chom))
         results[:] = c
-        
+
         if dummy_run:
             return
-        
+
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj)(jnp.asarray(Chom)).reshape((self.n_constraints, 9))
+            dc_dChom = jax.jacrev(obj)(jnp.asarray(
+                Chom)).reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
-                grad[n,:] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+                grad[n, :] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
 
         if self.verbose:
             print(f"EnergyConstraints value(s): {c}")
-            
+
+
 class IsotropicConstraint:
 
     def __init__(self, eps, ops, verbose=True):
@@ -240,8 +244,6 @@ class IsotropicConstraint:
         return jnp.array([[Ciso_11, Ciso_12, 0.],
                           [Ciso_21, Ciso_22, 0.],
                           [0.,      0.,      Ciso_33]])
-
-
 
 
 class BulkModulusConstraint:
@@ -354,4 +356,3 @@ class VolumeConstraint:
                 f"- Volume: {volume:.3f} (Target ≤{self.V}) [{'Satisfied' if volume <= self.V else 'Not Satisfied'}]")
 
         return float(volume) - self.V
-

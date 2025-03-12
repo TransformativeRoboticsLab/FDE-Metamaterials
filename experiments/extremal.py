@@ -41,7 +41,7 @@ def config():
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
     extremal_mode = 1
     basis_v = 'BULK'
-    objective_type = 'norm'  # rayleigh or norm or ratio
+    objective_type = 'ray'
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = False
@@ -54,7 +54,7 @@ def config():
     weight_scaling_factor = 1.
     init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
     single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
-    enable_profiling = True
+    enable_profiling = False
 
 
 @ex.automain
@@ -78,8 +78,12 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     run_id, outname = generate_output_filepath(
         ex, extremal_mode, basis_v, seed)
 
-    weights = np.array([weight_scaling_factor, 1., 1.]) if extremal_mode == 1 else np.array(
-        [1., weight_scaling_factor, weight_scaling_factor])
+    if extremal_mode == 1:
+        weights = np.array([weight_scaling_factor, 1., 1.])
+    else:
+        weights = np.array([1., weight_scaling_factor, weight_scaling_factor])
+
+    print(weights)
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
@@ -108,7 +112,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
 
     # ===== Optimizer setup ======
     v = V_DICT[basis_v]
-    g_ext = ExtremalConstraints(v=v,
+    g_ext = ExtremalConstraints(basis_v=v,
                                 extremal_mode=extremal_mode,
                                 metamaterial=metamate,
                                 ops=ops,
@@ -128,7 +132,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.active_constraints.append(g_trc) if trace_constraint else None
     opt.setup()
-    opt.set_maxeval(50)
+    opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
