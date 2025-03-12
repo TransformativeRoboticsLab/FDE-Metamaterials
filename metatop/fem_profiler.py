@@ -109,7 +109,11 @@ fem_profiler = FEMProfiler()
 
 
 @contextmanager
-def profile_assembly():
+def profile_assembly(enabled=False):
+    if not enabled:
+        yield
+        return
+
     """Profile the assembly phase of FEM computation."""
     with profile_block("Assembly") as p:
         yield
@@ -117,23 +121,30 @@ def profile_assembly():
 
 
 @contextmanager
-def profile_solve(matrix=None):
+def profile_solve(enabled=False, matrix=None):
     """Profile the solver phase of FEM computation."""
+    if not enabled:
+        yield
+        return
+
     start = time.time()
     try:
         yield
     finally:
         elapsed = time.time() - start
         fem_profiler.solve_times.append(elapsed)
-        if ProfileConfig.enabled:  # Only print if profiling is enabled
-            print(f"Solve took {elapsed:.3f} seconds")
+        print(f"Solve took {elapsed:.3f} seconds")
         if matrix is not None:
             fem_profiler.record_matrix_stats(matrix)
 
 
 @contextmanager
-def profile_fem_solution():
+def profile_fem_solution(enabled=False):
     """Profile the entire FEM solution process."""
+    if not enabled:
+        yield
+        return
+
     start = time.time()
     try:
         yield
