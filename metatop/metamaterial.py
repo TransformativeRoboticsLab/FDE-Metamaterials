@@ -53,9 +53,7 @@ class Metamaterial:
         self._run_times = []
         self.enable_profiling = profile
 
-        # Initialize the solver once
         self.solver = fe.LUSolver()
-        # No need to set operator yet, as the matrix doesn't exist
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
@@ -153,13 +151,8 @@ class Metamaterial:
 
         return Chom, uChom_matrix
 
-    # @profile_function(include_memory=True)
     def solve(self):
-        if not self.enable_profiling:
-            # If profiling disabled, run without profiling
-            return self._solve_impl()
-
-        with profile_fem_solution():
+        with profile_fem_solution(enabled=self.enable_profiling):
             return self._solve_impl()
 
     def _solve_impl(self):
@@ -179,8 +172,8 @@ class Metamaterial:
 
             b = fe.assemble(self.L_form)
 
-            # Use our reusable solver
-            self.solver.solve(w.vector(), b)
+            with profile_solve(enabled=self.enable_profiling):
+                self.solver.solve(w.vector(), b)
 
             v = fe.split(w)[0]
             sols.append(v)

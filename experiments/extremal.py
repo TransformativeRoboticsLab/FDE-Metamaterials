@@ -11,6 +11,7 @@ from sacred import Experiment
 
 from experiments.utils import *
 from metatop import V_DICT
+from metatop.fem_profiler import fem_profiler
 from metatop.filters import setup_filter
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
@@ -127,7 +128,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     opt.active_constraints.append(g_vec) if vector_constraint else None
     opt.active_constraints.append(g_trc) if trace_constraint else None
     opt.setup()
-    opt.set_maxeval(starting_epoch_duration)
+    opt.set_maxeval(50)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
@@ -136,6 +137,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         for n, beta in enumerate(betas, 1):
             run_optimization(epoch_duration, betas, ops, x,
                              g_ext, opt, x_history, n, beta)
+            fem_profiler.report()
 
         print_epoch_summary(opt, i)
         log_and_save_results(ex, run_id, outname, metamate,

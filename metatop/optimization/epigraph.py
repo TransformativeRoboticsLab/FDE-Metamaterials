@@ -197,7 +197,7 @@ plot_delay: {self.plot_interval}
 objective_type: {self.objective_type}
 """)
 
-    @profile_function()
+    # @profile_function()
     def __call__(self, results, x, grad, dummy_run=False):
 
         x, t = x[:-1], x[-1]
