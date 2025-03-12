@@ -191,7 +191,7 @@ class ExtremalConstraints:
             print(f"""
 MinimaxConstraint initialized with:
 v:
-{v}
+{basis_v}
 extremal_mode: {self.extremal_mode}
 starting beta: {self.ops.beta}
 verbose: {self.verbose}
