@@ -387,6 +387,124 @@ objective_type: {self.objective_type}
         return "ExtremalConstraints"
 
 
+class EigenvalueProblemConstraints(ExtremalConstraints):
+
+    def __init__(self, check_valid=False, eps=1e-3, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.check_valid = check_valid
+        self.n_constraints = 6
+        self.eps = eps
+
+    def obj(self, x_: np.ndarray, C):
+        # We grab U out of x_ so ease derivative computation
+        return self._obj_wrt_U(self._select_U(x_), C)
+
+    # We only care about the derivative of the objective w.r.t. the specific parts of x that comprise U.
+    # So we do this subcall to avoid differentiating against all of x.
+    def _obj_wrt_U(self, U, C):
+        m = jnp.diag(jnp.array([1., 1., jnp.sqrt(2)]))
+        M = m @ C @ m
+        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+
+        M /= jnorm(M, ord=2)
+
+        # Rayleigh quotients  with U
+        r1, r2, r3 = self.w*jnp.diag(U.T @ M @ U) / jnp.diag(U.T @ U)
+        rays = jnp.array([r1, 1.-r2, 1.-r3])
+
+        V = self.basis_v
+        U_norms = jnp.linalg.norm(U, axis=0)
+        V_norms = jnp.linalg.norm(V, axis=0)
+        cosines = jnp.diag(U.T @ V) / (U_norms * V_norms) / self.eps
+
+        return (jnp.log(jnp.concatenate([rays, cosines])),
+                jnp.concatenate([jnp.array([r1, r2, r3]), cosines]))
+
+    def adjoint(self, x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
+        # argnums=[0,1] because we care about both derivatives
+        jac_func = jax.jacrev(self._obj_wrt_U, argnums=[0, 1], has_aux=True)
+        dc_dU, dc_dChom = jac_func(self._select_U(x_), Chom)[0]
+
+        # both arguments get passed in a 3x3 matrices so we unfold them for easier referencing
+        dc_dU = dc_dU.reshape((self.n_constraints, 9))
+        dc_dChom = dc_dChom.reshape((self.n_constraints, 9))
+
+        for n in range(self.n_constraints):
+            grad[n, :-10] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+            grad[n, -10:-1] = dc_dU[n, :]
+            grad[n, -1] = -1.
+
+    def update_plot(self, x_):
+        self._check_validity(x_)
+        return super().update_plot(self._strip_U(x_))
+
+    def forward(self, x_):
+        self._check_validity(x_)
+        return super().forward(self._strip_U(x_))
+
+    def _strip_U(self, x_):
+        return x_[:-9]
+
+    def _select_U(self, x_):
+        return x_[-9:].reshape((3, 3))
+
+    def _check_validity(self, x_):
+        if not self.check_valid:
+            return
+        if not self._strip_U(x_).size == self.metamaterial.R.dim():
+            raise ValueError(f"Mismatching size of x and R.dim()")
+
+
+# class CosineConstraint(EigenvalueProblemAbstract):
+
+#     def __init__(self, ops, basis_v, eps=1e-3):
+#         self.ops = ops
+#         self.basis_v = basis_v
+#         self.eps = 1.
+#         self.n_constraints = 3
+
+#     def __call__(self, x, grad):
+
+#         U = self._select_U(x)
+#         t = x[-1]
+
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+#         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+
+#         c, dc_dU = jax.value_and_grad(self.obj)(U)
+
+#         dc_dU = dc_dU.reshape((self.n_constraints, 9))
+
+#         # def g(C):
+#         #     C = m @ C @ m
+#         #     return jnp.linalg.norm(C, ord=2)
+#         #     # return jnp.trace(C)
+
+#         # c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
+
+#         if grad.size > 0:
+#             for n in range(self.n_constraints):
+#                 grad[n, -10:-1] = dc_dU[n, :]
+#                 grad[n, -1] = -1.
+#             # grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+#             # grad[-1] = 0.
+
+#         if self.verbose:
+#             print(f"Spectral Norm Constraint:")
+#             print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
+#             # print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
+#         return float(self.bound - c)
+
+#     def obj(self, U):
+#         V = self.basis_v
+#         U_norms = jnp.linalg.norm(U, axis=0)
+#         V_norms = jnp.linalg.norm(V, axis=0)
+#         cosines = jnp.diag(U.T @ V) / (U_norms * V_norms) / self.eps
+
+#         return jnp.log(cosines), cosines
+
+
 class SpectralNormConstraint:
 
     def __init__(self, ops, bound=1., verbose=True):

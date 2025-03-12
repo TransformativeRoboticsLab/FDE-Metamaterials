@@ -102,6 +102,14 @@ def plot_gradients(grad_analytical, grad_fd):
 def create_constraint(cname, p):
     if cname == 'Epigraph':
         return Epigraph()
+    elif cname == 'EigenvalueProblem':
+        return EigenvalueProblemConstraints(basis_v=p['v'],
+                                            extremal_mode=p['extremal_mode'],
+                                            metamaterial=p['metamaterial'], ops=p['ops'],
+                                            verbose=p['verbose'],
+                                            show_plot=p['plot'],
+                                            objective_type=p['objective_type'],
+                                            silent=['silent'])
     elif cname == 'Extremal':
         return ExtremalConstraints(basis_v=p['v'],
                                    extremal_mode=p['extremal_mode'],
@@ -264,7 +272,12 @@ def main():
     # handle_constraints('Energy', x, params)
     # handle_constraints('Epigraph', x, params, epi_constraint=True)
     # handle_constraints('Extremal', x, params, epi_constraint=True)
-    handle_constraints('Andreassen', x, params, plot=True)
+    # handle_constraints('Andreassen', x, params, plot=True)
+
+    handle_constraints('EigenvalueProblem',
+                       np.concatenate((x, basis_v.flatten())),
+                       params,
+                       epi_constraint=True)
 
     # ===== Scalar Constraints =====
     obj = EnergyObjective(basis_v=params['v'],
