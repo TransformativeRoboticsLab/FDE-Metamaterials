@@ -67,7 +67,7 @@ class EpigraphOptimizer(nlopt.opt):
                 results = np.zeros(g.n_constraints)
                 g(results, x, np.array([]), dummy_run=True)
                 new_t = max(new_t, *(results))
-        x[-1] = 1.  # TODO: Hack to get it working today
+        x[-1] = new_t
         print(f"New t value: {x[-1]:.3e}")
 
     def add_inequality_mconstraint(self, *args, uses_t=True):
@@ -183,6 +183,17 @@ class EpigraphConstraint(abc.ABC):
     def __str__(self):
         return "EpigraphConstraint"
 
+    @abc.abstractmethod
+    def _setup_evals_lines(self):
+        """
+        Setup the evaluation lines for the optimization progress plot.
+        This is specific to each derived class.
+
+        This method should set:
+        - self.evals_lines: The plot lines for evaluation values
+        """
+        pass
+
     # <=====> Methods with implementations <=====>
     """
     Required: basis_v, ops, metamaterial
@@ -211,6 +222,12 @@ class EpigraphConstraint(abc.ABC):
         self.img_resolution = img_resolution
         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
 
+        # Initialize plotting elements
+        self.fig = None
+        self.evals_lines = None
+        self.epoch_lines = []
+        self.last_epoch_plotted = -1
+
     def __call__(self, results, x, grad, dummy_run=False):
         """
         Evaluate the constraint function and its gradient.
@@ -229,7 +246,6 @@ class EpigraphConstraint(abc.ABC):
         dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x_)
 
         c, cs = self.obj(x_, Chom)
-        stop_on_nan(c)
         results[:] = c - t
 
         if dummy_run:
@@ -242,6 +258,8 @@ class EpigraphConstraint(abc.ABC):
 
         if hasattr(self, 'plot_interval') and len(self.ops.evals) % self.plot_interval == 1:
             self.update_plot(x_)
+
+        stop_on_nan(c)
 
     def forward(self, x):
         """
@@ -326,6 +344,10 @@ class EpigraphConstraint(abc.ABC):
 
     def update_plot(self, x_):
         if self.fig is None:
+            self._setup_plots()
+
+        # Still None after setup (could happen if show_plot is False)
+        if self.fig is None:
             return
 
         fields = self._prepare_fields(x_)
@@ -367,8 +389,12 @@ class EpigraphConstraint(abc.ABC):
     def _update_evaluation_plot(self):
         x_data = range(1, len(self.ops.evals)+1)
         y_data = np.asarray(self.ops.evals)
+
+        # Make sure we only update as many lines as we have data columns
         for i, line in enumerate(self.evals_lines):
-            line.set_data(x_data, y_data[:, i])
+            if i < y_data.shape[1]:
+                line.set_data(x_data, y_data[:, i])
+
         self.ax2.relim()
         self.ax2.autoscale_view()
         self.ax2.set_xlim(left=0, right=len(self.ops.evals) + 2)
@@ -381,6 +407,7 @@ class EpigraphConstraint(abc.ABC):
                                                          linestyle='--', alpha=0.5, linewidth=3.))
 
     def _setup_plots(self):
+        """Common plot setup for all derived classes"""
         plt.ion() if self.show_plot else plt.ioff()
         self.fig = plt.figure(figsize=(15, 8))
         grid_spec = gridspec.GridSpec(2, 5, )
@@ -396,44 +423,38 @@ class EpigraphConstraint(abc.ABC):
                      ylabel='Function Evaluations',
                      xlim=(0, 10),
                      title='Optimization Progress')
-        if 'ratio' in self.objective_type:
-            self.evals_lines = self.ax2.plot([np.ones(3)], [np.ones(3)], marker='.', label=[
-                                             r'$t$', r'$(v_1^T C v_1)/(v_2^T C v_2)$', r'$(v_1^T C v_1)/(v_3^T C v_3)$'])
-        else:
-            self.evals_lines = self.ax2.plot([np.ones(4)], [np.ones(4)], marker='.', label=[
-                                             r'$t$', r'$(v_1^T C v_1)^2$', r'$1-(v_2^T C v_2)^2$', r'$1-(v_3^T C v_3)^2$'])
-        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
-        self.epoch_lines = []
-        self.last_epoch_plotted = -1
+
+        # Call the derived class's implementation to setup evaluation lines
+        self._setup_evals_lines()
+
+        # Make sure the lines are set up
+        if self.evals_lines is None:
+            raise RuntimeError("_setup_evals_lines must set self.evals_lines")
 
 
 class ExtremalConstraints(EpigraphConstraint):
 
-    def __init__(self, basis_v, ops, metamaterial, objective_type, extremal_mode, weights=None, **kwargs):
+    def __init__(self, basis_v, ops, metamaterial, extremal_mode, objective_type, weights=jnp.ones(3), **kwargs):
         super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
 
         self.objective_type = objective_type
 
         self.n_constraints = 2 if 'ratio' in self.objective_type else 3
-        self.weights = np.all(weights) or jnp.ones(self.n_constraints)
-
-        self._setup_plots()
+        self.weights = weights
 
     def obj(self, x, C):
         """
         Matrix Normalization and Eigenvalue Control:
 
-        We normalize the homogenized material matrix (C) to its spectral norm (so the largest eigenvalue = 1) to simplify eigenvalue magnitude control, aiming to align basis vectors (v) with eigenvectors. 
-        This normalization, while aiding eigenvector alignment, obscures the material's true stiffness. 
+        We normalize the homogenized material matrix (C) to its spectral norm (so the largest eigenvalue = 1) to simplify eigenvalue magnitude control, aiming to align basis vectors (v) with eigenvectors.
+        This normalization, while aiding eigenvector alignment, obscures the material's true stiffness.
         Thus we will need to implement additional constraints to ensure basis_v are eigenvectors of C.
         """
 
         M = mandelize(C)
         # we use S instead of C for bimode materials
         M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
-        # We only need to normalize if we aren't doing the ratio method
-        if 'ratio' not in self.objective_type:
-            M /= jnorm(M, ord=2)
+        M /= jnorm(M, ord=2)
 
         # Rayleigh quotients with unit length vectors of V
         V = self.basis_v
@@ -442,6 +463,8 @@ class ExtremalConstraints(EpigraphConstraint):
             return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
         elif self.objective_type == 'ray_sq':
             return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
+        elif self.objective_type == 'uni':
+            return (jnp.log(jnp.array[r1, r2 - r1 + 1e-3, r3 - r1 + 1e-3]), jnp.array([r1, r2, r3]))
         # elif self.objective_type == 'norm':
             # return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
         # elif self.objective_type == 'norm_sq':
@@ -465,44 +488,57 @@ class ExtremalConstraints(EpigraphConstraint):
             grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
             grad[n, -1] = -1.
 
+    def _setup_evals_lines(self):
+        d = np.ones(self.n_constraints+1)
+        o = self.objective_type
+        if 'ratio' == o:
+            labels = [r'$t$',
+                      r'$(v_1^T C v_1)/(v_2^T C v_2)$',
+                      r'$(v_1^T C v_1)/(v_3^T C v_3)$']
+        elif 'ray' == o:
+            labels = [r'$t$',
+                      r'$(v_1^T C v_1)$',
+                      r'$1-(v_2^T C v_2)$',
+                      r'$1-(v_3^T C v_3)$']
+        elif 'ray_sq' == o:
+            labels = [r'$t$',
+                      r'$(v_1^T C v_1)^2$',
+                      r'$1-(v_2^T C v_2)^2$',
+                      r'$1-(v_3^T C v_3)^2$']
+        else:
+            labels = ['$t$',
+                      *(f'{o}_{n}' for n in range(self.n_constraints))]
+        """Setup the evaluation lines specific to ExtremalConstraints"""
+        if 'ratio' in self.objective_type:
+            self.evals_lines = self.ax2.plot([d],
+                                             [d],
+                                             marker='.',
+                                             label=labels,
+                                             )
+        else:
+            self.evals_lines = self.ax2.plot([d],
+                                             [d],
+                                             marker='.',
+                                             label=labels,
+                                             )
+        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+
     def __str__(self):
         return "ExtremalConstraints"
 
 
 class EigenvalueProblemConstraints(EpigraphConstraint):
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, objective_type,
-                 w=jnp.ones(3), verbose=True, plot_interval=10, show_plot=True,
-                 silent=False, check_valid=False, eps=1e-3):
+    def __init__(self, basis_v, ops, metamaterial, extremal_mode, weights=jnp.ones(3), check_valid=False, **kwargs):
         # Initialize with base EpigraphConstraint initialization
-        super().__init__(ops=ops, metamaterial=metamaterial,
-                         verbose=verbose, silent=silent, eps=eps)
+        super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
 
-        self.basis_v = basis_v
-        assert np.allclose(self.basis_v.T @ self.basis_v, np.eye(3))
-        self.extremal_mode = extremal_mode
-        self.objective_type = objective_type
-        self.plot_interval = plot_interval
-        self.w = jnp.asarray(w)
-        self.show_plot = show_plot
+        self.weights = weights
         self.check_valid = check_valid
-        self.n_constraints = 6
+        self.n_constraints = 7
 
         # Setup plots same as ExtremalConstraints
         self.img_resolution = (200, 200)
         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
-        self._setup_plots()
-
-        if self.verbose:
-            print(f"""
-EigenvalueProblemConstraints initialized with:
-v:
-{basis_v}
-extremal_mode: {self.extremal_mode}
-starting beta: {self.ops.beta}
-verbose: {self.verbose}
-plot_delay: {self.plot_interval}
-objective_type: {self.objective_type}
-""")
 
     def obj(self, x_: np.ndarray, C):
         # We grab U out of x_ so ease derivative computation
@@ -511,24 +547,23 @@ objective_type: {self.objective_type}
     # We only care about the derivative of the objective w.r.t. the specific parts of x that comprise U.
     # So we do this subcall to avoid differentiating against all of x.
     def _obj_wrt_U(self, U, C):
-        m = jnp.diag(jnp.array([1., 1., jnp.sqrt(2)]))
-        M = m @ C @ m
+        M = mandelize(C)
         M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
-
         M /= jnorm(M, ord=2)
 
         # Rayleigh quotients with U
-        r1, r2, r3 = self.w*jnp.diag(U.T @ M @ U) / jnp.diag(U.T @ U)
+        r1, r2, r3 = self.weights*jnp.diag(U.T @ M @ U) / jnp.diag(U.T @ U)
         rays = jnp.array([r1, 1.-r2, 1.-r3])
 
         V = self.basis_v
         U_norms = jnp.linalg.norm(U, axis=0)
         V_norms = jnp.linalg.norm(V, axis=0)
-        cosines = (jnp.diag(U.T @ V) / (U_norms * V_norms) -
-                   1. + 1e-3) / self.eps
+        cosines = (1 + 1e-6 - jnp.diag(U.T@V) / (U_norms*V_norms))/self.eps
 
-        return (jnp.log(jnp.concatenate([rays, cosines])),
-                jnp.concatenate([jnp.array([r1, r2, r3]), ]))
+        ortho = jnp.linalg.norm(U.T @ U - jnp.eye(3), ord='fro')
+
+        return (jnp.log(jnp.hstack([rays, cosines, [ortho]])),
+                jnp.hstack([jnp.array([r1, r2, r3]), cosines, [ortho]]))
 
     def adjoint(self, x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
         # argnums=[0,1] because we care about both derivatives
@@ -547,6 +582,9 @@ objective_type: {self.objective_type}
     def forward(self, x_):
         return super().forward(self._strip_U(x_))
 
+    def update_plot(self, x_):
+        super().update_plot(self._strip_U(x_))
+
     def _strip_U(self, x_):
         return x_[:-9]
 
@@ -558,6 +596,23 @@ objective_type: {self.objective_type}
             return
         if not self._strip_U(x_).size == self.metamaterial.R.dim():
             raise ValueError(f"Mismatching size of x and R.dim()")
+
+    def _setup_evals_lines(self):
+        """Setup evaluation lines specific to EigenvalueProblemConstraints"""
+        d = np.ones(self.n_constraints+1)
+        labels = ['$t$',
+                  '$u_1^TCu_1$',
+                  '$1-u_2^TCu_2$',
+                  '$1-u_3^TCu_3$',
+                  '$\cos(u_1,v_1)$',
+                  '$\cos(u_2,v_2)$',
+                  '$\cos(u_3,v_3)$',
+                  'ortho']
+        self.evals_lines = self.ax2.plot(
+            [d], [d], marker='.',
+            label=labels
+        )
+        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
 
     def __str__(self):
         return "EigenvalueProblemConstraints"

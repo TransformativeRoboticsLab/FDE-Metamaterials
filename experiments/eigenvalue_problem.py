@@ -31,7 +31,6 @@ np.set_printoptions(precision=5)
 # load_dotenv()
 
 ex = Experiment('eigvalprob')
-ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
 
 
 @ex.config
@@ -56,6 +55,16 @@ def config():
     init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
     single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
     enable_profiling = False
+    log_to_db = True
+
+
+@ex.config_hook
+def connect_mongodb(config, command_name, logger):
+    if config['log_to_db']:
+        ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
+    else:
+        print("MongoDB logging is disabled for this run")
+    return config
 
 
 @ex.automain
@@ -84,7 +93,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     else:
         weights = np.array([1., weight_scaling_factor, weight_scaling_factor])
 
-    print(weights)
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
@@ -108,37 +116,23 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             epoch_iter_tracker=[1])
 
     x = np.random.uniform(0., 1., size=metamate.R.dim())
-    v = V_DICT[basis_v]
-    x = np.concatenate([x, v.flatten(), np.ones(1)])
+    basis_v = V_DICT[basis_v]
+    x = np.concatenate([x, basis_v.flatten(), np.ones(1)])
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    g_eig = EigenvalueProblemConstraints(basis_v=v,
-                                         extremal_mode=extremal_mode,
-                                         metamaterial=metamate,
-                                         ops=ops,
+    g_eig = EigenvalueProblemConstraints(basis_v,
+                                         ops,
+                                         metamate,
+                                         extremal_mode,
+                                         weights=weights,
+                                         check_valid=True,
                                          plot_interval=max(
                                              epoch_duration//2, 1),
                                          show_plot=interim_plot,
                                          verbose=verbose,
-                                         w=weights,
-                                         objective_type='eigen',
-                                         eps=1.
+                                         eps=g_vec_eps
                                          )
-    # g_ext = ExtremalConstraints(v=v,
-    #                             extremal_mode=extremal_mode,
-    #                             metamaterial=metamate,
-    #                             ops=ops,
-    #                             plot_interval=max(epoch_duration//2, 1),
-    #                             show_plot=interim_plot,
-    #                             verbose=verbose,
-    #                             w=weights,
-    #                             objective_type=objective_type)
-    # g_vec = EigenvectorConstraint(v=v,
-    #                               ops=ops,
-    #                               eps=g_vec_eps,
-    #                               verbose=verbose)
-    # g_trc = TraceConstraint(ops=ops, bound=g_trc_bnd, verbose=verbose)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
     opt.active_constraints = [g_eig, ]

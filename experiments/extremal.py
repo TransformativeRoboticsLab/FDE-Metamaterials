@@ -30,7 +30,7 @@ np.set_printoptions(precision=5)
 # load_dotenv()
 
 ex = Experiment('extremal')
-ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
+# ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
 
 
 @ex.config
@@ -55,10 +55,20 @@ def config():
     init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
     single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
     enable_profiling = False
+    log_to_db = True
+
+
+@ex.config_hook
+def connect_mongodb(config, command_name, logger):
+    if config['log_to_db']:
+        ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
+    else:
+        print("MongoDB logging is diabled for this run")
+    return config
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, enable_profiling, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, weight_scaling_factor, init_run_idx, single_sim, enable_profiling, log_to_db, seed):
 
     ProfileConfig.enabled = enable_profiling
     if single_sim:
@@ -110,17 +120,18 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    v = V_DICT[basis_v]
-    g_ext = ExtremalConstraints(basis_v=v,
-                                ops=ops,
-                                metamaterial=metamate,
-                                extremal_mode=extremal_mode,
+    basis_v = V_DICT[basis_v]
+    g_ext = ExtremalConstraints(basis_v,
+                                ops,
+                                metamate,
+                                extremal_mode,
+                                objective_type,
+                                weights=weights,
                                 plot_interval=max(epoch_duration//2, 1),
                                 show_plot=interim_plot,
                                 verbose=verbose,
-                                weights=weights,
-                                objective_type=objective_type)
-    g_vec = EigenvectorConstraint(v=v,
+                                )
+    g_vec = EigenvectorConstraint(v=basis_v,
                                   ops=ops,
                                   eps=g_vec_eps,
                                   verbose=verbose)

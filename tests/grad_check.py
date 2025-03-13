@@ -14,7 +14,8 @@ from metatop.filters import (DensityFilter, HelmholtzFilter,
 from metatop.metamaterial import Metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvalueProblemConstraints,
-                                           EigenvectorConstraint, Epigraph,
+                                           EigenvectorConstraint,
+                                           EpigraphObjective,
                                            ExtremalConstraints,
                                            InvariantsConstraint,
                                            SpectralNormConstraint,
@@ -101,7 +102,7 @@ def plot_gradients(grad_analytical, grad_fd):
 
 def create_constraint(cname, p):
     if cname == 'Epigraph':
-        return Epigraph()
+        return EpigraphObjective()
     elif cname == 'EigenvalueProblem':
         return EigenvalueProblemConstraints(basis_v=p['v'],
                                             extremal_mode=p['extremal_mode'],
