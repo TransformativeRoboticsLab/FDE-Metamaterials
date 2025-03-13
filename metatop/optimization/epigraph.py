@@ -311,7 +311,6 @@ class EpigraphConstraint(abc.ABC):
             print("-" * 30)
             print(f"t: {t:.3e} g_ext(x): {c}")
             print(f"Actual Values: {cs}")
-            print(f"U matrix: {self._select_U(self.ops.x[:-1])}")
         else:
             print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
 
