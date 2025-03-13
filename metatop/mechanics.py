@@ -1,6 +1,21 @@
 import fenics as fe
 import numpy as np
 
+MANDEL = np.diag([1., 1., np.sqrt(2)])
+INV_MANDEL = np.diag([1., 1., 1./np.sqrt(2)])
+
+
+def mandelize(A):
+    if A.shape != (3, 3):
+        raise ValueError("Shape of input matrix is not 3x3")
+    return MANDEL @ A @ MANDEL
+
+
+def inv_mandelize(A):
+    if A.shape != (3, 3):
+        raise ValueError("Shape of input matrix is not 3x3")
+    return INV_MANDEL @ A @ INV_MANDEL
+
 
 def linear_strain(u):
     return fe.sym(fe.grad(u))
