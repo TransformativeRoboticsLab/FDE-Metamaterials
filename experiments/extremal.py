@@ -83,7 +83,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     else:
         weights = np.array([1., weight_scaling_factor, weight_scaling_factor])
 
-    print(weights)
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
     metamate = setup_metamaterial(E_max,
@@ -113,13 +112,13 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== Optimizer setup ======
     v = V_DICT[basis_v]
     g_ext = ExtremalConstraints(basis_v=v,
-                                extremal_mode=extremal_mode,
-                                metamaterial=metamate,
                                 ops=ops,
+                                metamaterial=metamate,
+                                extremal_mode=extremal_mode,
                                 plot_interval=max(epoch_duration//2, 1),
                                 show_plot=interim_plot,
                                 verbose=verbose,
-                                w=weights,
+                                weights=weights,
                                 objective_type=objective_type)
     g_vec = EigenvectorConstraint(v=v,
                                   ops=ops,
