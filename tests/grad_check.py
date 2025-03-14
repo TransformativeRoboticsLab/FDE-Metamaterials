@@ -129,7 +129,7 @@ def create_constraint(cname, p):
         return InvariantsConstraint(ops=p['ops'],
                                     verbose=p['verbose'])
     elif cname == 'Eigenvector':
-        return EigenvectorConstraint(v=p['v'],
+        return EigenvectorConstraint(basis_v=p['v'],
                                      ops=p['ops'],
                                      verbose=p['verbose'])
     elif cname == 'SpectralNorm':
