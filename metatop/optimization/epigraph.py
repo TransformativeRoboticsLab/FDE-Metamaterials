@@ -251,7 +251,7 @@ class EpigraphConstraint(abc.ABC):
 
         self.update_metrics(t, c, cs)
 
-        if hasattr(self, 'plot_interval') and len(self.ops.evals) % self.plot_interval == 1:
+        if len(self.ops.evals) % self.plot_interval == 1:
             self.update_plot(x_)
 
         stop_on_nan(c)
@@ -309,6 +309,22 @@ class EpigraphConstraint(abc.ABC):
         else:
             print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
 
+    def update_plot(self, x_):
+        if self.fig is None:
+            self._setup_plots()
+
+        # Still None after setup (could happen if show_plot is False)
+        if self.fig is None:
+            return
+
+        fields = self._prepare_fields(x_)
+        self._update_image_plots(fields)
+        self._update_evaluation_plot()
+
+        if self.show_plot:
+            self.fig.canvas.draw()
+            plt.pause(1e-3)
+
     def plot_density(self, r_in, title=None, ax=None):
         r = fe.Function(r_in.function_space())
         r.vector()[:] = 1. - r_in.vector()[:]
@@ -335,22 +351,6 @@ class EpigraphConstraint(abc.ABC):
             return
 
         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
-
-    def update_plot(self, x_):
-        if self.fig is None:
-            self._setup_plots()
-
-        # Still None after setup (could happen if show_plot is False)
-        if self.fig is None:
-            return
-
-        fields = self._prepare_fields(x_)
-        self._update_image_plots(fields)
-        self._update_evaluation_plot()
-
-        if self.show_plot:
-            self.fig.canvas.draw()
-            plt.pause(1e-3)
 
     def _prepare_fields(self, x):
         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
@@ -404,14 +404,14 @@ class EpigraphConstraint(abc.ABC):
         """Common plot setup for all derived classes"""
         plt.ion() if self.show_plot else plt.ioff()
         self.fig = plt.figure(figsize=(15, 8))
-        grid_spec = gridspec.GridSpec(2, 5, )
-        self.ax1 = [plt.subplot(grid_spec[0, 0]),
-                    plt.subplot(grid_spec[0, 1]),
-                    plt.subplot(grid_spec[0, 2]),
-                    plt.subplot(grid_spec[0, 3]),
-                    plt.subplot(grid_spec[0, 4]),
+        gs = gridspec.GridSpec(2, 5, )
+        self.ax1 = [plt.subplot(gs[0, 0]),
+                    plt.subplot(gs[0, 1]),
+                    plt.subplot(gs[0, 2]),
+                    plt.subplot(gs[0, 3]),
+                    plt.subplot(gs[0, 4]),
                     ]
-        self.ax2 = plt.subplot(grid_spec[1, :])
+        self.ax2 = plt.subplot(gs[1, :])
         self.ax2.grid(True)
         self.ax2.set(xlabel='Iterations',
                      ylabel='Function Evaluations',
