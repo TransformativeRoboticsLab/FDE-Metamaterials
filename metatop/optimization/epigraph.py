@@ -716,8 +716,8 @@ class VectorConstraint:
 
 class EigenvectorConstraint:
 
-    def __init__(self, v, ops, eps=1e-3, verbose=True):
-        self.v = v
+    def __init__(self, basis_v, ops, eps=1e-3, verbose=True):
+        self.basis_v = basis_v
         self.ops = ops
         self.eps = eps
         self.verbose = verbose
@@ -730,21 +730,7 @@ class EigenvectorConstraint:
 
         t = x[-1]
 
-        def obj(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-            C = m @ C @ m
-
-            C /= jnorm(C, ord=2)
-
-            v1, v2, v3 = self.v[:, 0], self.v[:, 1], self.v[:, 2]
-            # Rayleigh quotients
-            r1, r2, r3 = v1.T @ C @ v1, v2.T @ C @ v2, v3.T @ C @ v3
-            Cv1, Cv2, Cv3 = C @ v1, C @ v2, C @ v3
-            x1, x2, x3 = Cv1 - r1*v1, Cv2 - r2*v2, Cv3 - r3*v3
-
-            return jnp.log(jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])/self.eps), jnp.array([x1.T @ x1, x2.T @ x2, x3.T @ x3])
-
-        c, cs = obj(np.asarray(Chom))
+        c, cs = self.obj(Chom)
         stop_on_nan(c)
         results[:] = c - t
 
@@ -752,7 +738,7 @@ class EigenvectorConstraint:
             return
 
         if grad.size > 0:
-            dc_dChom = jax.jacrev(obj, has_aux=True)(jnp.asarray(Chom))[
+            dc_dChom = jax.jacrev(self.obj, has_aux=True)(jnp.asarray(Chom))[
                 0].reshape((self.n_constraints, 9))
             for n in range(self.n_constraints):
                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
@@ -765,6 +751,21 @@ class EigenvectorConstraint:
             print(f"Residuals: {cs}")
         else:
             print(f"\tg_vec(x): {c}")
+
+    def obj(self, C):
+        M = mandelize(C)
+        # eigenvectors are the same for C and S so we don't worry about inverting like we do in other constraints
+        M /= jnorm(M, ord=2)
+
+        V = self.basis_v
+        # Rayleigh quotient in diagonal matrix form
+        R = jnp.diag(ray_q(M, V))
+        # Resdiuals of eigenvector alignment
+        res = M @ V - V @ R
+        # norm squared of each residual
+        norm_sq = jnp.sum(jnp.square(res), axis=0)
+
+        return jnp.log(norm_sq/self.eps), norm_sq
 
     def __str__(self):
         return "EigenvectorConstraint"
