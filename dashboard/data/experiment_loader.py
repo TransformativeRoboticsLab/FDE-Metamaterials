@@ -22,8 +22,8 @@ DB_QUERY = {"$and": [
     {'experiment.name': MONGO_EXP_NAME},
     {'status': 'COMPLETED'},
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
-    {'config.nu': {'$eq': 0.1}},
-    {'config.single_sim': {'$eq': True}}
+    {'config.nu': {'$eq': 0.4}},
+    # {'config.single_sim': {'$eq': True}}
 ]}
 
 try:
@@ -36,6 +36,35 @@ except Exception as e:
 experiments_cache = []
 dropdown_options_cache = {}
 cache_lock = threading.Lock()
+
+
+def format_query(query, indent=0):
+    """
+    Format a MongoDB query for human readability.
+    Args:
+        query (dict): MongoDB query dictionary
+        indent (int): Current indentation level
+    Returns:
+        str: A formatted string representation of the query
+    """
+    result = []
+    spaces = "  " * indent
+
+    for key, value in query.items():
+        if isinstance(value, dict):
+            result.append(f"{spaces}{key}:")
+            result.append(format_query(value, indent + 1))
+        elif isinstance(value, list):
+            result.append(f"{spaces}{key}:")
+            for item in value:
+                if isinstance(item, dict):
+                    result.append(format_query(item, indent + 1))
+                else:
+                    result.append(f"{spaces}  - {item}")
+        else:
+            result.append(f"{spaces}{key}: {value}")
+
+    return "\n".join(result)
 
 
 def load_experiments(experiment_name, filter_tags=[], process_exps=True):
@@ -54,6 +83,9 @@ def load_experiments(experiment_name, filter_tags=[], process_exps=True):
     try:
         exps = loader.find(DB_QUERY)
         logger.info(f"{len(exps)} found matching query")
+        if len(exps) == 0:
+            raise ValueError(
+                f"No experiemnts found matching query for experiment '{format_query(DB_QUERY)}'")
         logger.info(f"Loaded {len(exps)} experiments")
         ddos = update_dropdown_options(exps)
         logger.success(f"Updated experiments cache at {time.ctime()}")
