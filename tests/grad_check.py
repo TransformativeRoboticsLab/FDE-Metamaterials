@@ -23,7 +23,7 @@ from metatop.optimization.epigraph import (EigenvalueProblemConstraints,
 from metatop.optimization.examples import AndreassenOptimization
 from metatop.optimization.scalar import \
     BulkModulusConstraint as ScalarBulkModulusConstraint
-from metatop.optimization.scalar import EnergyObjective
+from metatop.optimization.scalar import RayleighScalarObjective
 
 jax.config.update("jax_enable_x64", True)
 
@@ -120,11 +120,11 @@ def create_constraint(cname, p):
                                    objective_type=p['objective_type'],
                                    silent=p['silent'])
     elif cname == 'Energy':
-        return EnergyObjective(v=p['v'],
-                               extremal_mode=p['extremal_mode'],
-                               metamaterial=p['metamaterial'], ops=p['ops'],
-                               verbose=p['verbose'],
-                               plot=p['plot'])
+        return RayleighScalarObjective(v=p['v'],
+                                       extremal_mode=p['extremal_mode'],
+                                       metamaterial=p['metamaterial'], ops=p['ops'],
+                                       verbose=p['verbose'],
+                                       plot=p['plot'])
     elif cname == 'Invariants':
         return InvariantsConstraint(ops=p['ops'],
                                     verbose=p['verbose'])
@@ -281,12 +281,12 @@ def main():
                        epi_constraint=True)
 
     # ===== Scalar Constraints =====
-    obj = EnergyObjective(basis_v=params['v'],
-                          extremal_mode=params['extremal_mode'],
-                          metamaterial=params['metamaterial'],
-                          ops=params['ops'],
-                          verbose=params['verbose'],
-                          plot=params['plot'])
+    obj = RayleighScalarObjective(basis_v=params['v'],
+                                  extremal_mode=params['extremal_mode'],
+                                  metamaterial=params['metamaterial'],
+                                  ops=params['ops'],
+                                  verbose=params['verbose'],
+                                  plot=params['plot'])
     params['obj'] = obj
 
     # handle_constraints('ScalarBulk', x, params)

@@ -1,136 +1,179 @@
-
 import fenics as fe
 import jax
 import jax.interpreters
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from jax.numpy.linalg import norm as jnorm
 from matplotlib import gridspec
+from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
+from metatop.mechanics import mandelize, ray_q
+
+from .utils import stop_on_nan
 
 
-class EnergyObjective:
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=10, plot=True):
+class RayleighScalarObjective:
+    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=25, show_plot=True, img_resolution=(200, 200), eps=1.):
         self.basis_v = basis_v
-        self.extremal_mode = extremal_mode
-        self.metamaterial = metamaterial
         self.ops = ops
+        self.metamaterial = metamaterial
+        self.extremal_mode = extremal_mode
+
         self.verbose = verbose
-        self.plot_interval = plot_interval
-        self.evals = []
+        self.eps = eps
         self.n_constraints = 1
 
-        if plot:
-            plt.ion()
-            self.fig = plt.figure(figsize=(24, 8))
-            grid_spec = gridspec.GridSpec(2, 6, )
-            self.ax1 = [plt.subplot(grid_spec[0, 0]), plt.subplot(grid_spec[0, 1]), plt.subplot(
-                grid_spec[0, 2]), plt.subplot(grid_spec[0, 3]), plt.subplot(grid_spec[0, 4]), plt.subplot(grid_spec[0, 5])]
-            self.ax2 = plt.subplot(grid_spec[1, :])
-        else:
-            self.fig = None
+        self.plot_interval = plot_interval
+        self.show_plot = show_plot
+        self.img_resolution = img_resolution
+        self.img_shape = (self.metamaterial.width, self.metamaterial.height)
+
+        self.fig = None
+        self.epoch_lines = []
+        self.last_epoch_plotted = -1
 
     def __call__(self, x, grad):
 
-        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+        x_fem, dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x)
 
-        def filter_and_project(x):
-            x = filt_fn(x)
-            x = jax_projection(x, beta, eta)
-            return x
+        (c, cs), dc_dChom = jax.value_and_grad(
+            self.obj, has_aux=True)(Chom)
 
-        x_fem, dxfem_dx_vjp = jax.vjp(filter_and_project, x)
+        if grad.size > 0:
+            self.adjoint(grad, dxfem_dx_vjp, dChom_dxfem, dc_dChom)
+
+        self.update_metrics(c, cs)
+
+        if len(self.ops.evals) % self.plot_interval == 1:
+            self.update_plot(x)
+
+        stop_on_nan(c)
+        return float(c)
+
+    def forward(self, x):
+        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
 
         self.metamaterial.x.vector()[:] = x_fem
         sols, Chom, _ = self.metamaterial.solve()
+        Chom = jnp.asarray(Chom)
         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
+        return x_fem, dxfem_dx_vjp, Chom, dChom_dxfem
 
-        def obj(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-            C = m @ C @ m
-            S = jnp.linalg.inv(C)
+    def filter_and_project(self, x):
+        x = self.ops.filt_fn(x)
+        x = jax_projection(x, self.ops.beta, self.ops.eta)
+        return x
 
-            if self.extremal_mode == 2:
-                C, S = S, C
+    def obj(self, C):
+        M = mandelize(C)
+        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+        M /= jnorm(M)
 
-            vCv = self.basis_v.T @ C @ self.basis_v
-            c1, c2, c3 = vCv[0, 0], vCv[1, 1], vCv[2, 2]
-            return jnp.log10(c1**2/c2/c3), jnp.array([c1, c2, c3])
+        r1, r2, r3 = ray_q(M, self.basis_v)
+        return r1**2/r2/r3, jnp.array([r1, r2, r3])
 
-        (c, cs), dc_dChom = jax.value_and_grad(
-            obj, has_aux=True)(jnp.asarray(Chom))
+    def adjoint(self, grad, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
+        grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
-        self.evals.append(c)
-
-        if grad.size > 0:
-            g = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[:] = g
-
+    def update_metrics(self, c, cs):
+        self.ops.evals.append(c)
         if self.verbose:
             print("-" * 30)
             print(
-                f"Epoch {self.ops.epoch:d}, Step {len(self.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
+                f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
             print(f"Energy: {c:.4f}")
             print(f"Actual Values: {cs}")
+        else:
+            print(f"{len(self.ops.evals):04d} - f(x) = {c}")
 
-        if (len(self.evals) % self.plot_interval == 1) and self.fig is not None:
-            x_tilde = filt_fn(x)
-            x_bar = jax_projection(x_tilde, beta, eta)
-            img_rez = (200, 200)
-            img_shape = (self.metamaterial.width, self.metamaterial.height)
-            r_img = self.metamaterial.x.copy(deepcopy=True)
-            x_img = bitmapify(r_img, img_shape, img_rez, invert=True)
+    def update_plot(self, x):
+        if self.fig is None:
+            self._setup_plots()
 
-            fields = {f'x (V={np.mean(x):.3f})': x,
-                      f'x_tilde (V={np.mean(x_tilde):.3f})': x_tilde,
-                      f'x_bar beta={beta:d} (V={np.mean(x_bar):.3f})': x_bar,
-                      #    'grad': g,
-                      f'x_fem (V={np.mean(x_fem):.3f})': x_fem,
-                      'x_img': x_img,
-                      'Tiling': np.tile(x_img, (3, 3))}
-            self.update_plot(fields)
+        if self.fig is None:
+            return
 
-        return float(c)
+        fields = self._prepare_fields(x)
+        self._update_image_plots(fields)
+        self._update_evaluation_plot()
 
-    def update_plot(self, fields):
+        if self.show_plot:
+            self.fig.canvas.draw()
+            plt.pause(1e-3)
+
+    def _prepare_fields(self, x):
+        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+        x_tilde = filt_fn(x)
+        x_bar = jax_projection(x_tilde, beta, eta)
+        x_img = bitmapify(self.metamaterial.x.copy(
+            deepcopy=True), self.img_shape, self.img_resolution, invert=True)
+        fields = {r'$\rho$': x,
+                  r'$\tilde{\rho}$': x_tilde,
+                  fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
+                  r'$\bar{\rho}$ bitmap': x_img,
+                  'Image tiling': np.tile(x_img, (3, 3))}
         if len(fields) != len(self.ax1):
-            raise ValueError("Number of fields must match number of axes")
+            raise ValueError(
+                f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
+        return fields
 
+    def _update_image_plots(self, fields):
         r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.size == self.metamaterial.R.dim():
+            if field.shape[0] == self.metamaterial.R.dim():
                 r.vector()[:] = field
-                cmap = 'gray' if 'x' in name else 'viridis'
-                cb = 'x' not in name
-                vmin = 0 if 'x' in name else None
-                vmax = 1 if 'x' in name else None
-                self.plot_density(
-                    r, title=f"{name}", ax=ax, cmap=cmap, colorbar=cb, vmin=vmin, vmax=vmax)
+                self.plot_density(r, title=f"{name}", ax=ax)
             else:
                 ax.imshow(field, cmap='gray')
                 ax.set_title(name)
             ax.set_xticks([])
             ax.set_yticks([])
 
-        self.ax2.clear()
-        f_arr = np.asarray(self.evals)
-        self.ax2.plot(range(1, len(self.evals)+1), f_arr, marker='o')
+    def _update_evaluation_plot(self):
+        x_data = range(1, len(self.ops.evals)+1)
+        y_data = np.asarray(self.ops.evals)
+
+        self.eval_line.set_data(x_data, y_data)
+
+        self.ax2.relim()
+        self.ax2.autoscale_view()
+        self.ax2.set_xlim(left=0, right=len(self.ops.evals)+2)
+
+        for idx in self.ops.epoch_iter_tracker:
+            if idx > self.last_epoch_plotted:
+                self.last_epoch_plotted = idx
+                self.epoch_lines.append(self.ax2.axvline(x=idx,
+                                                         color='k',
+                                                         linestyle='--',
+                                                         alpha=0.5,
+                                                         linewidth=3.))
+
+    def _setup_plots(self):
+        plt.ion() if self.show_plot else plt.ioff()
+        self.fig = plt.figure(figsize=(15, 8))
+        gs = gridspec.GridSpec(2, 5)
+        self.ax1 = [plt.subplot(gs[0, 0]),
+                    plt.subplot(gs[0, 1]),
+                    plt.subplot(gs[0, 2]),
+                    plt.subplot(gs[0, 3]),
+                    plt.subplot(gs[0, 4]),
+                    ]
+
+        self.ax2 = plt.subplot(gs[1, :])
         self.ax2.grid(True)
-        self.ax2.set_xlim(left=0, right=len(self.evals) + 2)
+        self.ax2.set(xlabel='Iterations',
+                     ylabel='f(x)',
+                     xlim=(0, 10),
+                     title='Optimization Progress')
 
-        for iter_val in self.ops.epoch_iter_tracker:
-            self.ax2.axvline(x=iter_val, color='black',
-                             linestyle='--', alpha=0.5, linewidth=3.)
-
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
-        plt.pause(1e-3)
+        self.eval_line = self.ax2.plot([0], [0], label='$f(x)$')[0]
 
     def plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
         r = fe.Function(r_in.function_space())
