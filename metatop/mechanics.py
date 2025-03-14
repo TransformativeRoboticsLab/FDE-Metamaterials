@@ -1,16 +1,45 @@
 import fenics as fe
+import jax
+import jax.numpy as jnp
 import numpy as np
 
-MANDEL = np.diag([1., 1., np.sqrt(2)])
-INV_MANDEL = np.diag([1., 1., 1./np.sqrt(2)])
+MANDEL = jnp.diag(jnp.array([1., 1., jnp.sqrt(2)]))
+INV_MANDEL = jnp.diag(jnp.array([1., 1., 1./jnp.sqrt(2)]))
 
 
+@jax.jit
+def ray_q(A: jnp.ndarray, X: jnp.ndarray):
+    """
+    Calculate Rayleigh quotient(s) for vector(s) v with matrix M.
+
+    Args:
+        X: Vector (n,) or matrix (n,m) where columns are vectors
+        A: Matrix (n,n) 
+
+    Returns:
+        If X is a vector: scalar Rayleigh quotient X.T @ A @ X
+        If X is a matrix: array of Rayleigh quotients for each column
+    """
+
+    # Handle vector case
+    if X.ndim == 1:
+        return (X.T @ A @ X) / (X.T @ X)
+
+    # Handle matrix case
+    if X.ndim == 2:
+        return jnp.diag(X.T @ A @ X) / jnp.diag(X.T @ X)
+
+    raise ValueError("Input v must be 1D vector or 2D matrix")
+
+
+@jax.jit
 def mandelize(A):
     if A.shape != (3, 3):
         raise ValueError("Shape of input matrix is not 3x3")
     return MANDEL @ A @ MANDEL
 
 
+@jax.jit
 def inv_mandelize(A):
     if A.shape != (3, 3):
         raise ValueError("Shape of input matrix is not 3x3")

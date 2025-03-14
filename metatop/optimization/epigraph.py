@@ -457,9 +457,10 @@ class ExtremalConstraints(EpigraphConstraint):
 
         # Rayleigh quotients with unit length vectors of V
         V = self.basis_v
-        r1, r2, r3 = self.weights*jnp.diag(V.T @ M @ V)
+        r1, r2, r3 = self.weights*ray_q(M, V)
+
         if self.objective_type == 'ray':
-            return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
+            return jnp.log(jnp.array([r1, 1.-r2, 1.-r3])), jnp.array([r1, r2, r3,])
         elif self.objective_type == 'ray_sq':
             return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
         elif self.objective_type == 'uni':
@@ -551,7 +552,7 @@ class EigenvalueProblemConstraints(EpigraphConstraint):
         M /= jnorm(M, ord=2)
 
         # Rayleigh quotients with U
-        r1, r2, r3 = self.weights*jnp.diag(U.T @ M @ U) / jnp.diag(U.T @ U)
+        r1, r2, r3 = self.weights*ray_q(M, U)
         rays = jnp.array([r1, 1.-r2, 1.-r3])
 
         V = self.basis_v
