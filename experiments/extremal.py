@@ -13,6 +13,7 @@ from experiments.utils import *
 from metatop import V_DICT
 from metatop.fem_profiler import fem_profiler
 from metatop.filters import setup_filter
+from metatop.helpers import mirror_density
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.epigraph import (EigenvectorConstraint,
@@ -116,6 +117,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             epoch_iter_tracker=[1])
 
     x = seed_density(init_run_idx, metamate.R.dim())
+    # x = mirror_density(x, metamate.R, type='xy')[0]
 
     # ===== End Component Setup =====
 
@@ -131,8 +133,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                 show_plot=interim_plot,
                                 verbose=verbose,
                                 )
-    g_vec = EigenvectorConstraint(v=basis_v,
-                                  ops=ops,
+    g_vec = EigenvectorConstraint(basis_v,
+                                  ops,
                                   eps=g_vec_eps,
                                   verbose=verbose)
     g_trc = TraceConstraint(ops=ops, bound=g_trc_bnd, verbose=verbose)
