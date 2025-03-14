@@ -10,18 +10,13 @@ import nlopt
 import numpy as np
 from jax.numpy.linalg import norm as jnorm
 from matplotlib import gridspec
-from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
-from metatop.mechanics import inv_mandelize, mandelize
+from metatop.mechanics import inv_mandelize, mandelize, ray_q
 from metatop.profiling import profile_block, profile_function
 
-
-def stop_on_nan(x):
-    if np.isnan(x).any():
-        print("NaN value detected in objective function. Terminating optimization run.")
-        raise ForcedStop
+from .utils import stop_on_nan
 
 
 class EpigraphOptimizer(nlopt.opt):
