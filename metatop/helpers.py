@@ -20,6 +20,7 @@ def update_t(x, gs):
     x[-1] = new_t
     print(f"New t value: {x[-1]:.3e}")
 
+
 def init_density(density_seed_type, vol_frac, dim):
     if density_seed_type == 'uniform':
         return np.random.uniform(0., 1., dim)
@@ -30,6 +31,7 @@ def init_density(density_seed_type, vol_frac, dim):
     else:
         raise ValueError(f"Invalid density_seed_type: {density_seed_type}")
 
+
 def beta_function(vol_frac, size):
     # we use a reduced volume frac to ensure that the mean is actually below the desired frac. We want to ensure we start in a feasible region of the problem if we have an upper bound on the volume fraction.
     reduced_vol_frac = 0.95 * (vol_frac * (1. - vol_frac) / 0.1 - 1.)
@@ -37,24 +39,34 @@ def beta_function(vol_frac, size):
     b = (1. - vol_frac) * reduced_vol_frac
     return np.random.beta(a, b, size)
 
-def mirror_density(density, fn_space, type='x'):
+
+def mirror_density(density, fn_space, type=None):
     if type == 'x':
         ref_angles = [np.pi/2]
-        domain = lambda x: x[0] > 0.
+        def domain(x): return x[0] > 0.
     elif type == 'y':
         ref_angles = [np.pi]
-        domain = lambda x: x[1] > 0.
+        def domain(x): return x[1] > 0.
     elif type == 'xy':
         ref_angles = [np.pi/2, np.pi, 3*np.pi/2]
-        domain = lambda x: x[0] > 0. and x[1] > 0.
+        def domain(x): return x[0] > 0. and x[1] > 0.
     elif type == 'xyd':
-        ref_angles = [np.pi/4, np.pi/2, np.pi*3/4, np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4]
-        domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1.
+        ref_angles = [np.pi/4, np.pi/2, np.pi*3/4,
+                      np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4]
+
+        def domain(x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1.
     elif type == 'hex':
-        ref_angles = [np.pi/6, np.pi/2, 5*np.pi/6, np.pi, 7*np.pi/6, 3*np.pi/2, 11*np.pi/6]
-        domain = lambda x: x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
+        ref_angles = [np.pi/6, np.pi/2, 5*np.pi/6,
+                      np.pi, 7*np.pi/6, 3*np.pi/2, 11*np.pi/6]
+
+        def domain(
+            x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
+    elif type is None:
+        print("Mirror type specified is None. Not applying mirror.")
+        return
     else:
-        raise ValueError(f"Invalid mirror type: {type}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
+        raise ValueError(
+            f"Invalid mirror type: {type}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
 
     mirror_density = density.copy()
     dofs = fn_space.tabulate_dof_coordinates()
@@ -68,13 +80,12 @@ def mirror_density(density, fn_space, type='x'):
     height = y_max - y_min
 
     shifted_dofs = dofs - np.array([width, height])/2
-    
+
     tree = KDTree(shifted_dofs)
-    
+
     def ref(p, th):
         return np.array([[np.cos(2*th), np.sin(2*th)],
                          [np.sin(2*th), -np.cos(2*th)]]) @ p
-
 
     # We do this as a series of reflections, propagating the density around the domain
     # NOTE: We aren't checking the domain, because there isn't an exact mapping when using the hex. Instead we do this for all points and it still works out, even if it is inefficient and slower.
@@ -94,15 +105,17 @@ def mirror_density(density, fn_space, type='x'):
 
     return mirror_density, (mirror_source, mirror_target)
 
+
 class Ellipse(fe.UserExpression):
-    
+
     def __init__(self, V, a, b):
         super().__init__()
         self.V = V
         self.a = a
         self.b = b
-        
+
     def eval(self, values, x):
         xc, yc, a, b = 0.5, 0.5, self.a, self.b
-        values[0] = 0.5*self.V if ((x[0] - xc)/a)**2 + ((x[1] - yc)/b)**2 < 1 else self.V
+        values[0] = 0.5*self.V if ((x[0] - xc)/a)**2 + \
+            ((x[1] - yc)/b)**2 < 1 else self.V
         # values[0] = 0.5*self.V if (x[0] - xc)**2 + (x[1] - yc)**2 < r**2 else self.V
