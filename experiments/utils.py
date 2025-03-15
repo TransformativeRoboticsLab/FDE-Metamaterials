@@ -318,8 +318,9 @@ def log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops,
     save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
 
 
-def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, x_history):
-    final_C = forward_solve(x[:-1], metamate, ops)
+def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, objective, x_history):
+    x_ = x[:metamate.R.dim()]
+    final_C = forward_solve(x_, metamate, ops)
 
     w, v = np.linalg.eigh(final_C)
     print('Final C:\n', final_C)
@@ -341,7 +342,7 @@ def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ex
                      'evals': ops.evals},
                     f)
 
-    save_fig_and_artifact(ex, g_ext.fig, outname, f'{run_id}_timeline.png')
+    save_fig_and_artifact(ex, objective.fig, outname, f'{run_id}_timeline.png')
     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.png')
     save_bmp_and_artifact(ex, np.tile(x_img, (4, 4)),

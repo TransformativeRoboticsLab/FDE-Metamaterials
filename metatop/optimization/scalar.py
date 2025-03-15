@@ -1,3 +1,5 @@
+import itertools
+
 import fenics as fe
 import jax
 import jax.interpreters
@@ -16,7 +18,7 @@ from .utils import stop_on_nan
 
 
 class RayleighScalarObjective:
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=25, show_plot=True, img_resolution=(200, 200), eps=1.):
+    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=25, show_plot=True, img_resolution=(200, 200), eps=1., silent=False):
         self.basis_v = basis_v
         self.ops = ops
         self.metamaterial = metamaterial
@@ -28,6 +30,7 @@ class RayleighScalarObjective:
 
         self.plot_interval = plot_interval
         self.show_plot = show_plot
+        self.silent = silent
         self.img_resolution = img_resolution
         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
 
@@ -37,13 +40,16 @@ class RayleighScalarObjective:
 
     def __call__(self, x, grad):
 
-        x_fem, dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x)
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
 
         (c, cs), dc_dChom = jax.value_and_grad(
             self.obj, has_aux=True)(Chom)
 
         if grad.size > 0:
-            self.adjoint(grad, dxfem_dx_vjp, dChom_dxfem, dc_dChom)
+            grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+            print(f"Grad max: {np.max(grad)}")
+            print(f"Grad min: {np.min(grad)}")
+            print(f"Grad Norm {np.linalg.norm(grad)}")
 
         self.update_metrics(c, cs)
 
@@ -63,7 +69,7 @@ class RayleighScalarObjective:
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-        return x_fem, dxfem_dx_vjp, Chom, dChom_dxfem
+        return Chom, dChom_dxfem, dxfem_dx_vjp
 
     def filter_and_project(self, x):
         x = self.ops.filt_fn(x)
@@ -72,24 +78,37 @@ class RayleighScalarObjective:
 
     def obj(self, C):
         M = mandelize(C)
-        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
-        M /= jnorm(M)
+        # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+        M /= jnorm(M, ord=2)
 
         r1, r2, r3 = ray_q(M, self.basis_v)
-        return r1**2/r2/r3, jnp.array([r1, r2, r3])
+        amean = (r2 + r3) / 2
+        gmean = jnp.sqrt(r2*r3)
+        hmean = 2 / (1/r2 + 1/r3)
+        return (-1)**(self.extremal_mode-1)*r1/amean, jnp.array([r1, r2, r3])
 
-    def adjoint(self, grad, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
-        grad[:] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
     def update_metrics(self, c, cs):
         self.ops.evals.append(c)
+        if self.silent:
+            return
+
         if self.verbose:
-            print("-" * 30)
+            print("-" * 50)
             print(
                 f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
             print("-" * 30)
-            print(f"Energy: {c:.4f}")
-            print(f"Actual Values: {cs}")
+            print(f"f(x): {c:.4f}")
+            print(f"Rayleigh Quotients: {cs}")
+            e, v = np.linalg.eigh(mandelize(self.ops.Chom))
+            print(f"Actual (normed) eigenvalues: {e/np.max(e)}")
+            print(f"Desired eigenvectors:")
+            print(self.basis_v)
+            print(f"Actual eigenvectors:")
+            print(v)
+            # print(f"")
         else:
             print(f"{len(self.ops.evals):04d} - f(x) = {c}")
 
@@ -204,6 +223,62 @@ class RayleighScalarObjective:
             return
 
         p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+
+
+class EigenvectorConstraint:
+
+    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=False):
+        self.basis_v = basis_v
+        self.extremal_mode = extremal_mode  # currently unused
+        self.metamaterial = metamaterial
+        self.ops = ops
+        self.verbose = verbose
+
+    def __call__(self, _, grad):
+
+        Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
+
+        c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
+
+        if grad.size > 0:
+            grad[:] = self.adjoint(dxfem_dx_vjp, dChom_dxfem, dc_dChom)
+            print(f"Grad max: {np.max(grad)}")
+            print(f"Grad min: {np.min(grad)}")
+            print(f"Grad norm: {np.linalg.norm(grad)}")
+
+        stop_on_nan(c)
+        return float(c)
+
+    def obj(self, C):
+        M = mandelize(C)
+        # M = jnp.linalg.norm(M) if self.extremal_mode == 2 else M
+        M /= jnorm(M)
+
+        e_vals, e_vecs = jnp.linalg.eigh(M)
+        V = self.basis_v
+        v1, v2, v3 = V[:, 0], V[:, 1], V[:, 2]
+        outer_v1 = jnp.outer(v1, v1)
+        outer_v2 = jnp.outer(v2, v2)
+        outer_v3 = jnp.outer(v3, v3)
+
+        min_penalty = jnp.inf
+        for p in itertools.permutations([0, 1, 2]):
+            current_penalty = 0.0
+            current_penalty += jnp.linalg.norm(outer_v1 - jnp.outer(
+                e_vecs[:, p[0]], e_vecs[:, p[0]]), ord='fro')**2
+            current_penalty += jnp.linalg.norm(outer_v2 - jnp.outer(
+                e_vecs[:, p[1]], e_vecs[:, p[1]]), ord='fro')**2
+            current_penalty += jnp.linalg.norm(outer_v3 - jnp.outer(
+                e_vecs[:, p[2]], e_vecs[:, p[2]]), ord='fro')**2
+            min_penalty = jnp.minimum(min_penalty, current_penalty)
+
+        return min_penalty
+
+    def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
+        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+
+    def update_metrics(self, c):
+        print(f"g(x): {c:.4f}")
 
 
 class EnergyConstraints:
