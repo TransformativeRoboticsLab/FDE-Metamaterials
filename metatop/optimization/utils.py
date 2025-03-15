@@ -30,7 +30,7 @@ class OptimizationComponent(abc.ABC):
             logger.debug(f"OPS: {self.ops}")
 
     @abc.abstractmethod
-    def obj(self, C):
+    def eval(self, C):
         pass
 
     @abc.abstractmethod
@@ -78,9 +78,6 @@ class OptimizationComponent(abc.ABC):
 
 class ScalarOptimizationComponent(OptimizationComponent):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @abc.abstractmethod
     def __call__(self, x, grad):
         pass
@@ -90,7 +87,7 @@ class ScalarOptimizationComponent(OptimizationComponent):
         return 1
 
     def update_metrics(self, c, cs=None):
-        self.ops.evals.append(c)
+        self.ops.evals[-1].append(c)
         if self.silent:
             return
 
@@ -116,9 +113,6 @@ class ScalarOptimizationComponent(OptimizationComponent):
 
 
 class VectorOptimizationComponent(OptimizationComponent):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     @abc.abstractmethod
     def __call__(self, results, x, grad):

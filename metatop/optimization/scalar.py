@@ -42,7 +42,7 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
         Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
 
         (c, cs), dc_dChom = jax.value_and_grad(
-            self.obj, has_aux=True)(Chom)
+            self.eval, has_aux=True)(Chom)
 
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
@@ -53,13 +53,13 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
 
         self.update_metrics(c, cs)
 
-        if len(self.ops.evals) % self.plot_interval == 1:
+        if len(self.ops.evals[-1]) % self.plot_interval == 1:
             self.update_plot(x)
 
         stop_on_nan(c)
         return float(c)
 
-    def obj(self, C):
+    def eval(self, C):
         M = mandelize(C)
         # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
         M /= jnorm(M, ord=2)
@@ -186,20 +186,20 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
         p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
 
 
-class EigenvectorConstraint:
+class EigenvectorConstraint(ScalarOptimizationComponent):
 
     def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=False):
-        self.basis_v = basis_v
-        self.extremal_mode = extremal_mode  # currently unused
-        self.metamaterial = metamaterial
-        self.ops = ops
-        self.verbose = verbose
+        super().__init__(basis_v=basis_v,
+                         extremal_mode=extremal_mode,
+                         metamaterial=metamaterial,
+                         ops=ops,
+                         verbose=verbose)
 
     def __call__(self, _, grad):
 
         Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
 
-        c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
+        c, dc_dChom = jax.value_and_grad(self.eval)(Chom)
 
         if grad.size > 0:
             grad[:] = self.adjoint(dxfem_dx_vjp, dChom_dxfem, dc_dChom)
@@ -210,7 +210,7 @@ class EigenvectorConstraint:
         stop_on_nan(c)
         return float(c)
 
-    def obj(self, C):
+    def eval(self, C):
         M = mandelize(C)
         # M = jnp.linalg.norm(M) if self.extremal_mode == 2 else M
         M /= jnorm(M)
