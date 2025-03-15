@@ -14,19 +14,18 @@ from metatop.filters import jax_projection
 from metatop.image import bitmapify
 from metatop.mechanics import mandelize, ray_q
 
-from .utils import stop_on_nan
+from .utils import *
 
 
-class RayleighScalarObjective:
+class RayleighScalarObjective(ScalarOptimizationComponent):
     def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=25, show_plot=True, img_resolution=(200, 200), eps=1., silent=False):
-        self.basis_v = basis_v
-        self.ops = ops
-        self.metamaterial = metamaterial
-        self.extremal_mode = extremal_mode
+        super().__init__(basis_v=basis_v,
+                         extremal_mode=extremal_mode,
+                         metamaterial=metamaterial,
+                         ops=ops,
+                         verbose=verbose)
 
-        self.verbose = verbose
         self.eps = eps
-        self.n_constraints = 1
 
         self.plot_interval = plot_interval
         self.show_plot = show_plot
@@ -47,9 +46,10 @@ class RayleighScalarObjective:
 
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
-            print(f"Grad max: {np.max(grad)}")
-            print(f"Grad min: {np.min(grad)}")
-            print(f"Grad Norm {np.linalg.norm(grad)}")
+            name = self.__class__.__name__
+            logger.debug(f"{name} Grad max: {np.max(grad):.4f}")
+            logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
+            logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
 
         self.update_metrics(c, cs)
 
@@ -58,23 +58,6 @@ class RayleighScalarObjective:
 
         stop_on_nan(c)
         return float(c)
-
-    def forward(self, x):
-        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
-
-        self.metamaterial.x.vector()[:] = x_fem
-        sols, Chom, _ = self.metamaterial.solve()
-        Chom = jnp.asarray(Chom)
-        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
-        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
-
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-        return Chom, dChom_dxfem, dxfem_dx_vjp
-
-    def filter_and_project(self, x):
-        x = self.ops.filt_fn(x)
-        x = jax_projection(x, self.ops.beta, self.ops.eta)
-        return x
 
     def obj(self, C):
         M = mandelize(C)
@@ -89,28 +72,6 @@ class RayleighScalarObjective:
 
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-
-    def update_metrics(self, c, cs):
-        self.ops.evals.append(c)
-        if self.silent:
-            return
-
-        if self.verbose:
-            print("-" * 50)
-            print(
-                f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
-            print("-" * 30)
-            print(f"f(x): {c:.4f}")
-            print(f"Rayleigh Quotients: {cs}")
-            e, v = np.linalg.eigh(mandelize(self.ops.Chom))
-            print(f"Actual (normed) eigenvalues: {e/np.max(e)}")
-            print(f"Desired eigenvectors:")
-            print(self.basis_v)
-            print(f"Actual eigenvectors:")
-            print(v)
-            # print(f"")
-        else:
-            print(f"{len(self.ops.evals):04d} - f(x) = {c}")
 
     def update_plot(self, x):
         if self.fig is None:
