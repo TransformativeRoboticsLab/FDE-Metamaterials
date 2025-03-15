@@ -6,6 +6,7 @@ import numpy as np
 from dotenv import load_dotenv
 from incense import ExperimentLoader
 from incense.artifact import PickleArtifact as PA
+from loguru import logger
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
@@ -23,7 +24,27 @@ from metatop.profiling import ProfileConfig
 jax.config.update("jax_enable_x64", True)
 
 
-np.set_printoptions(precision=5)
+def colored_sink(message):
+    # Use message.formatted and sys.stdout.write
+    print(message.formatted)
+
+
+file_name = os.path.basename(__file__)
+log_file = f"{file_name}.log"
+logger.configure(
+    handlers=[
+        {"sink": f"{file_name}.log",
+         "rotation": "500 MB",
+         "level": "DEBUG",
+         },
+        {"sink": sys.stderr,
+         "level": "INFO",
+         "format": "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <white>{message}</white>"}
+    ]
+)
+logger.info(f"{file_name} started")
+
+np.set_printoptions(precision=4)
 
 # use if we want to connect to the AWS db
 # load_dotenv()
