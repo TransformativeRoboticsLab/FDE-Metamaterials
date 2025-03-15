@@ -7,12 +7,14 @@ from loguru import logger
 from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
+from metatop.metamaterial import Metamaterial
+from metatop.optimization import OptimizationState
 
 
 class OptimizationComponent(abc.ABC):
 
     # TODO: Change verbose to default False eventually
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, silent=False):
+    def __init__(self, basis_v: np.ndarray, extremal_mode: int, metamaterial: Metamaterial, ops: OptimizationState, verbose: bool = True, silent: bool = False):
         # Mutables
         self.verbose = verbose
         self.silent = silent
@@ -30,7 +32,7 @@ class OptimizationComponent(abc.ABC):
             logger.debug(f"OPS: {self.ops}")
 
     @abc.abstractmethod
-    def eval(self, C):
+    def eval(self, C: jnp.ndarray):
         pass
 
     @abc.abstractmethod
@@ -58,7 +60,7 @@ class OptimizationComponent(abc.ABC):
     def n_constraints(self):
         pass
 
-    def forward(self, x):
+    def forward(self, x: np.ndarray):
         x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
 
         self.metamaterial.x.vector()[:] = x_fem
@@ -67,10 +69,9 @@ class OptimizationComponent(abc.ABC):
         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-        return Chom, dChom_dxfem, dxfem_dx_vjp
+        return sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem
 
-    def filter_and_project(self, x):
+    def filter_and_project(self, x: np.ndarray):
         x = self.ops.filt_fn(x)
         x = jax_projection(x, self.ops.beta, self.ops.eta)
         return x
@@ -79,20 +80,20 @@ class OptimizationComponent(abc.ABC):
 class ScalarOptimizationComponent(OptimizationComponent):
 
     @abc.abstractmethod
-    def __call__(self, x, grad):
+    def __call__(self, x: np.ndarray, grad: np.ndarray):
         pass
 
     @property
     def n_constraints(self):
         return 1
 
-    def update_metrics(self, c, cs=None):
-        self.ops.evals[-1].append(c)
-        if self.silent:
-            return
+    # def update_metrics(self, c, cs=None):
+    #     self.ops.evals[-1].append(c)
+    #     if self.silent:
+    #         return
 
-        logger.info(
-            f"E: {self.ops.epoch:d} - S: {len(self.ops.evals):d} - f(x): {c:.4f}")
+    #     logger.info(
+    #         f"E: {self.ops.epoch:d} - S: {len(self.ops.evals):d} - f(x): {c:.4f}")
         # TODO: Implement later
         # if self.verbose:
         #     print("-" * 50)
@@ -115,11 +116,11 @@ class ScalarOptimizationComponent(OptimizationComponent):
 class VectorOptimizationComponent(OptimizationComponent):
 
     @abc.abstractmethod
-    def __call__(self, results, x, grad):
+    def __call__(self, results: np.ndarray, x: np.ndarray, grad: np.ndarray):
         pass
 
 
-def stop_on_nan(x):
+def stop_on_nan(x: float | np.ndarray):
     if np.isnan(x).any():
         logger.error(
             "NaN value detected in objective function. Terminating optimization run.")

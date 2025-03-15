@@ -21,7 +21,9 @@ class OptimizationState:
     filt_fn: partial = None
     epoch: int = 0
     epoch_iter_tracker: list = field(default_factory=list)
-    evals: list = field(default_factory=lambda: [[]])
+    # evals: list = field(default_factory=lambda: [[]])
+    evals: dict = field(default_factory=dict)
+    obj_n_calls: int = 0
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem):
         self.sols = sols
@@ -29,6 +31,13 @@ class OptimizationState:
         self.dChom_dxfem = dChom_dxfem
         self.dxfem_dx_vjp = dxfem_dx_vjp
         self.x_fem = x_fem
+        self.obj_n_calls += 1
+
+    def update_evals(self, component_id: str, c: Union[float, np.ndarray]):
+        if component_id not in self.evals:
+            self.evals[component_id] = []
+
+        self.evals[component_id].append(c)
 
     def __repr__(self):
         filt_type = type(self.filt).__name__ if self.filt else None

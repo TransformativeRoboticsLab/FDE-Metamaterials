@@ -150,11 +150,15 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     for n, beta in enumerate(betas, 1):
         print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
         ops.beta, ops.epoch = beta, n
-        try:
-            x[:] = opt.optimize(x)
-        except Exception as e:
-            print(f"Optimization stopped {e}")
-            sys.exit(-1)
+        x[:] = opt.optimize(x)
+        # try:
+        #     x[:] = opt.optimize(x)
+        # except nlopt.ForcedStop:
+        #     print(f"nlopt forced stop {e}")
+        #     # sys.exit(-2)
+        # except Exception as e:
+        #     print(f"Optimization stopped {e}")
+        #     # sys.exit(-1)
         x_history.append(x.copy())
         opt.set_maxeval(epoch_duration)
         ops.epoch_iter_tracker.append(len(ops.evals))

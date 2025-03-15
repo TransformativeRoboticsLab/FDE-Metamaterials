@@ -13,12 +13,13 @@ from nlopt import ForcedStop
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
 from metatop.mechanics import mandelize, ray_q
+from metatop.optimization import OptimizationState
 
 from .utils import *
 
 
 class RayleighScalarObjective(ScalarOptimizationComponent):
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=True, plot_interval=25, show_plot=True, img_resolution=(200, 200), eps=1., silent=False):
+    def __init__(self, basis_v: np.ndarray, extremal_mode: int, metamaterial: int, ops: OptimizationState, verbose: bool = True, plot_interval: int = 25, show_plot: bool = True, img_resolution: tuple[int, int] = (200, 200), eps: float = 1., silent: bool = False):
         super().__init__(basis_v=basis_v,
                          extremal_mode=extremal_mode,
                          metamaterial=metamaterial,
@@ -39,7 +40,7 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
 
     def __call__(self, x, grad):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem = self.forward(x)
 
         (c, cs), dc_dChom = jax.value_and_grad(
             self.eval, has_aux=True)(Chom)
@@ -51,10 +52,13 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
             logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
             logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
 
-        self.update_metrics(c, cs)
+        self.ops.update_evals(self.__str__(), float(c))
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
 
-        if len(self.ops.evals[-1]) % self.plot_interval == 1:
+        if self.ops.obj_n_calls % self.plot_interval == 1:
             self.update_plot(x)
+
+        logger.info(f"{self.ops.obj_n_calls} -- {float(c):.4f}")
 
         stop_on_nan(c)
         return float(c)
@@ -117,14 +121,14 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
             ax.set_yticks([])
 
     def _update_evaluation_plot(self):
-        x_data = range(1, len(self.ops.evals)+1)
-        y_data = np.asarray(self.ops.evals)
+        x_data = range(1, self.ops.obj_n_calls+1)
+        y_data = np.asarray(self.ops.evals[self.__str__()])
 
         self.eval_line.set_data(x_data, y_data)
 
         self.ax2.relim()
         self.ax2.autoscale_view()
-        self.ax2.set_xlim(left=0, right=len(self.ops.evals)+2)
+        self.ax2.set_xlim(left=0, right=self.ops.obj_n_calls+2)
 
         for idx in self.ops.epoch_iter_tracker:
             if idx > self.last_epoch_plotted:
@@ -184,6 +188,9 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
             return
 
         p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+
+    def __str__(self):
+        return self.__class__.__name__
 
 
 class EigenvectorConstraint(ScalarOptimizationComponent):
