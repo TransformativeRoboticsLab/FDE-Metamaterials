@@ -124,7 +124,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                 metamate,
                                 ops,
                                 verbose=verbose,
-                                plot_interval=25,
+                                plot_interval=10,
                                 )
     g = EigenvectorConstraint(basis_v,
                               extremal_mode,
@@ -138,7 +138,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_local_optimizer(local_opt)
 
-    # opt.add_inequality_constraint(g, 1e-3)
+    opt.add_inequality_constraint(g, 1e-3)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)

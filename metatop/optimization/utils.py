@@ -69,7 +69,7 @@ class OptimizationComponent(abc.ABC):
         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
 
-        return sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem
+        return sols, Chom, dChom_dxfem, dxfem_dx_vjp
 
     def filter_and_project(self, x: np.ndarray):
         x = self.ops.filt_fn(x)

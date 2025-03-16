@@ -40,23 +40,21 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
 
     def __call__(self, x, grad):
 
-        sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem = self.forward(x)
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
 
         (c, cs), dc_dChom = jax.value_and_grad(
             self.eval, has_aux=True)(Chom)
 
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
-            name = self.__class__.__name__
-            logger.debug(f"{name} Grad max: {np.max(grad):.4f}")
-            logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
-            logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
+            # name = self.__class__.__name__
+            # logger.debug(f"{name} Grad max: {np.max(grad):.4f}")
+            # logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
+            # logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
 
         self.ops.update_evals(self.__str__(), float(c))
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-
-        if self.ops.obj_n_calls % self.plot_interval == 1:
-            self.update_plot(x)
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
+        self.ops.update_plot(component_id=self.__str__(), is_primary=True)
 
         logger.info(f"{self.ops.obj_n_calls} -- {float(c):.4f}")
 
@@ -77,117 +75,117 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
-    def update_plot(self, x):
-        if self.fig is None:
-            self._setup_plots()
+    # def update_plot(self, x):
+    #     if self.fig is None:
+    #         self._setup_plots()
 
-        if self.fig is None:
-            return
+    #     if self.fig is None:
+    #         return
 
-        fields = self._prepare_fields(x)
-        self._update_image_plots(fields)
-        self._update_evaluation_plot()
+    #     fields = self._prepare_fields(x)
+    #     self._update_image_plots(fields)
+    #     self._update_evaluation_plot()
 
-        if self.show_plot:
-            self.fig.canvas.draw()
-            plt.pause(1e-3)
+    #     if self.show_plot:
+    #         self.fig.canvas.draw()
+    #         plt.pause(1e-3)
 
-    def _prepare_fields(self, x):
-        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
-        x_tilde = filt_fn(x)
-        x_bar = jax_projection(x_tilde, beta, eta)
-        x_img = bitmapify(self.metamaterial.x.copy(
-            deepcopy=True), self.img_shape, self.img_resolution, invert=True)
-        fields = {r'$\rho$': x,
-                  r'$\tilde{\rho}$': x_tilde,
-                  fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
-                  r'$\bar{\rho}$ bitmap': x_img,
-                  'Image tiling': np.tile(x_img, (3, 3))}
-        if len(fields) != len(self.ax1):
-            raise ValueError(
-                f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
-        return fields
+    # def _prepare_fields(self, x):
+    #     filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+    #     x_tilde = filt_fn(x)
+    #     x_bar = jax_projection(x_tilde, beta, eta)
+    #     x_img = bitmapify(self.metamaterial.x.copy(
+    #         deepcopy=True), self.img_shape, self.img_resolution, invert=True)
+    #     fields = {r'$\rho$': x,
+    #               r'$\tilde{\rho}$': x_tilde,
+    #               fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
+    #               r'$\bar{\rho}$ bitmap': x_img,
+    #               'Image tiling': np.tile(x_img, (3, 3))}
+    #     if len(fields) != len(self.ax1):
+    #         raise ValueError(
+    #             f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
+    #     return fields
 
-    def _update_image_plots(self, fields):
-        r = fe.Function(self.metamaterial.R)
-        for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.shape[0] == self.metamaterial.R.dim():
-                r.vector()[:] = field
-                self.plot_density(r, title=f"{name}", ax=ax)
-            else:
-                ax.imshow(field, cmap='gray')
-                ax.set_title(name)
-            ax.set_xticks([])
-            ax.set_yticks([])
+    # def _update_image_plots(self, fields):
+    #     r = fe.Function(self.metamaterial.R)
+    #     for ax, (name, field) in zip(self.ax1, fields.items()):
+    #         if field.shape[0] == self.metamaterial.R.dim():
+    #             r.vector()[:] = field
+    #             self.plot_density(r, title=f"{name}", ax=ax)
+    #         else:
+    #             ax.imshow(field, cmap='gray')
+    #             ax.set_title(name)
+    #         ax.set_xticks([])
+    #         ax.set_yticks([])
 
-    def _update_evaluation_plot(self):
-        x_data = range(1, self.ops.obj_n_calls+1)
-        y_data = np.asarray(self.ops.evals[self.__str__()])
+    # def _update_evaluation_plot(self):
+    #     x_data = range(1, self.ops.obj_n_calls+1)
+    #     y_data = np.asarray(self.ops.evals[self.__str__()])
 
-        self.eval_line.set_data(x_data, y_data)
+    #     self.eval_line.set_data(x_data, y_data)
 
-        self.ax2.relim()
-        self.ax2.autoscale_view()
-        self.ax2.set_xlim(left=0, right=self.ops.obj_n_calls+2)
+    #     self.ax2.relim()
+    #     self.ax2.autoscale_view()
+    #     self.ax2.set_xlim(left=0, right=self.ops.obj_n_calls+2)
 
-        for idx in self.ops.epoch_iter_tracker:
-            if idx > self.last_epoch_plotted:
-                self.last_epoch_plotted = idx
-                self.epoch_lines.append(self.ax2.axvline(x=idx,
-                                                         color='k',
-                                                         linestyle='--',
-                                                         alpha=0.5,
-                                                         linewidth=3.))
+    #     for idx in self.ops.epoch_iter_tracker:
+    #         if idx > self.last_epoch_plotted:
+    #             self.last_epoch_plotted = idx
+    #             self.epoch_lines.append(self.ax2.axvline(x=idx,
+    #                                                      color='k',
+    #                                                      linestyle='--',
+    #                                                      alpha=0.5,
+    #                                                      linewidth=3.))
 
-    def _setup_plots(self):
-        plt.ion() if self.show_plot else plt.ioff()
-        self.fig = plt.figure(figsize=(15, 8))
-        gs = gridspec.GridSpec(2, 5)
-        self.ax1 = [plt.subplot(gs[0, 0]),
-                    plt.subplot(gs[0, 1]),
-                    plt.subplot(gs[0, 2]),
-                    plt.subplot(gs[0, 3]),
-                    plt.subplot(gs[0, 4]),
-                    ]
+    # def _setup_plots(self):
+    #     plt.ion() if self.show_plot else plt.ioff()
+    #     self.fig = plt.figure(figsize=(15, 8))
+    #     gs = gridspec.GridSpec(2, 5)
+    #     self.ax1 = [plt.subplot(gs[0, 0]),
+    #                 plt.subplot(gs[0, 1]),
+    #                 plt.subplot(gs[0, 2]),
+    #                 plt.subplot(gs[0, 3]),
+    #                 plt.subplot(gs[0, 4]),
+    #                 ]
 
-        self.ax2 = plt.subplot(gs[1, :])
-        self.ax2.grid(True)
-        self.ax2.set(xlabel='Iterations',
-                     ylabel='f(x)',
-                     xlim=(0, 10),
-                     title='Optimization Progress')
+    #     self.ax2 = plt.subplot(gs[1, :])
+    #     self.ax2.grid(True)
+    #     self.ax2.set(xlabel='Iterations',
+    #                  ylabel='f(x)',
+    #                  xlim=(0, 10),
+    #                  title='Optimization Progress')
 
-        self.eval_line = self.ax2.plot([0], [0], label='$f(x)$')[0]
+    #     self.eval_line = self.ax2.plot([0], [0], label='$f(x)$')[0]
 
-    def plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
-        r = fe.Function(r_in.function_space())
-        r.vector()[:] = r_in.vector()[:]
-        if cmap == 'gray':
-            r.vector()[:] = 1. - r.vector()[:]
-        r.set_allow_extrapolation(True)
+    # def plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
+    #     r = fe.Function(r_in.function_space())
+    #     r.vector()[:] = r_in.vector()[:]
+    #     if cmap == 'gray':
+    #         r.vector()[:] = 1. - r.vector()[:]
+    #     r.set_allow_extrapolation(True)
 
-        if isinstance(ax, plt.Axes):
-            plt.sca(ax)
-        else:
-            fig, ax = plt.subplots()
-        ax.clear()
+    #     if isinstance(ax, plt.Axes):
+    #         plt.sca(ax)
+    #     else:
+    #         fig, ax = plt.subplots()
+    #     ax.clear()
 
-        ax.margins(x=0, y=0)
+    #     ax.margins(x=0, y=0)
 
-        # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
-        # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
-        cell_type = r_in.function_space().ufl_cell().cellname()
-        if cell_type == 'quadrilateral':
-            r_vec = r.vector()[:]
-            # assume square space
-            nely = np.sqrt(r_vec.size).astype(int)
-            nelx = nely
-            plt.imshow(r_vec.reshape((nely, nelx)),
-                       cmap='gray', vmin=0, vmax=1)
-            ax.set_title(title)
-            return
+    #     # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
+    #     # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
+    #     cell_type = r_in.function_space().ufl_cell().cellname()
+    #     if cell_type == 'quadrilateral':
+    #         r_vec = r.vector()[:]
+    #         # assume square space
+    #         nely = np.sqrt(r_vec.size).astype(int)
+    #         nelx = nely
+    #         plt.imshow(r_vec.reshape((nely, nelx)),
+    #                    cmap='gray', vmin=0, vmax=1)
+    #         ax.set_title(title)
+    #         return
 
-        p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+    #     p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
 
     def __str__(self):
         return self.__class__.__name__
@@ -213,6 +211,9 @@ class EigenvectorConstraint(ScalarOptimizationComponent):
             print(f"Grad max: {np.max(grad)}")
             print(f"Grad min: {np.min(grad)}")
             print(f"Grad norm: {np.linalg.norm(grad)}")
+
+        self.ops.update_evals(component_id=self.__str__(), c=c)
+        self.ops.update_plot(component_id=self.__str__())
 
         stop_on_nan(c)
         return float(c)
@@ -245,8 +246,8 @@ class EigenvectorConstraint(ScalarOptimizationComponent):
     def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
-    def update_metrics(self, c):
-        print(f"g(x): {c:.4f}")
+    def __str__(self):
+        return self.__class__.__name__
 
 
 class EnergyConstraints:
