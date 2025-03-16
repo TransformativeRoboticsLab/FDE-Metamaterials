@@ -105,11 +105,12 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
-    ops = OptimizationState(beta=start_beta,
-                            eta=0.5,
+    ops = OptimizationState(basis_v=basis_v,
+                            extremal_mode=extremal_mode,
+                            metamaterial=metamate,
                             filt=filt,
                             filt_fn=filt_fn,
-                            epoch_iter_tracker=[1])
+                            beta=start_beta)
 
     # x = np.random.choice([0, 1], size=metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())
@@ -138,7 +139,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_local_optimizer(local_opt)
 
-    opt.add_inequality_constraint(g, 1e-3)
+    # opt.add_inequality_constraint(g, 1e-3)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)

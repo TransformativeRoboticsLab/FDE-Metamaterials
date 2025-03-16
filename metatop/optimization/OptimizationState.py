@@ -15,22 +15,19 @@ from metatop.metamaterial import Metamaterial
 
 class OptimizationPlot:
 
-    def __init__(self, show_plot=True):
+    def __init__(self):
 
-        self.show_plot = show_plot
         self.fig = None
         self.ax1 = None
         self.ax2 = None
         self.eval_lines: dict[str, plt.Line2D] = {}
-
-        self.setup()
 
     def setup(self):
         if self.fig:
             logger.debug(
                 "Optimization plot already created. Why are you calling setup again?")
             return
-        plt.ion() if self.show_plot else plt.ioff()
+        plt.ion()
         self.fig = plt.figure(figsize=(15, 8))
         gs = gridspec.GridSpec(2, 5)
         self.ax1 = [plt.subplot(gs[0, 0]),
@@ -46,7 +43,7 @@ class OptimizationPlot:
                      ylabel='Evals',
                      title='Optimization Progress')
 
-    def update_eval_plot(self, component_id, eval_data):
+    def update_eval_plot(self, component_id: str, eval_data: np.ndarray):
         x_data = range(1, len(eval_data)+1)
         if component_id not in self.eval_lines:
             line = self.ax2.plot(eval_data, label=component_id, marker='.')[0]
@@ -54,15 +51,14 @@ class OptimizationPlot:
         else:
             self.eval_lines[component_id].set_data(x_data, eval_data)
 
-    def update_images(self, fields):
+    def update_images(self, projection_function: fe.Function, fields):
         if len(fields) != len(self.ax1):
             raise ValueError(
                 f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
-        r = fe.Function(self.metamaterial.R)
         for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.shape[0] == self.metamaterial.R.dim():
-                r.vector()[:] = field
-                self._plot_density(r, title=f"{name}", ax=ax)
+            if field.shape[0] == projection_function.function_space().dim():
+                projection_function.vector()[:] = field
+                self._plot_density(projection_function, title=f"{name}", ax=ax)
             else:
                 ax.imshow(field, cmap='gray')
                 ax.set_title(name)
@@ -127,7 +123,7 @@ class OptimizationState:
     eta:  float = 0.5
     pen:  float = 3.  # vestigial from other optimization types that use SIMP
     epoch: int = 0
-    epoch_iter_tracker: list = field(default_factory=list)
+    epoch_iter_tracker: list = field(default_factory=lambda: [1])
     evals: dict = field(default_factory=dict)
     obj_n_calls: int = 0
 
@@ -142,7 +138,17 @@ class OptimizationState:
     # Misc.
     verbose: bool = True
 
+    def __post_init__(self):
+        if self.show_plot:
+            self.opt_plot.setup()
+
     def update_plot(self, component_id: str, is_primary: bool = False, draw_now=False):
+        if not self.show_plot:
+            return
+
+        if not (self.show_plot and self.obj_n_calls % self.plot_interval == 1) and not draw_now:
+            return
+
         eval_data = self.evals.get(component_id, None)
         if eval_data is None:
             logger.warning(
@@ -151,12 +157,12 @@ class OptimizationState:
 
         if is_primary:
             fields = self._prepare_fields(self.x)
-            self.opt_plot.update_images(fields)
+            r = fe.Function(self.metamaterial.R)
+            self.opt_plot.update_images(r, fields)
 
         self.opt_plot.update_eval_plot(component_id, eval_data)
 
-        if not is_primary and self.obj_n_calls % self.plot_interval == 1 or draw_now:
-            self.opt_plot.draw()
+        self.opt_plot.draw()
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x):
         self.sols = sols
@@ -176,7 +182,7 @@ class OptimizationState:
         filt_fn, beta, eta = self.filt_fn, self.beta, self.eta
         x_tilde = filt_fn(x)
         x_bar = jax_projection(x_tilde, beta, eta)
-        x_img = bitmapify(self.x, self.img_shape,
+        x_img = bitmapify(self.metamaterial.x.copy(deepcopy=True), self.img_shape,
                           self.img_resolution, invert=True)
         fields = {r'$\rho$': x,
                   r'$\tilde{\rho}$': x_tilde,
