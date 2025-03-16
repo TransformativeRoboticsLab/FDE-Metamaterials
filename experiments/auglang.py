@@ -105,7 +105,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
-    ops = OptimizationState(basis_v=basis_v,
+    V = V_DICT[basis_v]
+    ops = OptimizationState(basis_v=V,
                             extremal_mode=extremal_mode,
                             metamaterial=metamate,
                             filt=filt,
@@ -119,19 +120,15 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    basis_v = V_DICT[basis_v]
-    f = RayleighScalarObjective(basis_v,
-                                extremal_mode,
-                                metamate,
-                                ops,
-                                verbose=verbose,
-                                plot_interval=10,
+    f = RayleighScalarObjective(ops=ops,
+                                silent=False,
+                                verbose=True
                                 )
-    g = EigenvectorConstraint(basis_v,
-                              extremal_mode,
-                              metamate,
-                              ops,
-                              verbose=verbose)
+    # g = EigenvectorConstraint(basis_v,
+    #                           extremal_mode,
+    #                           metamate,
+    #                           ops,
+    #                           verbose=verbose)
 
     opt = nlopt.opt(nlopt.LD_AUGLAG, x.size)
     opt.set_min_objective(f)

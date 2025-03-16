@@ -14,22 +14,17 @@ from metatop.optimization import OptimizationState
 class OptimizationComponent(abc.ABC):
 
     # TODO: Change verbose to default False eventually
-    def __init__(self, basis_v: np.ndarray, extremal_mode: int, metamaterial: Metamaterial, ops: OptimizationState, verbose: bool = True, silent: bool = False):
+    def __init__(self, ops: OptimizationState, silent=False, verbose=True):
         # Mutables
-        self.verbose = verbose
         self.silent = silent
+        self.verbose = verbose
 
         # Immutables
-        self._basis_v = basis_v
-        self._extremal_mode = extremal_mode
-        self._metamaterial = metamaterial
         self._ops = ops
 
         if self.verbose:
             logger.info(f"Initializing {self.__class__.__name__}")
-            logger.debug(f"V:\n{self.basis_v}")
-            logger.debug(f"m: {self.extremal_mode}")
-            logger.debug(f"OPS: {self.ops}")
+            logger.debug(self.ops)
 
     @abc.abstractmethod
     def eval(self, C: jnp.ndarray):
@@ -38,18 +33,6 @@ class OptimizationComponent(abc.ABC):
     @abc.abstractmethod
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
         pass
-
-    @property
-    def basis_v(self):
-        return self._basis_v
-
-    @property
-    def extremal_mode(self):
-        return self._extremal_mode
-
-    @property
-    def metamaterial(self):
-        return self._metamaterial
 
     @property
     def ops(self):
@@ -61,13 +44,15 @@ class OptimizationComponent(abc.ABC):
         pass
 
     def forward(self, x: np.ndarray):
+        metamate = self.ops.metamaterial
+
         x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
 
-        self.metamaterial.x.vector()[:] = x_fem
-        sols, Chom, _ = self.metamaterial.solve()
+        metamate.x.vector()[:] = x_fem
+        sols, Chom, _ = metamate.solve()
         Chom = jnp.asarray(Chom)
-        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
-        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+        E_max, nu = metamate.prop.E_max, metamate.prop.nu
+        dChom_dxfem = metamate.homogenized_C(sols, E_max, nu)[1]
 
         return sols, Chom, dChom_dxfem, dxfem_dx_vjp
 

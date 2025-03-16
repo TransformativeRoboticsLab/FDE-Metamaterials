@@ -16,10 +16,9 @@ from metatop.metamaterial import Metamaterial
 class OptimizationPlot:
 
     def __init__(self):
-
-        self.fig = None
-        self.ax1 = None
-        self.ax2 = None
+        self.fig: plt.Figure = None
+        self.ax1: list[plt.Axes] = None
+        self.ax2: plt.Axes = None
         self.eval_lines: dict[str, plt.Line2D] = {}
 
     def setup(self):
@@ -51,7 +50,7 @@ class OptimizationPlot:
         else:
             self.eval_lines[component_id].set_data(x_data, eval_data)
 
-    def update_images(self, projection_function: fe.Function, fields):
+    def update_images(self, projection_function: fe.Function, fields: dict[str, any]):
         if len(fields) != len(self.ax1):
             raise ValueError(
                 f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
@@ -202,11 +201,13 @@ class OptimizationState:
     def __str__(self):
         filt_type = type(self.filt).__name__ if self.filt else "None"
         return (f"Optimization State:\n"
+                f"  basis_v: {self.basis_v}\n"
+                f"  extremal_mode: {self.extremal_mode}"
                 f"  sols: {self.sols}\n"
                 f"  Chom: {self.Chom.shape}\n"
                 f"  dChom_dxfem: {self.dChom_dxfem.shape}\n"
                 f"  dxfem_dx_vjp: {self.dxfem_dx_vjp}\n"
-                f"  xfem: {self.xfem.shape}\n"
+                f"  x: {self.x.shape}\n"
                 f"  beta: {self.beta}\n"
                 f"  eta: {self.eta}\n"
                 f"  pen: {self.pen}\n"

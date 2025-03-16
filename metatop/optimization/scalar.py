@@ -19,24 +19,9 @@ from .utils import *
 
 
 class RayleighScalarObjective(ScalarOptimizationComponent):
-    def __init__(self, basis_v: np.ndarray, extremal_mode: int, metamaterial: int, ops: OptimizationState, verbose: bool = True, plot_interval: int = 25, show_plot: bool = True, img_resolution: tuple[int, int] = (200, 200), eps: float = 1., silent: bool = False):
-        super().__init__(basis_v=basis_v,
-                         extremal_mode=extremal_mode,
-                         metamaterial=metamaterial,
-                         ops=ops,
-                         verbose=verbose)
 
-        self.eps = eps
-
-        self.plot_interval = plot_interval
-        self.show_plot = show_plot
-        self.silent = silent
-        self.img_resolution = img_resolution
-        self.img_shape = (self.metamaterial.width, self.metamaterial.height)
-
-        self.fig = None
-        self.epoch_lines = []
-        self.last_epoch_plotted = -1
+    def __init__(self, ops, verbose=False, silent=False):
+        super().__init__(ops=ops, silent=silent, verbose=verbose)
 
     def __call__(self, x, grad):
 
@@ -66,11 +51,11 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
         # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
         M /= jnorm(M, ord=2)
 
-        r1, r2, r3 = ray_q(M, self.basis_v)
+        r1, r2, r3 = ray_q(M, self.ops.basis_v)
         amean = (r2 + r3) / 2
         gmean = jnp.sqrt(r2*r3)
         hmean = 2 / (1/r2 + 1/r3)
-        return (-1)**(self.extremal_mode-1)*r1/amean, jnp.array([r1, r2, r3])
+        return (-1)**(self.ops.extremal_mode-1)*r1/amean, jnp.array([r1, r2, r3])
 
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
