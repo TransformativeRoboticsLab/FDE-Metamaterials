@@ -50,10 +50,9 @@ class OptimizationComponent(abc.ABC):
         x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
 
         metamate.x.vector()[:] = x_fem
-        sols, Chom, _ = metamate.solve()
+        sols, Chom = metamate.solve()
         Chom = jnp.asarray(Chom)
-        E_max, nu = metamate.prop.E_max, metamate.prop.nu
-        dChom_dxfem = metamate.homogenized_C(sols, E_max, nu)[1]
+        dChom_dxfem = metamate.get_dChom(sols)
 
         return sols, Chom, dChom_dxfem, dxfem_dx_vjp
 
