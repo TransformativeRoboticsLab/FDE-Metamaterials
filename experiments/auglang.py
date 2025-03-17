@@ -18,8 +18,8 @@ from metatop.helpers import mirror_density
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (EigenvectorConstraint,
-                                         RayleighScalarObjective,
-                                         SameLargeValue)
+                                         RayleighRatioObjective,
+                                         SameLargeValueConstraint)
 from metatop.profiling import ProfileConfig
 
 jax.config.update("jax_enable_x64", True)
@@ -100,19 +100,19 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                   nely,
                                   mesh_cell_type='tri',
                                   domain_shape='square')
-    img_rez = (200, 200)
-    img_shape = (metamate.width, metamate.height)
 
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
-    V = V_DICT[basis_v]
-    ops = OptimizationState(basis_v=V,
+    ops = OptimizationState(basis_v=V_DICT[basis_v],
                             extremal_mode=extremal_mode,
                             metamaterial=metamate,
                             filt=filt,
                             filt_fn=filt_fn,
-                            beta=start_beta)
+                            beta=start_beta,
+                            eta=0.5,
+                            img_shape=(metamate.width, metamate.height),
+                            img_resolution=(200, 200))
 
     # x = np.random.choice([0, 1], size=metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())
@@ -121,9 +121,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = RayleighScalarObjective(ops, verbose=True)
+    f = RayleighRatioObjective(ops, verbose=True)
     g1 = EigenvectorConstraint(ops, eps=1e-3, verbose=True)
-    g2 = SameLargeValue(ops, eps=1e-3, verbose=True)
+    g2 = SameLargeValueConstraint(ops, eps=1e-3, verbose=True)
 
     opt = nlopt.opt(nlopt.LD_AUGLAG, x.size)
     opt.set_min_objective(f)
