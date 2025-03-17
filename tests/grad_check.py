@@ -6,6 +6,7 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.testing as npt
+from loguru import logger
 from tqdm import tqdm
 
 import metatop.optimization.epigraph as epi
@@ -77,19 +78,41 @@ def finite_difference_checker(constraint: OptimizationComponent, x, obj=None, ep
     return grad_fd
 
 
-def plot_gradients(grad_analytical, grad_fd, title=None):
-    fig, ax = plt.subplots(3, 1, figsize=(15, 10))
-    ax[0].plot(grad_analytical.flatten(), label='Analytical', marker='o')
-    ax[0].plot(grad_fd.flatten(), label='Finite Difference', marker='.')
-    ax[0].legend()
-    diff = np.abs(grad_analytical - grad_fd).flatten()
-    ax[1].plot(diff, label='Abs Difference')
-    ax[1].legend()
-    ax[2].plot(diff / np.abs(grad_analytical).flatten(),
-               label='Relative Difference')
+def plot_gradients(actual: np.ndarray, desired: np.ndarray, title: str, rtol: float, atol: float):
+    fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize=(10, 10))
+
+    act = actual.flatten()
+    des = desired.flatten()
+
+    abs_diff = np.abs(des-act)
+    rel_diff = abs_diff / np.abs(des)
+
+    # Actual values plot
+    ax0.plot(act, label='Analytical', marker='o')
+    ax0.plot(des, label='Finite Difference', marker='.')
+    ax0.legend()
+
+    # Absolute diff plot
+    ax1.plot(abs_diff)
+    ax1.axhline(atol, color='k', lw=2, alpha=0.5) if atol else None
+    ax1.set(title="Absolute Difference",
+            yscale='log')
+    # Relative diff plot
+    ax2.plot(rel_diff)
+    ax2.axhline(rtol, color='k', lw=2, alpha=0.5) if rtol else None
+    ax2.set(title="Relative Difference",
+            yscale='log')
+
+    # np.allclose check
+    ax3.plot(abs_diff, label='|actual - desired|')
+    ax3.plot(atol + rtol * np.abs(des), label='(atol + rtol * |desired|)')
+    ax3.set(title="Check |actual - desired| <= (atol + rtol * |desired|)",
+            yscale='log')
+    ax3.legend()
     if title:
         fig.suptitle(title)
-    plt.show(block=False)
+    plt.draw()
+    plt.pause(1e-3)
 
     return fig
 
@@ -141,16 +164,13 @@ def handle_constraints(constraint_name: str, ops: OptimizationState, x: np.ndarr
     grad_fd = finite_difference_checker(
         constraint, x, obj, name=constraint_name)
 
+    rtol, atol = 1e-5, 1e-8
     if plot:
-        plot_gradients(grad_analytical, grad_fd, title=constraint_name)
+        plot_gradients(grad_analytical, grad_fd,
+                       title=constraint_name, rtol=rtol, atol=atol)
 
-    diff = np.abs(grad_analytical - grad_fd)
-    print(f"Max Abs Diff: {np.max(diff)}")
-    print(f"Mean Abs Diff: {np.mean(diff)}")
-    print(
-        f"Scaled Norm Diff: {np.linalg.norm(diff)*ops.metamaterial.cell_vol}")
     try:
-        npt.assert_allclose(grad_analytical, grad_fd, rtol=1e-5, atol=1e-8)
+        npt.assert_allclose(grad_analytical, grad_fd, rtol=rtol, atol=atol)
     except Exception as e:
         print(
             f"OptimizationComponent {constraint_name} finite difference check failed :(")
@@ -185,7 +205,7 @@ def main():
     beta, eta = 1., 0.5
     norm_filter_radius = 0.1
 
-    nelx = 5
+    nelx = 6
     nely = nelx
     mesh_type = 'tri'
 
@@ -208,7 +228,10 @@ def main():
                                   nely,
                                   mesh_cell_type=mesh_type,
                                   domain_shape='square')
-    metamate.finite_difference_check()
+    try:
+        metamate.finite_difference_check()
+    except Exception as e:
+        logger.error(e)
 
     filt, filt_fn = initialize_filter(norm_filter_radius, metamate)
     ops = OptimizationState(basis_v=V,
@@ -229,8 +252,7 @@ def main():
     handle_constraints('EigenvectorConstraint', ops, x, obj=rsc)
     handle_constraints('SameLargeValueConstraint', ops, x, obj=rsc)
 
-    plt.show(block=True)
-
 
 if __name__ == "__main__":
     main()
+    plt.show(block=True)
