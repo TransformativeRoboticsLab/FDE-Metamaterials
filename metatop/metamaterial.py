@@ -4,6 +4,8 @@ from functools import cached_property
 
 import fenics as fe
 import numpy as np
+import numpy.testing as npt
+from loguru import logger
 from matplotlib import pyplot as plt
 
 from .boundary import PeriodicDomain
@@ -42,18 +44,18 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
 
 class Metamaterial:
     def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None, profile=False):
-        self.prop = Properties(E_max, E_min, nu)
-        self.nelx = nelx
-        self.nely = nely
-        self.x = x
-        self.mesh = mesh
-        self.domain_shape = domain_shape
+        self.prop: Properties = Properties(E_max, E_min, nu)
+        self.nelx: int = nelx
+        self.nely: int = nely
+        self.x: fe.Function = x
+        self.mesh: fe.Mesh = mesh
+        self.domain_shape: str = domain_shape
         self.mirror_map = None
 
         self._run_times = []
-        self.enable_profiling = profile
+        self.enable_profiling: bool = profile
 
-        self.solver = fe.LUSolver()
+        self.solver: fe.LUSolver = fe.LUSolver()
 
     def plot_mesh(self, labels=False, ):
         if self.mesh.ufl_cell().cellname() == 'quadrilateral':
@@ -133,14 +135,14 @@ class Metamaterial:
 
         return projected_values
 
-    def homogenized_C(self, u_list, E, nu):
+    def homogenized_C(self, sols, E, nu):
         s_list = [linear_stress(linear_strain(u) + macro_strain(i), E, nu)
-                  for i, u in enumerate(u_list)]
+                  for i, u in enumerate(sols)]
 
         uChom = [
             [
                 fe.inner(s_t, linear_strain(u) + macro_strain(j))
-                for j, u, in enumerate(u_list)
+                for j, u, in enumerate(sols)
             ]
             for s_t in s_list
         ]
@@ -150,6 +152,10 @@ class Metamaterial:
         Chom = np.reshape(np.sum(uChom_matrix, axis=1), (3, 3))
 
         return Chom, uChom_matrix
+
+    def get_dChom(self, sols):
+        E_max, E_min, nu = self.prop.E_max, self.prop.E_min, self.prop.nu
+        return self.homogenized_C(sols, E_max - E_min, nu)[1]
 
     def solve(self):
         with profile_fem_solution(enabled=self.enable_profiling):
@@ -178,32 +184,9 @@ class Metamaterial:
             v = fe.split(w)[0]
             sols.append(v)
 
-        Chom, uChom = self.homogenized_C(sols, self.E, self.prop.nu)
+        Chom = self.homogenized_C(sols, self.E, self.prop.nu)[0]
 
-        return sols, Chom, uChom
-
-    def enable_parallel_solving(self, use_mpi=True):
-        """Configure the solver to use parallel execution if available."""
-        try:
-            # Try to use parallel processing if available
-            if use_mpi and hasattr(fe, 'parameters'):
-                fe.parameters["form_compiler"]["optimize"] = True
-                fe.parameters["form_compiler"]["cpp_optimize"] = True
-                fe.parameters["form_compiler"]["representation"] = "quadrature"
-
-                # Memory optimizations
-                fe.parameters["form_compiler"]["quadrature_degree"] = 2
-                fe.parameters["form_compiler"]["cache_dir"] = "fenics_cache"
-
-                # Use C++ for JIT compilation
-                fe.parameters["form_compiler"]["cpp_optimize_flags"] = "-O3 -march=native"
-
-                return True
-        except Exception as e:
-            print(f"Warning: Couldn't enable parallel solving: {e}")
-            return False
-
-        return False
+        return sols, Chom
 
     def get_profiling_report(self):
         """Generate a profiling report summary"""
@@ -230,7 +213,7 @@ class Metamaterial:
     def domain_volume(self):
         return fe.assemble(fe.Constant(1)*fe.dx(domain=self.mesh))
 
-    @property
+    @cached_property
     def volume_fraction(self):
         return fe.assemble(self.x * fe.dx)
 
@@ -245,6 +228,45 @@ class Metamaterial:
     @cached_property
     def cell_midpoints(self):
         return np.array([c.midpoint().array()[:2] for c in fe.cells(self.mesh)])
+
+    def finite_difference_check(self):
+        from tqdm import tqdm
+
+        logger.warning("Running finite difference checker overwrites self.x")
+        np.random.seed(0)
+        init_x = np.random.uniform(0., 1., size=self.R.dim())
+
+        # ===== ANALYTICAL GRADIENT =====
+        self.x.vector()[:] = init_x
+        grad_analytical = self.get_dChom(self._solve_impl()[0])
+
+        # ===== FD GRADIENT =====
+        grad_fd = np.zeros((9, init_x.size))
+
+        eps = 1e-6
+        for i in tqdm(range(init_x.size), desc="Checking Metamaterial gradient"):
+            x_plus = init_x.copy()
+            x_minus = init_x.copy()
+            x_plus[i] += eps
+            x_minus[i] -= eps
+
+            self.x.vector()[:] = x_plus
+            Chom_plus = self._solve_impl()[1]
+            self.x.vector()[:] = x_minus
+            Chom_minus = self._solve_impl()[1]
+
+            grad_fd[:, i] = ((Chom_plus - Chom_minus) / (2 * eps)).flatten()
+
+        try:
+            npt.assert_allclose(grad_fd, grad_analytical, rtol=1e-5, atol=1e-8)
+            logger.info(
+                "Metamaterial finite difference matches analytical gradient")
+        except Exception as e:
+            logger.error(f"Metamaterial gradient check failed")
+            logger.error(
+                f"E_max: {E_max:.3e}, E_min: {E_min:.3e}, nu: {nu:.3e}")
+            logger.error(e)
+            raise e
 
 
 @dataclass

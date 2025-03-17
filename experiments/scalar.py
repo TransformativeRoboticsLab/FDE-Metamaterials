@@ -13,7 +13,7 @@ from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (EnergyConstraints,
-                                         RayleighScalarObjective)
+                                         RayleighRatioObjective)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -61,13 +61,13 @@ def main():
 
     # ===== Optimizer setup ======
     basis_v = V_DICT[basis_v]
-    f = RayleighScalarObjective(basis_v,
-                                extremal_mode,
-                                metamate,
-                                ops,
-                                plot_interval=10,
-                                verbose=verbose,
-                                eps=1.)
+    f = RayleighRatioObjective(basis_v,
+                               extremal_mode,
+                               metamate,
+                               ops,
+                               plot_interval=10,
+                               verbose=verbose,
+                               eps=1.)
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
