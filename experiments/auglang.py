@@ -18,7 +18,8 @@ from metatop.helpers import mirror_density
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (EigenvectorConstraint,
-                                         RayleighScalarObjective)
+                                         RayleighScalarObjective,
+                                         SameLargeValue)
 from metatop.profiling import ProfileConfig
 
 jax.config.update("jax_enable_x64", True)
@@ -120,15 +121,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = RayleighScalarObjective(ops=ops,
-                                silent=False,
-                                verbose=True
-                                )
-    # g = EigenvectorConstraint(basis_v,
-    #                           extremal_mode,
-    #                           metamate,
-    #                           ops,
-    #                           verbose=verbose)
+    f = RayleighScalarObjective(ops, verbose=True)
+    g1 = EigenvectorConstraint(ops, eps=1e-3, verbose=True)
+    g2 = SameLargeValue(ops, eps=1e-3, verbose=True)
 
     opt = nlopt.opt(nlopt.LD_AUGLAG, x.size)
     opt.set_min_objective(f)
@@ -136,7 +131,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_local_optimizer(local_opt)
 
-    # opt.add_inequality_constraint(g, 1e-3)
+    opt.add_inequality_constraint(g1, 0.)
+    opt.add_inequality_constraint(g2, 0.)
 
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
