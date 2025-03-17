@@ -18,10 +18,7 @@ from metatop.optimization import OptimizationState
 from .utils import *
 
 
-class RayleighScalarObjective(ScalarOptimizationComponent):
-
-    def __init__(self, ops, verbose=False, silent=False):
-        super().__init__(ops=ops, silent=silent, verbose=verbose)
+class ScalarObjective(ScalarOptimizationComponent):
 
     def __call__(self, x, grad):
 
@@ -37,41 +34,20 @@ class RayleighScalarObjective(ScalarOptimizationComponent):
             # logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
             # logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
 
-        self.ops.update_evals(self.__str__(), float(c))
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
-        self.ops.update_plot(component_id=self.__str__(), is_primary=True)
+        id = self.__str__()
+        self.ops.update_evals(id, c)
+        self.ops.update_plot(id, is_primary=True)
 
-        logger.info(f"{self.ops.obj_n_calls} -- {float(c):.4f}")
+        logger.info(f"{self.ops.obj_n_calls}:")
+        logger.info(f"{self.__str__()} f(x): {c:.4f}")
+        logger.info(f"{cs}")
 
         stop_on_nan(c)
-        return float(c)
-
-    def eval(self, C):
-        M = mandelize(C)
-        # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
-        M /= jnorm(M, ord=2)
-
-        r1, r2, r3 = ray_q(M, self.ops.basis_v)
-        amean = (r2 + r3) / 2
-        gmean = jnp.sqrt(r2*r3)
-        hmean = 2 / (1/r2 + 1/r3)
-        return (-1)**(self.ops.extremal_mode-1)*r1/amean, jnp.array([r1, r2, r3])
-
-    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
-        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-
-    def __str__(self):
-        return self.__class__.__name__
+        return float(c) - self.eps
 
 
-class EigenvectorConstraint(ScalarOptimizationComponent):
-
-    def __init__(self, basis_v, extremal_mode, metamaterial, ops, verbose=False):
-        super().__init__(basis_v=basis_v,
-                         extremal_mode=extremal_mode,
-                         metamaterial=metamaterial,
-                         ops=ops,
-                         verbose=verbose)
+class ScalarConstraint(ScalarOptimizationComponent):
 
     def __call__(self, _, grad):
 
@@ -85,19 +61,42 @@ class EigenvectorConstraint(ScalarOptimizationComponent):
             # print(f"Grad min: {np.min(grad)}")
             # print(f"Grad norm: {np.linalg.norm(grad)}")
 
-        self.ops.update_evals(component_id=self.__str__(), c=c)
-        self.ops.update_plot(component_id=self.__str__())
+        id = self.__str__()
+        self.ops.update_evals(component_id=id, c=c)
+        self.ops.update_plot(component_id=id)
+
+        logger.info(f"{self.__str__()} g(x): {c:.4f}")
 
         stop_on_nan(c)
-        return float(c)
+        return float(c) - self.eps
+
+
+class RayleighScalarObjective(ScalarObjective):
+
+    def eval(self, C):
+        M = mandelize(C)
+        # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+        M /= jnorm(M, ord=2)
+
+        r1, r2, r3 = ray_q(M, self.ops.basis_v)
+        amean = (r2 + r3) / 2
+        gmean = jnp.sqrt(r2*r3)
+        hmean = 2 / (1/r2 + 1/r3)
+        return -r1/amean, jnp.array([r1, r2, r3])
+
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+
+
+class EigenvectorConstraint(ScalarConstraint):
 
     def eval(self, C):
         M = mandelize(C)
         # M = jnp.linalg.norm(M) if self.extremal_mode == 2 else M
         M /= jnorm(M)
 
-        e_vals, e_vecs = jnp.linalg.eigh(M)
-        V = self.basis_v
+        _, e_vecs = jnp.linalg.eigh(M)
+        V = self.ops.basis_v
         v1, v2, v3 = V[:, 0], V[:, 1], V[:, 2]
         outer_v1 = jnp.outer(v1, v1)
         outer_v2 = jnp.outer(v2, v2)
@@ -106,11 +105,11 @@ class EigenvectorConstraint(ScalarOptimizationComponent):
         min_penalty = jnp.inf
         for p in itertools.permutations([0, 1, 2]):
             current_penalty = 0.0
-            current_penalty += jnp.linalg.norm(outer_v1 - jnp.outer(
+            current_penalty += jnorm(outer_v1 - jnp.outer(
                 e_vecs[:, p[0]], e_vecs[:, p[0]]), ord='fro')**2
-            current_penalty += jnp.linalg.norm(outer_v2 - jnp.outer(
+            current_penalty += jnorm(outer_v2 - jnp.outer(
                 e_vecs[:, p[1]], e_vecs[:, p[1]]), ord='fro')**2
-            current_penalty += jnp.linalg.norm(outer_v3 - jnp.outer(
+            current_penalty += jnorm(outer_v3 - jnp.outer(
                 e_vecs[:, p[2]], e_vecs[:, p[2]]), ord='fro')**2
             min_penalty = jnp.minimum(min_penalty, current_penalty)
 
@@ -119,8 +118,22 @@ class EigenvectorConstraint(ScalarOptimizationComponent):
     def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
-    def __str__(self):
-        return self.__class__.__name__
+
+class SameLargeValue(ScalarConstraint):
+
+    def eval(self, C):
+        M = mandelize(C)
+        # M = jnp.linalg.norm(M) if self.extremal_mode == 2 else M
+        M /= jnorm(M)
+
+        # e1, e2, e3 = jnp.linalg.eigvalsh(M)
+        V = self.ops.basis_v
+        r1, r2, r3 = ray_q(M, V)
+
+        return jnp.abs(r2-r3)
+
+    def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
+        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
 
 class EnergyConstraints:
