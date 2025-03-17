@@ -14,10 +14,11 @@ from metatop.optimization import OptimizationState
 class OptimizationComponent(abc.ABC):
 
     # TODO: Change verbose to default False eventually
-    def __init__(self, ops: OptimizationState, silent=False, verbose=True):
+    def __init__(self, ops: OptimizationState, eps: float = 0., silent=False, verbose=True):
         # Mutables
         self.silent = silent
         self.verbose = verbose
+        self.eps = eps
 
         # Immutables
         self._ops = ops
@@ -72,30 +73,8 @@ class ScalarOptimizationComponent(OptimizationComponent):
     def n_constraints(self):
         return 1
 
-    # def update_metrics(self, c, cs=None):
-    #     self.ops.evals[-1].append(c)
-    #     if self.silent:
-    #         return
-
-    #     logger.info(
-    #         f"E: {self.ops.epoch:d} - S: {len(self.ops.evals):d} - f(x): {c:.4f}")
-        # TODO: Implement later
-        # if self.verbose:
-        #     print("-" * 50)
-        #     print(
-        #         f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
-        #     print("-" * 30)
-        #     print(f"f(x): {c:.4f}")
-        #     print(f"Rayleigh Quotients: {cs}")
-        #     e, v = np.linalg.eigh(mandelize(self.ops.Chom))
-        #     print(f"Actual (normed) eigenvalues: {e/np.max(e)}")
-        #     print(f"Desired eigenvectors:")
-        #     print(self.basis_v)
-        #     print(f"Actual eigenvectors:")
-        #     print(v)
-        #     # print(f"")
-        # else:
-        #     print(f"{len(self.ops.evals):04d} - f(x) = {c}")
+    def __str__(self):
+        return self.__class__.__name__
 
 
 class VectorOptimizationComponent(OptimizationComponent):
