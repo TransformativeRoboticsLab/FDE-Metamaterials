@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax.experimental import sparse
+from loguru import logger
 from matplotlib import pyplot as plt
 from scipy.spatial import KDTree
 from tqdm import tqdm
@@ -14,22 +15,27 @@ from tqdm import tqdm
 
 def setup_filter(metamaterial, norm_filter_radius):
     if metamaterial.R.ufl_element().degree() > 0:
-        # logger.info("Using Helmholtz filter")
-        filt = HelmholtzFilter(radius=norm_filter_radius, fn_space=metamaterial.R)
+        logger.debug("Using Helmholtz filter")
+        filt = HelmholtzFilter(radius=norm_filter_radius,
+                               fn_space=metamaterial.R)
         filter_fn = partial(jax_helmholtz_filter, filt)
     else:
-        # logger.info("Using Density filter")
-        filt = DensityFilter(mesh=metamaterial.mesh, radius=norm_filter_radius, distance_method='periodic')
+        logger.debug("Using Density filter")
+        filt = DensityFilter(
+            mesh=metamaterial.mesh, radius=norm_filter_radius, distance_method='periodic')
         filter_fn = partial(jax_density_filter, filt.H_jax, filt.Hs_jax)
     return filt, filter_fn
 
+
 @jax.jit
 def jax_density_convolution(x, kernel):
-    return
+    raise NotImplementedError()
+
 
 @jax.jit
 def jax_density_filter(H, Hs, x):
     return jnp.divide(H @ x, Hs)
+
 
 @jax.jit
 def jax_projection(x, beta=1., eta=0.5):
@@ -42,10 +48,13 @@ def jax_projection(x, beta=1., eta=0.5):
 
     return jnp.array(numerator / denominator)
 
+
 @jax.jit
 def jax_simp(x, penalty):
     return jnp.power(x, penalty)
 
+
+@jax.jit
 def filter_rho(rho: fe.Function, H: np.array, Hs: np.array):
     filtered_rho = fe.Function(rho.function_space())
     filtered_rho.vector().set_local(np.divide(H @ rho.vector()[:], Hs))
@@ -70,7 +79,7 @@ def filter_rho(rho: fe.Function, H: np.array, Hs: np.array):
 
 #     def __str__(self):
 #         return 'FilterRhoBlock'
-    
+
 #     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
 #         tlm_input = tlm_inputs[0]
 #         Jv = Vector(tlm_input)
@@ -94,9 +103,11 @@ def filter_rho(rho: fe.Function, H: np.array, Hs: np.array):
 # TODO: Make common constructor interface for filters?
 # We could pass in a function space, then a radius, and then kwargs
 # For DensityFilter we can get the mesh from the function space with fn_space.mesh()
+
+
 class DensityFilter:
     calculated_filters = {}
-    
+
     def __init__(self, mesh: fe.Mesh, radius: float, distance_method: str = 'periodic', verbose=False, use_cached=True):
         self.mesh = mesh
         self.radius = radius
@@ -110,19 +121,20 @@ class DensityFilter:
         }
 
         if distance_method not in distance_methods:
-            raise ValueError("Invalid filter_type. Must be 'periodic' or 'flat'.")
+            raise ValueError(
+                "Invalid filter_type. Must be 'periodic' or 'flat'.")
 
         self._distance_fn = distance_methods[distance_method]
-        
+
         # calculating filters is expensive, so we cache them
         if os.path.exists('calculated_filters.pkl'):
             if self.verbose:
                 print("Loading filter from cache")
             with open('calculated_filters.pkl', 'rb') as f:
                 self.calculated_filters = pickle.load(f)
-                
+
         self.key = (self.mesh.hash(), radius, distance_method)
-        
+
         if self.key in self.calculated_filters:
             self.H, self.Hs, self.H_jax, self.Hs_jax = self.calculated_filters[self.key]
         else:
@@ -130,40 +142,41 @@ class DensityFilter:
             self._calculate_filter()
 
         self.calculated_filters = None
-            
+
     def filter(self, rho: fe.Function):
         # r = Function(rho.function_space(), name="Rho_filtered")
         # r.assign(filter_rho(rho, self.H, self.Hs))
         return filter_rho(rho, self.H, self.Hs)
-        
+
     def _calculate_filter(self):
         self.H = self._distance_fn()
         self.Hs = np.asarray(self.H.sum(1)).flatten()
         self.Hs_jax = jnp.array(self.Hs)
         self.H_jax = sparse.BCOO.from_scipy_sparse(self.H)
-        
-        self.calculated_filters[self.key] = (self.H, self.Hs, self.H_jax, self.Hs_jax)
-        
+
+        self.calculated_filters[self.key] = (
+            self.H, self.Hs, self.H_jax, self.Hs_jax)
+
         with open('calculated_filters.pkl', 'wb') as f:
             pickle.dump(self.calculated_filters, f)
-        
+
     def _calculate_flat_distances(self):
-        midpoints = [cell.midpoint().array()[:] for cell in fe.cells(self.mesh)]
+        midpoints = [cell.midpoint().array()[:]
+                     for cell in fe.cells(self.mesh)]
         tree = KDTree(midpoints)
         return tree.sparse_distance_matrix(tree, max_distance=self.radius, output_type='coo_matrix')
-
-
 
     def _calculate_periodic_distances(self):
 
         # NOTE: If instead of finding the midpoints we actually did a function_space.tabulate_dof_coordinates() we could also use this method for a CG space instead of just a DG space. This is because the dofs in a DG space are the cell midpoints, whereas in a CG space they are the vertices of the mesh.
-        midpoints = np.array([c.midpoint()[:][:2] for c in fe.cells(self.mesh)])
-        
+        midpoints = np.array([c.midpoint()[:][:2]
+                             for c in fe.cells(self.mesh)])
+
         x_min, y_min = self.mesh.coordinates().min(axis=0)
         x_max, y_max = self.mesh.coordinates().max(axis=0)
         width, height = x_max - x_min, y_max - y_min
-        
-        # The idea here is to create a KDTree for the minimum number of cells that give us full periodicity we want to achieve. So it looks something like this where O is the origin, A is the FEM base domain, and B, C, D, E are the periodic copies of A. 
+
+        # The idea here is to create a KDTree for the minimum number of cells that give us full periodicity we want to achieve. So it looks something like this where O is the origin, A is the FEM base domain, and B, C, D, E are the periodic copies of A.
         '''
          _____ _____
         |     |     |
@@ -184,7 +197,8 @@ class DensityFilter:
         # We then create trees for every space and then can query between them to determine which indices are within the filter radius. This is the minimum number of translations to get full periodicity, where every corner of the domain is able to touch every other corner.
         trees = [KDTree(midpoints - shift) for shift in shifts]
 
-        distance_mats = [trees[0].sparse_distance_matrix(tree, max_distance=self.radius, output_type='coo_matrix') for tree in trees]
+        distance_mats = [trees[0].sparse_distance_matrix(
+            tree, max_distance=self.radius, output_type='coo_matrix') for tree in trees]
 
         # This is the standard TO conic filter, where we take the distance from the filter radius and subtract it from the radius to get the filter value
         for D in distance_mats:
@@ -200,6 +214,10 @@ class DensityFilter:
 
         return tdist
 
+    def check_gradient(self, x, eps=1e-6, rtol=1e-5, atol=1e-8, show_plot=False):
+        return _check_filter_gradient(self, x, eps, rtol, atol, show_plot)
+
+
 class HelmholtzFilter:
     def __init__(self, radius: float, fn_space: fe.FunctionSpace):
         self.radius = radius
@@ -207,43 +225,53 @@ class HelmholtzFilter:
         self.fn_space = fn_space
 
         r, w = fe.TrialFunction(fn_space), fe.TestFunction(fn_space)
-        self.a = (self._scaled_radius**2)*fe.inner(fe.grad(r), fe.grad(w))*fe.dx + r*w*fe.dx
+        self.a = (self._scaled_radius**2) * \
+            fe.inner(fe.grad(r), fe.grad(w))*fe.dx + r*w*fe.dx
         self.solver = fe.LUSolver(fe.assemble(self.a))
 
         self.r = fe.Function(fn_space)
         self.r_filtered = fe.Function(fn_space)
-        self.b = fe.Vector(self.fn_space.mesh().mpi_comm(), self.fn_space.dim())
+        self.b = fe.Vector(self.fn_space.mesh().mpi_comm(),
+                           self.fn_space.dim())
         self.w = fe.TestFunction(self.fn_space)
-    
+
     def filter(self, r_array):
-        assert r_array.size == self.fn_space.dim(), "Input array size must match function space dimension"
+        assert r_array.size == self.fn_space.dim(
+        ), "Input array size must match function space dimension"
         self.r.vector()[:] = r_array
         L = self.r*self.w*fe.dx
         fe.assemble(L, tensor=self.b)
-        
+
         self.solver.solve(self.r_filtered.vector(), self.b)
-        
+
         return self.r_filtered.vector()[:]
+
+    def check_gradient(self, x, eps=1e-6, rtol=1e-5, atol=1e-8, show_plot=False):
+        return _check_filter_gradient(self, x, eps, rtol, atol, show_plot)
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
 def jax_helmholtz_filter(filt, r_array):
     return filt.filter(r_array)
 
+
 def jax_helmholtz_filter_fwd(filt, r_array):
     rt = jax_helmholtz_filter(filt, r_array)
     return (rt, ())
+
 
 def jax_helmholtz_filter_bwd(filt, _, g):
     adjoint = jax_helmholtz_filter(filt, g)
     return (adjoint,)
 
+
 jax_helmholtz_filter.defvjp(jax_helmholtz_filter_fwd, jax_helmholtz_filter_bwd)
+
 
 def finite_difference(f, x, eps=1e-7):
     grad = np.zeros_like(x)
     perturb = np.zeros_like(x)
-    for i in tqdm(range(x.size), desc="Calculating finite difference"):
+    for i in tqdm(range(x.size), desc="Calculating filter finite difference"):
         perturb[i] = eps
         x_plus = x + perturb
         x_minus = x - perturb
@@ -251,21 +279,26 @@ def finite_difference(f, x, eps=1e-7):
         perturb[i] = 0.
     return grad
 
-def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=False):
-    
+
+def _check_filter_gradient(filter_obj, x, eps=1e-6, rtol=1e-5, atol=1e-8, show_plot=False):
+    name = filter_obj.__class__.__name__
+    logger.info(f"Checking {name} gradient")
+
     if type(filter_obj) == DensityFilter:
-        filter_fn = partial(jax_density_filter, filter_obj.H_jax, filter_obj.Hs_jax)
+        filter_fn = partial(jax_density_filter,
+                            filter_obj.H_jax, filter_obj.Hs_jax)
     elif type(filter_obj) == HelmholtzFilter:
         filter_fn = partial(jax_helmholtz_filter, filter_obj)
     else:
         raise ValueError("Invalid filter type")
-    
+
+    # Need some objective that is differentiable to check fd against
     def f(x):
         return jnp.sum(filter_fn(x)**2)
-    
+
     jax_grad = jax.grad(f)(x)
-    fd_grad  = finite_difference(f, x, eps)
-    
+    fd_grad = finite_difference(f, x, eps)
+
     r = fe.Function(filter_obj.fn_space)
     r.vector()[:] = x
     r_filt = fe.Function(filter_obj.fn_space)
@@ -274,23 +307,23 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
     jax_fn.vector()[:] = jax_grad
     fd_fn = fe.Function(filter_obj.fn_space)
     fd_fn.vector()[:] = fd_grad
-    
+
     if show_plot:
         fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-        plt.sca(axs[0,0])
-        c=fe.plot(r, cmap='gray')
+        plt.sca(axs[0, 0])
+        c = fe.plot(r, cmap='gray')
         plt.colorbar(c)
         plt.title("Density")
-        plt.sca(axs[0,1])
-        c=fe.plot(r_filt, cmap='gray')
+        plt.sca(axs[0, 1])
+        c = fe.plot(r_filt, cmap='gray')
         plt.colorbar(c)
         plt.title("Filtered Density")
-        plt.sca(axs[1,0])
-        c=fe.plot(jax_fn)
+        plt.sca(axs[1, 0])
+        c = fe.plot(jax_fn)
         plt.colorbar(c)
         plt.title("JAX Gradient")
-        plt.sca(axs[1,1])
-        c=fe.plot(fd_fn)
+        plt.sca(axs[1, 1])
+        c = fe.plot(fd_fn)
         plt.colorbar(c)
         plt.title("Finite Difference Gradient")
         # plt.show()
@@ -300,17 +333,22 @@ def check_gradient(filter_obj, x, eps=1e-7, rtol=1e-5, atol=1e-5, show_plot=Fals
         plt.plot(jax_grad[:], label='JAX')
         plt.legend()
         plt.show()
-    
-    np.testing.assert_allclose(jax_grad, fd_grad, rtol=rtol, atol=atol)
-    print("Gradient check passed")
-    
+
+    try:
+        np.testing.assert_allclose(jax_grad, fd_grad, rtol=rtol, atol=atol)
+        logger.info(f"{name} gradient check passed")
+    except AssertionError as e:
+        logger.error(
+            f"Assertion error for {name} gradient check: {e}")
+
 
 if __name__ == "__main__":
     np.random.seed(0)
 
-    mesh = fe.UnitSquareMesh(50,50, 'crossed')
+    mesh = fe.UnitSquareMesh(50, 50, 'crossed')
     # mesh = RectangleMesh.create([Point(0, 0), Point(1, 1)], [20, 20], CellType.Type.quadrilateral)
-    expr = fe.Expression('sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
+    expr = fe.Expression(
+        'sqrt(pow(x[0]-0.5,2) + pow(x[1]-0.5,2)) < 0.3 ? 1.0 : 0.0', degree=1)
 
     dg_space = fe.FunctionSpace(mesh, 'DG', 0)
     rho_dg = fe.Function(dg_space)
@@ -320,7 +358,7 @@ if __name__ == "__main__":
     rho_cg.interpolate(expr)
 
     # the finite difference of the helmholtz filter shows some mesh artifacts that I haven't figured out how to fix.
-    # probably something 
+    # probably something
     # The gradient check doesn't pass, but when plotted the trend between the two so I'm happy with that.
     # Also a sanity check when using the circle expression as the input gives the correct values (grad = 2 * rho because the function is sum(rho**2))
     # The DG gradients (both JAX and FD) match, and they also match against the CG JAX gradient. The only outlier is the CG FD gradient.
@@ -329,10 +367,7 @@ if __name__ == "__main__":
     # d_filt = DensityFilter(mesh, radius, distance_method='flat')
     # check_gradient(d_filt, rho_dg.vector()[:], eps=1e-2, show_plot=True)
     pd_filt = DensityFilter(mesh, radius, distance_method='periodic')
-    check_gradient(pd_filt, rho_dg.vector()[:], eps=1e-2, show_plot=True)
+    _check_filter_gradient(pd_filt, rho_dg.vector()[
+        :], eps=1e-2, show_plot=True)
     # h_filt = HelmholtzFilter(radius, cg_space)
     # check_gradient(h_filt, rho_cg.vector()[:], eps=1e-4, show_plot=True)
-
-    
-    
-    

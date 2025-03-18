@@ -45,7 +45,7 @@ class EpigraphOptimizer(nlopt.opt):
         x[-1] = 0.
         new_t = -np.inf
         for g in self.active_constraints:
-            if isinstance(g, EpigraphConstraint):
+            if isinstance(g, EpigraphComponent):
                 logger.info(f"Accounting for constraint {g} in t update")
                 if isinstance(g, VectorOptimizationComponent):
                     results = np.zeros(g.n_constraints)
@@ -64,7 +64,7 @@ class EpigraphOptimizer(nlopt.opt):
 
     def add_inequality_mconstraint(self, *args, uses_t=True):
         con = args[0]
-        if isinstance(con, EpigraphConstraint):
+        if isinstance(con, EpigraphComponent):
             self.active_constraints.append(args[0])
         else:
             raise ValueError("First argument must be a constraint")
@@ -72,7 +72,7 @@ class EpigraphOptimizer(nlopt.opt):
 
     def add_inequality_constraint(self, *args):
         con = args[0]
-        if isinstance(con, EpigraphConstraint):
+        if isinstance(con, EpigraphComponent):
             self.active_constraints.append(args[0])
         else:
             raise ValueError("First argument must be a constraint")
@@ -95,7 +95,14 @@ class EpigraphOptimizer(nlopt.opt):
         return len(self.active_constraints)
 
 
-class EpigraphObjective(ScalarOptimizationComponent):
+class EpigraphComponent:
+    """Marker interface for constraints that are bound in some way by the auxilary t variable"""
+
+    def split_t(self, x):
+        return x[:-1], x[-1]
+
+
+class EpigraphObjective(ScalarOptimizationComponent, EpigraphComponent):
     """
     A class representing a minimax optimization problem.
     We reformulate the problem as a nonlinear optimization problem by adding a slack variable t as the objective function.
@@ -126,7 +133,7 @@ class EpigraphObjective(ScalarOptimizationComponent):
         Returns:
         - The objective function value.
         """
-        t = x[-1]
+        _, t = self.split_t(x)
 
         if grad.size > 0:
             grad[:-1], grad[-1] = 0., 1.
@@ -443,14 +450,7 @@ class EpigraphObjective(ScalarOptimizationComponent):
 #             raise RuntimeError("_setup_evals_lines must set self.evals_lines")
 
 
-class EpigraphConstraint:
-    """Marker interface for constraints that are bound in some way by the auxilary t variable"""
-
-    def split_t(self, x):
-        return x[:-1], x[-1]
-
-
-class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphConstraint):
+class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
     def __init__(self, ops: OptimizationState, objective_type: str, eps: float = 0., verbose: bool = False, silent: bool = False):
         super().__init__(ops, eps=eps, verbose=verbose, silent=silent)

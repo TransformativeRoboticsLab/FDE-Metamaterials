@@ -45,7 +45,13 @@ def finite_difference_checker(constraint: OptimizationComponent, x, obj=None, ep
     # args_count = len(inspect.signature(constraint).parameters)
     # grad_fd = np.zeros(x.size) if args_count == 2 else np.zeros(
     # (constraint.n_constraints, x.size))
-    grad_fd = np.zeros((constraint.n_constraints, x.size))
+    if isinstance(constraint, ScalarOptimizationComponent):
+        grad_fd = np.zeros(x.size)
+    elif isinstance(constraint, VectorOptimizationComponent):
+        grad_fd = np.zeros((constraint.n_constraints, x.size))
+    else:
+        raise ValueError(
+            f"Constraint {constraint} must be derived from ScalarOptimizationComponent or VectorOptimizationComponent")
 
     for i in tqdm(range(grad_fd.shape[grad_fd.ndim-1]), desc=f"Checking gradient {name}"):
         perturb = np.zeros_like(x)
@@ -55,14 +61,14 @@ def finite_difference_checker(constraint: OptimizationComponent, x, obj=None, ep
 
         empty_grad = np.array([])
 
-        if constraint.n_constraints == 1:
+        if isinstance(constraint, ScalarOptimizationComponent):
             precompute_obj(obj, x_plus) if obj is not None else None
             c_plus = constraint(x_plus, empty_grad)
 
             precompute_obj(obj, x_minus) if obj is not None else None
             c_minus = constraint(x_minus, empty_grad)
 
-            grad_fd[0, i] = (c_plus - c_minus) / (2 * epsilon)
+            grad_fd[i] = (c_plus - c_minus) / (2 * epsilon)
         else:
             results_plus = np.zeros(constraint.n_constraints)
             results_minus = np.zeros(constraint.n_constraints)
@@ -85,7 +91,7 @@ def plot_gradients(actual: np.ndarray, desired: np.ndarray, title: str, rtol: fl
     des = desired.flatten()
 
     abs_diff = np.abs(des-act)
-    rel_diff = abs_diff / np.abs(des)
+    rel_diff = abs_diff / np.abs(des + 1e-6)
 
     # Actual values plot
     ax0.plot(act, label='Analytical', marker='o')
@@ -119,7 +125,8 @@ def plot_gradients(actual: np.ndarray, desired: np.ndarray, title: str, rtol: fl
 
 def create_constraint(cname, config):
     constraint_list = {
-        'Epigraph': epi.EpigraphObjective,
+        'EpigraphObjective': epi.EpigraphObjective,
+        'PrimaryEpigraphConstraint': epi.PrimaryEpigraphConstraint,
         'RayleighScalarObjective': sca.RayleighRatioObjective,
         'EigenvectorConstraint': sca.EigenvectorConstraint,
         'SameLargeValueConstraint': sca.SameLargeValueConstraint,
@@ -131,62 +138,101 @@ def create_constraint(cname, config):
     return constraint_list[cname](**config)
 
 
-def handle_constraints(constraint_name: str, ops: OptimizationState, x: np.ndarray, verbose: bool = False, silent: bool = True, epi_constraint: bool = False, plot: bool = True, obj: OptimizationComponent = None):
-    # if the constraint is formulated for an epigraph form we need to add a DOF for the t variable
-    if epi_constraint:
-        x = np.append(x, 1.)
-
-    # if we need to run the primary objective function first to get the analytical gradient
-    if isinstance(obj, OptimizationComponent):
-        precompute_obj(obj, x)
-    elif obj:
-        print(
-            "Argument obj is not an OptimizationComponent. I can't do anything with this...")
-
-    constraint_config = {
-        'ops': ops,
-        'verbose': verbose,
-        'silent': silent,
-    }
+def _create_optimization_component(name, config):
+    """Helper function to create an optimization component."""
 
     try:
-        constraint = create_constraint(constraint_name, constraint_config)
+        return create_constraint(name, config)
     except ValueError as e:
-        print(f"Unable to create {constraint_name}: {e}")
+        logger.error(f"Unable to create {name}: {e}")
     except Exception as e:
-        print(e)
-        return
+        logger.error(f"Unexpected error creating {name}: {e}")
 
-    if not constraint:
-        return
-    grad_analytical = np.zeros((constraint.n_constraints, x.size))
-    constraint(x, grad_analytical)
-    grad_fd = finite_difference_checker(
-        constraint, x, obj, name=constraint_name)
+    return None
 
+
+def _calculate_analytical_gradient(component, x):
+    """Calculate analytical gradient for the given component type."""
+    if isinstance(component, ScalarOptimizationComponent):
+        grad_analytical = np.zeros(x.size)
+        component(x, grad_analytical)
+        return grad_analytical
+    elif isinstance(component, VectorOptimizationComponent):
+        grad_analytical = np.zeros((component.n_constraints, x.size))
+        results = np.zeros(component.n_constraints)
+        component(results, x, grad_analytical)
+        return grad_analytical
+    else:
+        raise ValueError(f"Unknown component type: {type(component)}")
+
+
+def handle_optimization_component(name: str, ops: OptimizationState, x: np.ndarray, plot: bool = True, obj: OptimizationComponent = None, **kwargs):
+    """
+    Create, validate and test an optimization component with finite difference gradient checking.
+
+    Args:
+        name: Class name of the optimization component to create
+        ops: Optimization state object containing problem setup
+        x: Design variables
+        epi_constraint: If True, append a DOF for the t variable (epigraph form)
+        plot: If True, plot gradient comparison
+        obj: Primary objective function that might need to be evaluated first
+
+    Returns:
+        The validated optimization component or None if validation failed
+    """
+    # Create the component
+    component_config = {'ops': ops, **kwargs}
+    component = _create_optimization_component(name, component_config)
+    if component is None:
+        return None
+
+    # Handle epigraph form if needed
+    if isinstance(component, epi.EpigraphComponent):
+        x = np.append(x, 1.)
+        logger.info(f"{component} is an epigraph component. Appending t to x")
+
+    # Run primary objective if provided and valid
+    if isinstance(obj, OptimizationComponent):
+        precompute_obj(obj, x)
+    elif obj is not None:
+        logger.warning(
+            "Argument obj is not an OptimizationComponent and will be ignored")
+
+    # Calculate analytical gradient
+    try:
+        grad_analytical = _calculate_analytical_gradient(component, x)
+    except ValueError as e:
+        logger.error(f"Failed to calculate analytical gradient: {e}")
+        return None
+
+    # Calculate finite difference gradient
+    grad_fd = finite_difference_checker(component, x, obj, name=name)
+
+    # Validate gradients
     rtol, atol = 1e-5, 1e-8
     if plot:
         plot_gradients(grad_analytical, grad_fd,
-                       title=constraint_name, rtol=rtol, atol=atol)
+                       title=name, rtol=rtol, atol=atol)
 
     try:
         npt.assert_allclose(grad_analytical, grad_fd, rtol=rtol, atol=atol)
+        logger.info(f"Component {component} passed finite difference check.")
+        return component
     except Exception as e:
-        print(
-            f"OptimizationComponent {constraint_name} finite difference check failed :(")
-        print(e)
-
-    return constraint
+        logger.error(
+            f"Component {component} failed finite difference check: {e}")
+        return None
 
 
 def initialize_filter(norm_filter_radius, metamate):
     if metamate.R.ufl_element().degree() > 0:
-        print("Using Helmholtz filter")
+        logger.info("Using Helmholtz filter")
         filt = HelmholtzFilter(radius=norm_filter_radius,
                                fn_space=metamate.R)
         filt_fn = partial(jax_helmholtz_filter, filt)
     elif metamate.R.ufl_element().degree() == 0:
-        print("Using Density filter")
+        logger.info("Using Density filter")
         filt = DensityFilter(mesh=metamate.mesh,
                              radius=norm_filter_radius,
                              distance_method='periodic')
@@ -209,11 +255,15 @@ def main():
     nely = nelx
     mesh_type = 'tri'
 
-    basis_v = "BULK"
+    basis_v = None
     extremal_mode = 1
     # ===== END INPUT PARAMS =====
 
     # ===== SETUP =====
+    check_metamaterial = False
+    check_filter = True
+    check_scalars = False
+    check_epigraphs = True
     if basis_v:
         V = V_DICT[basis_v]
     else:
@@ -228,10 +278,6 @@ def main():
                                   nely,
                                   mesh_cell_type=mesh_type,
                                   domain_shape='square')
-    try:
-        metamate.finite_difference_check()
-    except Exception as e:
-        logger.error(e)
 
     filt, filt_fn = initialize_filter(norm_filter_radius, metamate)
     ops = OptimizationState(basis_v=V,
@@ -241,16 +287,45 @@ def main():
                             filt_fn=filt_fn,
                             beta=beta,
                             eta=eta,
-                            show_plot=False)
+                            show_plot=False,
+                            verbose=False,
+                            silent=True)
 
     # Initial design variables
     x = np.random.uniform(0., 1, size=metamate.R.dim())
     # ===== END SETUP =====
 
+    # ===== CHECK COMPONENTS =====
+    if check_metamaterial:
+        try:
+            metamate.check_gradient()
+        except Exception as e:
+            logger.error(e)
+    else:
+        logger.warning("Skipping metamaterial gradient check")
+
+    if check_filter:
+        filt.check_gradient(x)
+    else:
+        logger.warning("Skipping filter gradient check")
+
     # ===== SCALAR CONSTRAINTS =====
-    rsc = handle_constraints('RayleighScalarObjective', ops, x)
-    handle_constraints('EigenvectorConstraint', ops, x, obj=rsc)
-    handle_constraints('SameLargeValueConstraint', ops, x, obj=rsc)
+    if check_scalars:
+        logger.info("Checking scalar components")
+        rsc = handle_optimization_component('RayleighScalarObjective', ops, x)
+        handle_optimization_component('EigenvectorConstraint', ops, x, obj=rsc)
+        handle_optimization_component(
+            'SameLargeValueConstraint', ops, x, obj=rsc)
+    else:
+        logger.warning("Skipping scalar component checks")
+
+    if check_epigraphs:
+        logger.info("Checking epigraph components")
+        handle_optimization_component('EpigraphObjective', ops, x)
+        pec = handle_optimization_component(
+            'PrimaryEpigraphConstraint', ops, x, objective_type='ray')
+    else:
+        logger.warning("Skipping epigraph component checks")
 
 
 if __name__ == "__main__":

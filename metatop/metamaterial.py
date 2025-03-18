@@ -229,7 +229,7 @@ class Metamaterial:
     def cell_midpoints(self):
         return np.array([c.midpoint().array()[:2] for c in fe.cells(self.mesh)])
 
-    def finite_difference_check(self):
+    def check_gradient(self):
         from tqdm import tqdm
 
         logger.warning("Running finite difference checker overwrites self.x")
@@ -260,12 +260,16 @@ class Metamaterial:
         try:
             npt.assert_allclose(grad_fd, grad_analytical, rtol=1e-5, atol=1e-8)
             logger.info(
-                "Metamaterial finite difference matches analytical gradient")
-        except Exception as e:
+                "Metamaterial gradient check passed")
+        except AssertionError as e:
             logger.error(f"Metamaterial gradient check failed")
             logger.error(
-                f"E_max: {E_max:.3e}, E_min: {E_min:.3e}, nu: {nu:.3e}")
+                f"E_max: {self.prop.E_max:.3e}, E_min: {self.prop.E_min:.3e}, nu: {self.prop.nu:.3e}")
             logger.error(e)
+            raise e
+        except Exception as e:
+            logger.error(
+                f"Unexpected error occured running metamaterial gradient check: {e}")
             raise e
 
 
