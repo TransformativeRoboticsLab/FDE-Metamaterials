@@ -140,6 +140,7 @@ class OptimizationState:
 
     # Misc.
     verbose: bool = True
+    silent: bool = False
 
     def __post_init__(self):
         if self.show_plot:

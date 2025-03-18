@@ -34,27 +34,6 @@ class EpigraphOptimizer(nlopt.opt):
 
         self.active_constraints = []
 
-    # def setup(self):
-    #     print("Setting up optimizer...")
-    #     self.set_min_objective(EpigraphObjective())
-    #     print("Adding constraints...")
-    #     if self.n_constraints > 0:
-    #         for n, g in enumerate(self.active_constraints):
-    #             print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
-    #             if isinstance(g, ScalarOptimizationComponent):
-    #                 super().add_inequality_constraint(g, 0.)
-    #             elif isinstance(g, VectorOptimizationComponent):
-    #                 super().add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-    #             else:
-    #                 raise ValueError(
-    #                     f"Constraint function {g} seems not be derived from abstract components.")
-    #     else:
-    #         logger.warning("No active constraints to set up!")
-
-    #     self.set_lower_bounds(np.append(np.zeros(self.size - 1), -np.inf))
-    #     self.set_upper_bounds(np.append(np.ones(self.size - 1), np.inf))
-    #     self.set_param('dual_ftol_rel', 1e-6)
-
     def optimize(self, x):
         x[-1] = self._update_t(x)
         logger.info(f"New t value: {x[-1]:.3e}")
@@ -156,11 +135,12 @@ class EpigraphObjective(ScalarOptimizationComponent):
             raise ForcedStop(
                 "Objective function value is too large. Terminating optimization run.")
 
-        self.ops.obj_n_calls += 1
-        logger.info(f"{self.ops.obj_n_calls}:")
-        logger.info(f"{self.__str__()} t={t:.4f}")
-        self.ops.update_evals(self.__str__(), t)
-        self.ops.update_plot(self.__str__(), labels=['t'])
+        if not self.silent:
+            self.ops.obj_n_calls += 1
+            logger.info(f"{self.ops.obj_n_calls}:")
+            logger.info(f"{self.__str__()} t={t:.4f}")
+            self.ops.update_evals(self.__str__(), t)
+            self.ops.update_plot(self.__str__(), labels=['t'])
 
         stop_on_nan(t)
         return t

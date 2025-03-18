@@ -14,14 +14,14 @@ from metatop.optimization import OptimizationState
 class OptimizationComponent(abc.ABC):
 
     # TODO: Change verbose to default False eventually
-    def __init__(self, ops: OptimizationState, eps: float = 0., silent=False, verbose=True):
-        # Mutables
-        self.silent = silent
-        self.verbose = verbose
-        self.eps = eps
-
+    def __init__(self, ops: OptimizationState, eps: float = 0., silent: bool = None, verbose: bool = None):
         # Immutables
         self._ops = ops
+
+        # Mutables
+        self.silent = silent or self.ops.silent
+        self.verbose = verbose or self.ops.verbose
+        self.eps = eps
 
         if self.verbose:
             logger.info(f"Initializing {self.__class__.__name__}")
