@@ -10,7 +10,6 @@ from jax.experimental import sparse
 from loguru import logger
 from matplotlib import pyplot as plt
 from scipy.spatial import KDTree
-from tqdm import tqdm
 
 
 def setup_filter(metamaterial, norm_filter_radius):
@@ -269,6 +268,8 @@ jax_helmholtz_filter.defvjp(jax_helmholtz_filter_fwd, jax_helmholtz_filter_bwd)
 
 
 def finite_difference(f, x, eps=1e-7):
+    from tqdm import tqdm
+
     grad = np.zeros_like(x)
     perturb = np.zeros_like(x)
     for i in tqdm(range(x.size), desc="Calculating filter finite difference"):
@@ -281,6 +282,7 @@ def finite_difference(f, x, eps=1e-7):
 
 
 def _check_filter_gradient(filter_obj, x, eps=1e-6, rtol=1e-5, atol=1e-8, show_plot=False):
+
     name = filter_obj.__class__.__name__
     logger.info(f"Checking {name} gradient")
 
