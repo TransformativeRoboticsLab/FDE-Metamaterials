@@ -331,423 +331,423 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #         return "EigenvalueProblemConstraints"
 
 
-class SpectralNormConstraint:
+# class SpectralNormConstraint:
 
-    def __init__(self, ops, bound=1., verbose=True):
-        self.ops = ops
-        self.bound = bound
-        self.verbose = verbose
+#     def __init__(self, ops, bound=1., verbose=True):
+#         self.ops = ops
+#         self.bound = bound
+#         self.verbose = verbose
 
-    def __call__(self, x, grad, ):
+#     def __call__(self, x, grad, ):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
-        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+#         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
 
-        def g(C):
-            C = m @ C @ m
-            return jnp.linalg.norm(C, ord=2)
-            # return jnp.trace(C)
+#         def g(C):
+#             C = m @ C @ m
+#             return jnp.linalg.norm(C, ord=2)
+#             # return jnp.trace(C)
 
-        c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
+#         c, dc_dChom = jax.value_and_grad(g)(jnp.asarray(Chom))
 
-        if grad.size > 0:
-            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[-1] = 0.
+#         if grad.size > 0:
+#             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+#             grad[-1] = 0.
 
-        if self.verbose:
-            print(f"Spectral Norm Constraint:")
-            print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
-            # print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
-        return float(self.bound - c)
+#         if self.verbose:
+#             print(f"Spectral Norm Constraint:")
+#             print(f"Value: {c:.3f} (Target >={self.bound:.3f})")
+#             # print(f"Eigenvalues: {np.linalg.eigvalsh(m@Chom@m)}")
+#         return float(self.bound - c)
 
-    def __str__(self):
-        return "SpectralNormConstraint"
+#     def __str__(self):
+#         return "SpectralNormConstraint"
 
 
-class EigenvectorConstraint:
+# class EigenvectorConstraint:
 
-    def __init__(self, basis_v, ops, eps=1e-3, verbose=True):
-        self.basis_v = basis_v
-        self.ops = ops
-        self.eps = eps
-        self.verbose = verbose
+#     def __init__(self, basis_v, ops, eps=1e-3, verbose=True):
+#         self.basis_v = basis_v
+#         self.ops = ops
+#         self.eps = eps
+#         self.verbose = verbose
 
-        self.n_constraints = 3
+#         self.n_constraints = 3
 
-    def __call__(self, results, x, grad, dummy_run=False):
+#     def __call__(self, results, x, grad, dummy_run=False):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
-        t = x[-1]
+#         t = x[-1]
 
-        c, cs = self.obj(Chom)
-        stop_on_nan(c)
-        results[:] = c - t
+#         c, cs = self.obj(Chom)
+#         stop_on_nan(c)
+#         results[:] = c - t
 
-        if dummy_run:
-            return
+#         if dummy_run:
+#             return
 
-        if grad.size > 0:
-            dc_dChom = jax.jacrev(self.obj, has_aux=True)(jnp.asarray(Chom))[
-                0].reshape((self.n_constraints, 9))
-            for n in range(self.n_constraints):
-                grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-                grad[n, -1] = -1.
-                # grad[n,:] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
+#         if grad.size > 0:
+#             dc_dChom = jax.jacrev(self.obj, has_aux=True)(jnp.asarray(Chom))[
+#                 0].reshape((self.n_constraints, 9))
+#             for n in range(self.n_constraints):
+#                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+#                 grad[n, -1] = -1.
+#                 # grad[n,:] = dxfem_dx_vjp(dc_dChom[n,:] @ dChom_dxfem)[0]
 
-        if self.verbose:
-            print(f"Eigenvector Constraint:")
-            print(f"Values: {c}")
-            print(f"Residuals: {cs}")
-        else:
-            print(f"\tg_vec(x): {c}")
+#         if self.verbose:
+#             print(f"Eigenvector Constraint:")
+#             print(f"Values: {c}")
+#             print(f"Residuals: {cs}")
+#         else:
+#             print(f"\tg_vec(x): {c}")
 
-    def obj(self, C):
-        M = mandelize(C)
-        # eigenvectors are the same for C and S so we don't worry about inverting like we do in other constraints
-        M /= jnorm(M, ord=2)
+#     def obj(self, C):
+#         M = mandelize(C)
+#         # eigenvectors are the same for C and S so we don't worry about inverting like we do in other constraints
+#         M /= jnorm(M, ord=2)
 
-        V = self.basis_v
-        # Rayleigh quotient in diagonal matrix form
-        R = jnp.diag(ray_q(M, V))
-        # Resdiuals of eigenvector alignment
-        res = M @ V - V @ R
-        # norm squared of each residual
-        norm_sq = jnp.sum(jnp.square(res), axis=0)
+#         V = self.basis_v
+#         # Rayleigh quotient in diagonal matrix form
+#         R = jnp.diag(ray_q(M, V))
+#         # Resdiuals of eigenvector alignment
+#         res = M @ V - V @ R
+#         # norm squared of each residual
+#         norm_sq = jnp.sum(jnp.square(res), axis=0)
 
-        return jnp.log(norm_sq/self.eps), norm_sq
+#         return jnp.log(norm_sq/self.eps), norm_sq
 
-    def __str__(self):
-        return "EigenvectorConstraint"
+#     def __str__(self):
+#         return "EigenvectorConstraint"
 
 
-class TraceConstraint:
+# class TraceConstraint:
 
-    def __init__(self, ops, bound=3e-1, verbose=True):
-        self.ops = ops
-        self.verbose = verbose
-        self.bound = bound
+#     def __init__(self, ops, bound=3e-1, verbose=True):
+#         self.ops = ops
+#         self.verbose = verbose
+#         self.bound = bound
 
-    def __call__(self, x, grad):
+#     def __call__(self, x, grad):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
-        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+#         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
 
-        def obj(C):
-            return -jnp.trace(m@C@m)
+#         def obj(C):
+#             return -jnp.trace(m@C@m)
 
-        c, dc_dChom = jax.value_and_grad(obj)(Chom)
+#         c, dc_dChom = jax.value_and_grad(obj)(Chom)
 
-        if grad.size > 0:
-            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-            grad[-1] = 0.
+#         if grad.size > 0:
+#             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+#             grad[-1] = 0.
 
-        print(f"\tg_trc(x): {-c:.3f} (Target >={self.bound:.3f})")
+#         print(f"\tg_trc(x): {-c:.3f} (Target >={self.bound:.3f})")
 
-        return float(self.bound + c)
+#         return float(self.bound + c)
 
-    def __str__(self):
-        return "TraceConstraint"
+#     def __str__(self):
+#         return "TraceConstraint"
 
 
-class InvariantsConstraint:
+# class InvariantsConstraint:
 
-    def __init__(self, ops, verbose=True):
-        self.ops = ops
-        self.verbose = verbose
-        # Invariant bounds:
-        # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
-        self.eps = np.array([-3e-1, -0., 1e-1])
+#     def __init__(self, ops, verbose=True):
+#         self.ops = ops
+#         self.verbose = verbose
+#         # Invariant bounds:
+#         # tr(C) >= eps --> eps - tr(C) <= 0 --> (-tr(C)) - (-eps) <= 0
+#         self.eps = np.array([-3e-1, -0., 1e-1])
 
-        self.n_constraints = 3
+#         self.n_constraints = 3
 
-        assert self.eps.size == self.n_constraints, "Epsilons must be the same length as the number of constraints"
+#         assert self.eps.size == self.n_constraints, "Epsilons must be the same length as the number of constraints"
 
-    def __call__(self, results, x, grad, dummy_run=False):
+#     def __call__(self, results, x, grad, dummy_run=False):
 
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
 
-        t = x[-1]
+#         t = x[-1]
 
-        def obj(C):
-            m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-            C = m @ C @ m
-            I1 = jnp.trace(C)
-            I2 = 0.5 * (jnp.trace(C)**2 - jnp.trace(C @ C))
-            I3 = jnp.linalg.det(C)
-            return jnp.array([-I1, -I2, I3])
-
-        c = obj(jnp.asarray(Chom))
-        results[:] = c - self.eps
-
-        if dummy_run:
-            return
-
-        if grad.size > 0:
-            dc_dChom = jax.jacrev(obj)(jnp.asarray(
-                Chom)).reshape((self.n_constraints, 9))
-            for n in range(self.n_constraints):
-                grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-                grad[n, -1] = 0.
-
-        if self.verbose:
-            print(f"Invariant Constraint:")
-            print(f"Trace: {-c[0]:.3f} (Target >={-self.eps[0]:.3f})")
-            print(
-                f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
-            print(f"Det: {c[2]:.2e} (Target <={self.eps[2]:.3f})")
-
-
-class GeometricConstraints:
-
-    def __init__(self, ops, metamaterial, line_width, line_space, c, eps=1e-3, verbose=True):
-        self.ops = ops
-        self.metamaterial = metamaterial
-        # if 'quad' not in metamaterial.mesh.ufl_cell().cellname():
-        # raise ValueError("Geometric Constraints only work with quadrilateral elements")
-        self.lw = line_width
-        self.ls = line_space
-        self.filt_radius = self.ops.filt.radius
-        self.eps = eps
-        self.verbose = verbose
-        self.c = c
-        self.n_constraints = 2
-
-        # items to help calculate the gradient of rho_tilde
-        self._r_tilde = fe.Function(self.metamaterial.R)
-
-    def __call__(self, results, x, grad, dummy_run=False):
-
-        filt_fn = self.ops.filt_fn
-        x, t = x[:-1], x[-1]
-
-        def g(x):
-            x_tilde = filt_fn(x)
-            a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
-            b1 = self._indicator_fn(x, 'width')
-            f, a = plt.subplots(1, 3)
-            plt.sca(a[0])
-            plt.imshow(a1.reshape((100, 100)))
-            plt.colorbar()
-            plt.sca(a[1])
-            plt.imshow(b1.reshape((100, 100)))
-            plt.colorbar()
-            plt.sca(a[2])
-            plt.imshow((a1*b1).reshape((100, 100)))
-            plt.colorbar()
-            c1 = jnp.mean(a1*b1)
-
-            a2 = jnp.minimum(self._eta_d - x_tilde, 0.)**2
-            b2 = self._indicator_fn(x, 'space')
-            c2 = jnp.mean(a2*b2)
-
-            return jnp.log(jnp.array([c1, c2]))
-
-        c = g(x)
-        dc_dx = jax.jacrev(g)(x)
-
-        results[:] = c - t*self.eps
-
-        if grad.size > 0:
-            for n in range(self.n_constraints):
-                grad[n, :-1] = dc_dx[n, :]
-                grad[n, -1] = -self.eps
-
-        if self.verbose:
-            print(f"Geometric Constraint:")
-            print(f"Width: {c[0]:.3e} (Target ≤{t*self.eps:.1e})")
-            print(f"Space: {c[1]:.3e} (Target ≤{t*self.eps:.1e})")
-
-    def _indicator_fn(self, x, type):
-        if type not in ['width', 'space']:
-            raise ValueError("Indicator Function must be 'width' or 'space'")
-        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
-        nelx, nely = self.metamaterial.nelx, self.metamaterial.nely
-
-        x_tilde = filt_fn(x)
-        x_bar = jax_projection(x_tilde, beta, eta)
-
-        r = fe.Function(self.metamaterial.R)
-        r.vector()[:] = x
-        # here we use fenics gradient to calculate grad(rho_tilde)
-        # first we convert x_tilde the vector to a fenics function in DG space
-        self._r_tilde.vector()[:] = x_tilde
-        # then we project r_tilde to a CG space so that we can get the gradient
-        # this is required because the gradient of a DG function is zero (values are constant across the cell)
-        r_tilde_cg = fe.project(self._r_tilde, self.metamaterial.R_cg)
-        # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
-        grad_r_tilde = fe.grad(r_tilde_cg)
-        laplac_r_tilde = fe.div(grad_r_tilde)
-        grad_r_tilde_norm_sq = fe.project(
-            fe.inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
-
-        r_tilde_img = x_tilde.reshape((nely, nelx))
-
-        def fd_norm_sq(img):
-            grad = self._fd_grad(img, h=1 / nelx)
-            return grad[0]**2 + grad[1]**2
-        fd_grad_r_tilde_norm_sq = fd_norm_sq(r_tilde_img)
-        J_fd = jax.jacfwd(fd_norm_sq)(r_tilde_img)
-        J_fenics = -2*fe.div(grad_r_tilde)
-        # grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
-        # fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2).reshape((nely, nelx))
-        # d_check = jax.jacrev(self._fd_grad)(r_tilde_img)
-        # d_check = jax.gradient(self._fd_grad)(r_tilde_img)
-        # d_check = jax.jacrev(jnp.gradient)(r_tilde_img)
-
-        # fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
-        # plt.sca(ax0)
-        # plt.imshow(grad_r_tilde_norm_sq.vector()[
-        #            :].reshape((nely, nelx)), cmap='gray')
-        # plt.colorbar()
-        # plt.title("grad_r_tilde_norm_sq")
-
-        # plt.sca(ax1)
-        # plt.imshow(fd_grad_r_tilde_norm_sq, cmap='gray')
-        # plt.colorbar()
-        # plt.title("fd_grad_r_tilde_norm_sq")
-
-        # plt.sca(ax2)
-        # # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
-        # diff = fd_grad_r_tilde_norm_sq.flatten(
-        # ) - grad_r_tilde_norm_sq.vector()[:]
-        # err = fe.Function(self.metamaterial.R)
-        # err.vector()[:] = diff
-        # plt.plot(diff)
-        # # plt.yscale('log')
-        # # plt.colorbar()
-        # plt.title("diff")
-        # plt.show()
-        # print(f"Max diff: {np.max(diff)}")
-        # print(f"Min diff: {np.min(diff)}")
-        # print(f"Mean diff: {np.mean(diff)}")
-        # print(f"Std diff: {np.std(diff)}")
-        # print(f"Norm diff: {np.linalg.norm(diff)/nelx}")
-        # print(f"Fenics norm diff: {norm(err, 'L2')}")
-
-        q = jnp.exp(-self.c * (grad_r_tilde_norm_sq))
-        fig, (ax0, ax1) = plt.subplots(1, 2)
-        plt.sca(ax0)
-        plt.imshow(grad_r_tilde_norm_sq, cmap='gray')
-        plt.show()
-
-        if type == 'width':
-            return x_bar * q.flatten()
-        elif type == 'space':
-            return (1. - x_bar) * q.flatten()
-        else:
-            raise ValueError("Indicator Function must be 'width' or 'space'")
-
-    def _calculate_etas(self, lw, ls, R):
-        eta_e, eta_d = 1., 0.
-        lwR, lsR = lw/R, ls/R
-
-        if lwR < 0.:
-            raise ValueError("Line width / Radius must be greater than 0.")
-        elif 0 <= lwR < 1.:
-            eta_e = 0.25*lwR**2 + 0.5
-        elif 1. <= lwR <= 2.:
-            eta_e = -0.25*lwR**2 + lwR
-
-        if lsR < 0.:
-            raise ValueError("Line space / Radius must be greater than 0.")
-        elif 0 <= lsR < 1.:
-            eta_d = 0.5 - 0.25*lsR**2
-        elif 1. <= lsR <= 2.:
-            eta_d = 1. + 0.25*lsR**2 - lsR
-
-        return eta_e, eta_d
-
-    def _fd_grad(self, img, h=None):
-        h = self.metamaterial.resolution[0] if h is None else h
-        if self.ops.filt.distance_method == 'periodic':
-            # use jnp.roll instead of jnp.gradient b/c periodic boundary conditions
-            # right_neighbors  = jnp.roll(img, -1, axis=1)
-            # left_neighbors   = jnp.roll(img, 1, axis=1)
-            # top_neighbors    = jnp.roll(img, -1, axis=0)
-            # bottom_neighbors = jnp.roll(img, 1, axis=0)
-
-            # grad_x = (right_neighbors - left_neighbors) / 2. / h
-            # grad_y = (top_neighbors - bottom_neighbors) / 2. / h
-
-            # Compute neighbors using periodic boundary conditions with jnp.roll
-            right1 = jnp.roll(img, -1, axis=1)
-            left1 = jnp.roll(img, 1, axis=1)
-            right2 = jnp.roll(img, -2, axis=1)
-            left2 = jnp.roll(img, 2, axis=1)
-
-            top1 = jnp.roll(img, -1, axis=0)
-            bottom1 = jnp.roll(img, 1, axis=0)
-            top2 = jnp.roll(img, -2, axis=0)
-            bottom2 = jnp.roll(img, 2, axis=0)
-
-            # Compute fourth-order central differences
-            grad_x = (-right2 + 8*right1 - 8*left1 + left2) / (12 * h)
-            grad_y = (-top2 + 8*top1 - 8*bottom1 + bottom2) / (12 * h)
-
-        else:  # assume non-periodicity
-            grad_y, grad_x = jnp.gradient(img, h)
-
-        # match return format of jnp.gradient
-        return grad_y, grad_x
-
-
-class OffDiagonalConstraint:
-    def __init__(self, v, ops, eps=1e-3, verbose=True):
-        self.v = v
-        self.ops = ops
-        self.eps = eps
-        self.verbose = verbose
-
-        self.n_constraints = 1
-
-    def __call__(self, x, grad):
-
-        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
-
-        c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
-
-        if grad.size > 0:
-            grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-
-        print(f"\tg_dia(x): {c}")
-
-        return float(c)
-
-    def obj(self, C):
-        m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
-        C = m @ C @ m
-        vCv = self.v.T @ C @ self.v
-        return jnp.log((vCv[0, 1]**2 + vCv[0, 2]**2 + vCv[1, 2]**2)/self.eps)
-        # return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
-
-    def __str__(self):
-        return "OffDiagonalConstraint"
-
-
-class VolumeConstraint:
-
-    def __init__(self, ops, bound, verbose=True):
-        self.ops = ops
-        self.bound = bound
-        self.verbose = verbose
-
-    def __call__(self, x, grad):
-
-        x_fem, dxfem_dx_vjp = self.ops.x_fem, self.ops.dxfem_dx_vjp
-
-        g, dg_dx_fem = jax.value_and_grad(jnp.mean)(x_fem)
-
-        if grad.size > 0:
-            grad[:-1] = dxfem_dx_vjp(dg_dx_fem)[0]
-            grad[-1] = 0.
-
-        if self.verbose:
-            print(f"Volume: {g:.3f} (Target <= {self.bound:.3f})")
-
-        return float(g - self.bound)
-
-    def __str__(self):
-        return "VolumeConstraint"
+#         def obj(C):
+#             m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+#             C = m @ C @ m
+#             I1 = jnp.trace(C)
+#             I2 = 0.5 * (jnp.trace(C)**2 - jnp.trace(C @ C))
+#             I3 = jnp.linalg.det(C)
+#             return jnp.array([-I1, -I2, I3])
+
+#         c = obj(jnp.asarray(Chom))
+#         results[:] = c - self.eps
+
+#         if dummy_run:
+#             return
+
+#         if grad.size > 0:
+#             dc_dChom = jax.jacrev(obj)(jnp.asarray(
+#                 Chom)).reshape((self.n_constraints, 9))
+#             for n in range(self.n_constraints):
+#                 grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+#                 grad[n, -1] = 0.
+
+#         if self.verbose:
+#             print(f"Invariant Constraint:")
+#             print(f"Trace: {-c[0]:.3f} (Target >={-self.eps[0]:.3f})")
+#             print(
+#                 f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
+#             print(f"Det: {c[2]:.2e} (Target <={self.eps[2]:.3f})")
+
+
+# class GeometricConstraints:
+
+#     def __init__(self, ops, metamaterial, line_width, line_space, c, eps=1e-3, verbose=True):
+#         self.ops = ops
+#         self.metamaterial = metamaterial
+#         # if 'quad' not in metamaterial.mesh.ufl_cell().cellname():
+#         # raise ValueError("Geometric Constraints only work with quadrilateral elements")
+#         self.lw = line_width
+#         self.ls = line_space
+#         self.filt_radius = self.ops.filt.radius
+#         self.eps = eps
+#         self.verbose = verbose
+#         self.c = c
+#         self.n_constraints = 2
+
+#         # items to help calculate the gradient of rho_tilde
+#         self._r_tilde = fe.Function(self.metamaterial.R)
+
+#     def __call__(self, results, x, grad, dummy_run=False):
+
+#         filt_fn = self.ops.filt_fn
+#         x, t = x[:-1], x[-1]
+
+#         def g(x):
+#             x_tilde = filt_fn(x)
+#             a1 = jnp.minimum(x_tilde - self._eta_e, 0.)**2
+#             b1 = self._indicator_fn(x, 'width')
+#             f, a = plt.subplots(1, 3)
+#             plt.sca(a[0])
+#             plt.imshow(a1.reshape((100, 100)))
+#             plt.colorbar()
+#             plt.sca(a[1])
+#             plt.imshow(b1.reshape((100, 100)))
+#             plt.colorbar()
+#             plt.sca(a[2])
+#             plt.imshow((a1*b1).reshape((100, 100)))
+#             plt.colorbar()
+#             c1 = jnp.mean(a1*b1)
+
+#             a2 = jnp.minimum(self._eta_d - x_tilde, 0.)**2
+#             b2 = self._indicator_fn(x, 'space')
+#             c2 = jnp.mean(a2*b2)
+
+#             return jnp.log(jnp.array([c1, c2]))
+
+#         c = g(x)
+#         dc_dx = jax.jacrev(g)(x)
+
+#         results[:] = c - t*self.eps
+
+#         if grad.size > 0:
+#             for n in range(self.n_constraints):
+#                 grad[n, :-1] = dc_dx[n, :]
+#                 grad[n, -1] = -self.eps
+
+#         if self.verbose:
+#             print(f"Geometric Constraint:")
+#             print(f"Width: {c[0]:.3e} (Target ≤{t*self.eps:.1e})")
+#             print(f"Space: {c[1]:.3e} (Target ≤{t*self.eps:.1e})")
+
+#     def _indicator_fn(self, x, type):
+#         if type not in ['width', 'space']:
+#             raise ValueError("Indicator Function must be 'width' or 'space'")
+#         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+#         nelx, nely = self.metamaterial.nelx, self.metamaterial.nely
+
+#         x_tilde = filt_fn(x)
+#         x_bar = jax_projection(x_tilde, beta, eta)
+
+#         r = fe.Function(self.metamaterial.R)
+#         r.vector()[:] = x
+#         # here we use fenics gradient to calculate grad(rho_tilde)
+#         # first we convert x_tilde the vector to a fenics function in DG space
+#         self._r_tilde.vector()[:] = x_tilde
+#         # then we project r_tilde to a CG space so that we can get the gradient
+#         # this is required because the gradient of a DG function is zero (values are constant across the cell)
+#         r_tilde_cg = fe.project(self._r_tilde, self.metamaterial.R_cg)
+#         # now we can calculate the inner product of the gradient of r_tilde and project back to the original DG space
+#         grad_r_tilde = fe.grad(r_tilde_cg)
+#         laplac_r_tilde = fe.div(grad_r_tilde)
+#         grad_r_tilde_norm_sq = fe.project(
+#             fe.inner(grad_r_tilde, grad_r_tilde), self.metamaterial.R).vector()[:].reshape((nely, nelx))
+
+#         r_tilde_img = x_tilde.reshape((nely, nelx))
+
+#         def fd_norm_sq(img):
+#             grad = self._fd_grad(img, h=1 / nelx)
+#             return grad[0]**2 + grad[1]**2
+#         fd_grad_r_tilde_norm_sq = fd_norm_sq(r_tilde_img)
+#         J_fd = jax.jacfwd(fd_norm_sq)(r_tilde_img)
+#         J_fenics = -2*fe.div(grad_r_tilde)
+#         # grad_rho_img = self._fd_grad(r_tilde_img, h=1 / nelx)
+#         # fd_grad_r_tilde_norm_sq = (grad_rho_img[1]**2 + grad_rho_img[0]**2).reshape((nely, nelx))
+#         # d_check = jax.jacrev(self._fd_grad)(r_tilde_img)
+#         # d_check = jax.gradient(self._fd_grad)(r_tilde_img)
+#         # d_check = jax.jacrev(jnp.gradient)(r_tilde_img)
+
+#         # fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
+#         # plt.sca(ax0)
+#         # plt.imshow(grad_r_tilde_norm_sq.vector()[
+#         #            :].reshape((nely, nelx)), cmap='gray')
+#         # plt.colorbar()
+#         # plt.title("grad_r_tilde_norm_sq")
+
+#         # plt.sca(ax1)
+#         # plt.imshow(fd_grad_r_tilde_norm_sq, cmap='gray')
+#         # plt.colorbar()
+#         # plt.title("fd_grad_r_tilde_norm_sq")
+
+#         # plt.sca(ax2)
+#         # # plt.imshow((grad_x_tilde_norm_sq - grad_r_tilde_norm_sq.vector()[:].reshape((nely, nelx))))
+#         # diff = fd_grad_r_tilde_norm_sq.flatten(
+#         # ) - grad_r_tilde_norm_sq.vector()[:]
+#         # err = fe.Function(self.metamaterial.R)
+#         # err.vector()[:] = diff
+#         # plt.plot(diff)
+#         # # plt.yscale('log')
+#         # # plt.colorbar()
+#         # plt.title("diff")
+#         # plt.show()
+#         # print(f"Max diff: {np.max(diff)}")
+#         # print(f"Min diff: {np.min(diff)}")
+#         # print(f"Mean diff: {np.mean(diff)}")
+#         # print(f"Std diff: {np.std(diff)}")
+#         # print(f"Norm diff: {np.linalg.norm(diff)/nelx}")
+#         # print(f"Fenics norm diff: {norm(err, 'L2')}")
+
+#         q = jnp.exp(-self.c * (grad_r_tilde_norm_sq))
+#         fig, (ax0, ax1) = plt.subplots(1, 2)
+#         plt.sca(ax0)
+#         plt.imshow(grad_r_tilde_norm_sq, cmap='gray')
+#         plt.show()
+
+#         if type == 'width':
+#             return x_bar * q.flatten()
+#         elif type == 'space':
+#             return (1. - x_bar) * q.flatten()
+#         else:
+#             raise ValueError("Indicator Function must be 'width' or 'space'")
+
+#     def _calculate_etas(self, lw, ls, R):
+#         eta_e, eta_d = 1., 0.
+#         lwR, lsR = lw/R, ls/R
+
+#         if lwR < 0.:
+#             raise ValueError("Line width / Radius must be greater than 0.")
+#         elif 0 <= lwR < 1.:
+#             eta_e = 0.25*lwR**2 + 0.5
+#         elif 1. <= lwR <= 2.:
+#             eta_e = -0.25*lwR**2 + lwR
+
+#         if lsR < 0.:
+#             raise ValueError("Line space / Radius must be greater than 0.")
+#         elif 0 <= lsR < 1.:
+#             eta_d = 0.5 - 0.25*lsR**2
+#         elif 1. <= lsR <= 2.:
+#             eta_d = 1. + 0.25*lsR**2 - lsR
+
+#         return eta_e, eta_d
+
+#     def _fd_grad(self, img, h=None):
+#         h = self.metamaterial.resolution[0] if h is None else h
+#         if self.ops.filt.distance_method == 'periodic':
+#             # use jnp.roll instead of jnp.gradient b/c periodic boundary conditions
+#             # right_neighbors  = jnp.roll(img, -1, axis=1)
+#             # left_neighbors   = jnp.roll(img, 1, axis=1)
+#             # top_neighbors    = jnp.roll(img, -1, axis=0)
+#             # bottom_neighbors = jnp.roll(img, 1, axis=0)
+
+#             # grad_x = (right_neighbors - left_neighbors) / 2. / h
+#             # grad_y = (top_neighbors - bottom_neighbors) / 2. / h
+
+#             # Compute neighbors using periodic boundary conditions with jnp.roll
+#             right1 = jnp.roll(img, -1, axis=1)
+#             left1 = jnp.roll(img, 1, axis=1)
+#             right2 = jnp.roll(img, -2, axis=1)
+#             left2 = jnp.roll(img, 2, axis=1)
+
+#             top1 = jnp.roll(img, -1, axis=0)
+#             bottom1 = jnp.roll(img, 1, axis=0)
+#             top2 = jnp.roll(img, -2, axis=0)
+#             bottom2 = jnp.roll(img, 2, axis=0)
+
+#             # Compute fourth-order central differences
+#             grad_x = (-right2 + 8*right1 - 8*left1 + left2) / (12 * h)
+#             grad_y = (-top2 + 8*top1 - 8*bottom1 + bottom2) / (12 * h)
+
+#         else:  # assume non-periodicity
+#             grad_y, grad_x = jnp.gradient(img, h)
+
+#         # match return format of jnp.gradient
+#         return grad_y, grad_x
+
+
+# class OffDiagonalConstraint:
+#     def __init__(self, v, ops, eps=1e-3, verbose=True):
+#         self.v = v
+#         self.ops = ops
+#         self.eps = eps
+#         self.verbose = verbose
+
+#         self.n_constraints = 1
+
+#     def __call__(self, x, grad):
+
+#         Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+#         c, dc_dChom = jax.value_and_grad(self.obj)(Chom)
+
+#         if grad.size > 0:
+#             grad[:-1] = dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+
+#         print(f"\tg_dia(x): {c}")
+
+#         return float(c)
+
+#     def obj(self, C):
+#         m = jnp.diag(np.array([1., 1., np.sqrt(2)]))
+#         C = m @ C @ m
+#         vCv = self.v.T @ C @ self.v
+#         return jnp.log((vCv[0, 1]**2 + vCv[0, 2]**2 + vCv[1, 2]**2)/self.eps)
+#         # return jnp.linalg.norm(vCv - jnp.diag(jnp.diag(vCv)))
+
+#     def __str__(self):
+#         return "OffDiagonalConstraint"
+
+
+# class VolumeConstraint:
+
+#     def __init__(self, ops, bound, verbose=True):
+#         self.ops = ops
+#         self.bound = bound
+#         self.verbose = verbose
+
+#     def __call__(self, x, grad):
+
+#         x_fem, dxfem_dx_vjp = self.ops.x_fem, self.ops.dxfem_dx_vjp
+
+#         g, dg_dx_fem = jax.value_and_grad(jnp.mean)(x_fem)
+
+#         if grad.size > 0:
+#             grad[:-1] = dxfem_dx_vjp(dg_dx_fem)[0]
+#             grad[-1] = 0.
+
+#         if self.verbose:
+#             print(f"Volume: {g:.3f} (Target <= {self.bound:.3f})")
+
+#         return float(g - self.bound)
+
+#     def __str__(self):
+#         return "VolumeConstraint"
