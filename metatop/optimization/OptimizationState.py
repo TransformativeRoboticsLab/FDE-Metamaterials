@@ -193,7 +193,8 @@ class OptimizationState:
 
         self.opt_plot.update_eval_plot(component_id, evals)
 
-        self.opt_plot.draw()
+        if component_id == list(self.evals.keys())[-1]:
+            self.opt_plot.draw()
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x, increment_obj_n_calls=True):
         self.sols = sols
