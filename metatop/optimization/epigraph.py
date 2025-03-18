@@ -23,8 +23,8 @@ from metatop.optimization.utils import (ScalarOptimizationComponent,
 from metatop.profiling import profile_block, profile_function
 
 
-def jnorm(x: jnp.ndarray, ord=2):
-    return jnp.linalg.norm(x, ord=ord)
+def spec_norm(x: np.ndarray):
+    return jnp.linalg.norm(x, ord=2)
 
 
 class EpigraphOptimizer(nlopt.opt):
@@ -202,7 +202,7 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
     def eval(self, C: jnp.ndarray):
         M = mandelize(C)
         M = jnp.linalg.inv(M) if self.ops.extremal_mode == 2 else M
-        M /= jnorm(M, ord=2)
+        M /= spec_norm(M, ord=2)
 
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
