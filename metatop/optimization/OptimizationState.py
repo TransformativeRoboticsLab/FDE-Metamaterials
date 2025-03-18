@@ -42,13 +42,15 @@ class OptimizationPlot:
                      ylabel='Evals',
                      title='Optimization Progress')
 
-    def update_eval_plot(self, component_id: str, eval_data: np.ndarray):
-        x_data = range(1, len(eval_data)+1)
-        if component_id not in self.eval_lines:
-            line = self.ax2.plot(eval_data, label=component_id, marker='.')[0]
-            self.eval_lines[component_id] = line
-        else:
-            self.eval_lines[component_id].set_data(x_data, eval_data)
+    def update_eval_plot(self, component_id: str, evals: list[dict]):
+        for n, eval in enumerate(evals):
+            id = f"{component_id}_{n}"
+            if id not in self.eval_lines:
+                line = self.ax2.plot(
+                    'x_data', 'y_data', label=eval.get('label', id), marker='.', data=eval)[0]
+                self.eval_lines[id] = line
+            else:
+                self.eval_lines[id].set_data(eval['x_data'], eval['y_data'])
 
     def update_images(self, projection_function: fe.Function, fields: dict[str, any]):
         if len(fields) != len(self.ax1):
@@ -67,6 +69,8 @@ class OptimizationPlot:
     def draw(self):
         self.ax2.relim()
         self.ax2.autoscale_view()
+        self.ax2.legend()
+        self.ax2.legend(loc='upper right', bbox_to_anchor=(1.1, 1))
         self.fig.canvas.draw()
         plt.pause(1e-3)
 
@@ -141,17 +145,17 @@ class OptimizationState:
         if self.show_plot:
             self.opt_plot.setup()
 
-    def update_plot(self, component_id: str, is_primary: bool = False, draw_now=False):
-        if not self.show_plot:
-            return
+        if self.extremal_mode not in [1, 2]:
+            raise ValueError(
+                f"Invalid extremal_mode: {self.extremal_mode}. Must be 1 or 2.")
 
-        if not (self.show_plot and self.obj_n_calls % self.plot_interval == 1) and not draw_now:
-            return
+        if not np.allclose(self.basis_v.T@self.basis_v, np.eye(3)):
+            raise ValueError("basis_v is not orthonormal.")
 
-        eval_data = self.evals.get(component_id, None)
-        if eval_data is None:
-            logger.warning(
-                f"Component {component_id} not in OPS evals dict.")
+    def update_plot(self, component_id: str, is_primary: bool = False, draw_now: bool = False, labels: list = []):
+        draw = self.show_plot and (
+            draw_now or self.obj_n_calls % self.plot_interval == 1)
+        if not draw:
             return
 
         if is_primary:
@@ -159,21 +163,52 @@ class OptimizationState:
             r = fe.Function(self.metamaterial.R)
             self.opt_plot.update_images(r, fields)
 
-        self.opt_plot.update_eval_plot(component_id, eval_data)
+        eval_data = self.evals.get(component_id, None)
+        if not eval_data:
+            logger.warning(
+                f"Component {component_id} not in OPS evals dict.")
+            return
+
+        eval_data = np.asarray(eval_data)
+
+        if len(labels) == 0:
+            labels = []
+            if eval_data.ndim == 1:
+                labels.append(component_id)
+            elif eval_data.ndim > 1:
+                for n in range(eval_data.shape[1]):
+                    labels.append(f"{component_id}_{n}")
+
+        evals = []
+        x_data = range(1, self.obj_n_calls+1)
+        if eval_data.ndim == 1:
+            evals.append({'x_data': x_data,
+                          'y_data': eval_data,
+                          'label': labels[0]})
+        elif eval_data.ndim > 1:
+            for n in range(eval_data.shape[1]):
+                evals.append({'x_data': x_data,
+                              'y_data': eval_data[:, n],
+                              'label': labels[n]})
+
+        self.opt_plot.update_eval_plot(component_id, evals)
 
         self.opt_plot.draw()
 
-    def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x):
+    def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x, increment_obj_n_calls=True):
         self.sols = sols
         self.Chom = Chom
         self.dChom_dxfem = dChom_dxfem
         self.dxfem_dx_vjp = dxfem_dx_vjp
         self.x = x
-        self.obj_n_calls += 1
+
+        if increment_obj_n_calls:
+            self.obj_n_calls += 1
 
     def update_evals(self, component_id: str, c: Union[float, np.ndarray]):
         if component_id not in self.evals:
             self.evals[component_id] = []
+            logger.debug(f"Adding {component_id} to OPS evals dict")
 
         self.evals[component_id].append(c)
 

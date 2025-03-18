@@ -6,6 +6,7 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.testing as npt
+from loguru import logger
 from tqdm import tqdm
 
 import metatop.optimization.epigraph as epi
@@ -77,19 +78,41 @@ def finite_difference_checker(constraint: OptimizationComponent, x, obj=None, ep
     return grad_fd
 
 
-def plot_gradients(grad_analytical, grad_fd, title=None):
-    fig, ax = plt.subplots(3, 1, figsize=(15, 10))
-    ax[0].plot(grad_analytical.flatten(), label='Analytical', marker='o')
-    ax[0].plot(grad_fd.flatten(), label='Finite Difference', marker='.')
-    ax[0].legend()
-    diff = np.abs(grad_analytical - grad_fd).flatten()
-    ax[1].plot(diff, label='Abs Difference')
-    ax[1].legend()
-    ax[2].plot(diff / np.abs(grad_analytical).flatten(),
-               label='Relative Difference')
+def plot_gradients(actual: np.ndarray, desired: np.ndarray, title: str, rtol: float, atol: float):
+    fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize=(10, 10))
+
+    act = actual.flatten()
+    des = desired.flatten()
+
+    abs_diff = np.abs(des-act)
+    rel_diff = abs_diff / np.abs(des)
+
+    # Actual values plot
+    ax0.plot(act, label='Analytical', marker='o')
+    ax0.plot(des, label='Finite Difference', marker='.')
+    ax0.legend()
+
+    # Absolute diff plot
+    ax1.plot(abs_diff)
+    ax1.axhline(atol, color='k', lw=2, alpha=0.5) if atol else None
+    ax1.set(title="Absolute Difference",
+            yscale='log')
+    # Relative diff plot
+    ax2.plot(rel_diff)
+    ax2.axhline(rtol, color='k', lw=2, alpha=0.5) if rtol else None
+    ax2.set(title="Relative Difference",
+            yscale='log')
+
+    # np.allclose check
+    ax3.plot(abs_diff, label='|actual - desired|')
+    ax3.plot(atol + rtol * np.abs(des), label='(atol + rtol * |desired|)')
+    ax3.set(title="Check |actual - desired| <= (atol + rtol * |desired|)",
+            yscale='log')
+    ax3.legend()
     if title:
         fig.suptitle(title)
-    plt.show(block=False)
+    plt.draw()
+    plt.pause(1e-3)
 
     return fig
 
@@ -141,25 +164,61 @@ def handle_constraints(constraint_name: str, ops: OptimizationState, x: np.ndarr
     grad_fd = finite_difference_checker(
         constraint, x, obj, name=constraint_name)
 
+    rtol, atol = 1e-5, 1e-8
     if plot:
-        plot_gradients(grad_analytical, grad_fd, title=constraint_name)
+        plot_gradients(grad_analytical, grad_fd,
+                       title=constraint_name, rtol=rtol, atol=atol)
 
     diff = np.abs(grad_analytical - grad_fd)
     print(f"Max Abs Diff: {np.max(diff)}")
     print(f"Mean Abs Diff: {np.mean(diff)}")
     print(
-        f"Scaled Norm Diff: {np.linalg.norm(diff)*ops.metamaterial.cell_vol}")
-    try:
-        npt.assert_allclose(grad_analytical, grad_fd, rtol=1e-5, atol=1e-8)
-    except Exception as e:
-        print(
-            f"OptimizationComponent {constraint_name} finite difference check failed :(")
-        print(e)
-
-    return constraint
+        f"Scaled Norm Diff: {np.linalg.norm(diff)*params['metamaterial'].cell_vol}")
+    npt.assert_allclose(grad_analytical, grad_fd, rtol=1e-5, atol=1e-5)
 
 
-def initialize_filter(norm_filter_radius, metamate):
+def main():
+    nelx = 5
+    nely = nelx
+    E_max, E_min, nu = 1., 1e-9, 0.3
+    beta, eta = 1., 0.5
+    cell_side_length_mm = 25.
+    line_width_mm = 2.5
+    line_space_mm = line_width_mm
+    norm_line_width = line_width_mm / cell_side_length_mm
+    norm_line_space = line_space_mm / cell_side_length_mm
+    norm_filter_radius = norm_line_width
+
+    meshes = {
+        'tri': fe.UnitSquareMesh(nelx, nely, 'crossed'),
+        'quad': fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)], [
+                                        nelx, nely], fe.CellType.Type.quadrilateral)
+    }
+    mesh_type = 'tri'
+
+    # Generate a random 3x3 matrix
+    # Use QR decomposition to get an orthonormal basis
+    random_matrix = np.random.randn(3, 3)
+    basis_v = np.linalg.qr(random_matrix)[0]
+
+    # Setup parameters and initial conditions
+    params = {
+        'metamaterial': Metamaterial(E_max=E_max, E_min=E_min, nu=nu, nelx=nelx, nely=nely, mesh=meshes[mesh_type]),
+        'ops': OptimizationState(beta=beta, eta=eta),
+        'v': basis_v,
+        'extremal_mode': 1,
+        'verbose': False,
+        'plot': False,
+        'obj': None,
+        'line_width': norm_line_width,
+        'line_space': norm_line_space,
+        'objective_type': 'ray',
+        'silent': False,
+    }
+
+    metamate = params['metamaterial']
+    metamate.create_function_spaces()
+    metamate.initialize_variational_forms()
     if metamate.R.ufl_element().degree() > 0:
         print("Using Helmholtz filter")
         filt = HelmholtzFilter(radius=norm_filter_radius,
@@ -175,62 +234,55 @@ def initialize_filter(norm_filter_radius, metamate):
         raise ValueError(
             "Invalid filter type. Must be DensityFilter or HelmholtzFilter")
 
-    return filt, filt_fn
-
-
-def main():
-    plt.ion()
-    # ===== INPUT PARAMS =====
-    E_max, E_min, nu = 1., 1/30., 0.4
-    beta, eta = 1., 0.5
-    norm_filter_radius = 0.1
-
-    nelx = 5
-    nely = nelx
-    mesh_type = 'tri'
-
-    basis_v = "BULK"
-    extremal_mode = 1
-    # ===== END INPUT PARAMS =====
-
-    # ===== SETUP =====
-    if basis_v:
-        V = V_DICT[basis_v]
-    else:
-        # create random orthonormal matrix
-        random_matrix = np.random.randn(3, 3)
-        V = np.linalg.qr(random_matrix)[0]
-
-    metamate = setup_metamaterial(E_max,
-                                  E_min,
-                                  nu,
-                                  nelx,
-                                  nely,
-                                  mesh_cell_type=mesh_type,
-                                  domain_shape='square')
-    metamate.finite_difference_check()
-
-    filt, filt_fn = initialize_filter(norm_filter_radius, metamate)
-    ops = OptimizationState(basis_v=V,
-                            extremal_mode=extremal_mode,
-                            metamaterial=metamate,
-                            filt=filt,
-                            filt_fn=filt_fn,
-                            beta=beta,
-                            eta=eta,
-                            show_plot=False)
-
+    params['ops'].filt = filt
+    params['ops'].filt_fn = filter_fn
     # Initial design variables
-    x = np.random.uniform(0., 1, size=metamate.R.dim())
-    # ===== END SETUP =====
+    x = np.random.uniform(1e-3, 1, params['metamaterial'].R.dim())
 
-    # ===== SCALAR CONSTRAINTS =====
-    rsc = handle_constraints('RayleighScalarObjective', ops, x)
-    handle_constraints('EigenvectorConstraint', ops, x, obj=rsc)
-    handle_constraints('SameLargeValueConstraint', ops, x, obj=rsc)
+    # The constraints that do not need another constraint to be run first
+    # handle_constraints('Energy', x, params)
+    # handle_constraints('Epigraph', x, params, epi_constraint=True)
+    # handle_constraints('Extremal', x, params, epi_constraint=True)
+    # handle_constraints('Andreassen', x, params, plot=True)
+
+    handle_constraints('EigenvalueProblem',
+                       np.concatenate((x, basis_v.flatten())),
+                       params,
+                       epi_constraint=True)
+
+    # ===== Scalar Constraints =====
+    obj = RayleighScalarObjective(basis_v=params['v'],
+                                  extremal_mode=params['extremal_mode'],
+                                  metamaterial=params['metamaterial'],
+                                  ops=params['ops'],
+                                  verbose=params['verbose'],
+                                  plot=params['plot'])
+    params['obj'] = obj
+
+    # handle_constraints('ScalarBulk', x, params)
+    # handle_constraints('ScalarVolume', x, params)
+    # handle_constraints('ScalarIsotropic', x, params, plot=True)
+
+    # ===== Epigraph Constraints =====
+    # Now we need to run the primary objective function before each run because this is the one that does the actual FEM s        'Extremal':
+    obj = ExtremalConstraints(basis_v=params['v'],
+                              extremal_mode=params['extremal_mode'],
+                              metamaterial=params['metamaterial'], ops=params['ops'],
+                              verbose=params['verbose'],
+                              show_plot=params['plot'],
+                              objective_type=params['objective_type'])
+    params['obj'] = obj
+
+    # handle_constraints('Invariants', x, params, epi_constraint=True)
+    # handle_constraints('Eigenvector', x, params, epi_constraint=True)
+    # handle_constraints('Geometric', x, params, epi_constraint=True)
+    # handle_constraints('SpectralNorm', x, params, epi_constraint=True)
+    # handle_constraints('Trace', x, params, epi_constraint=True)
+    # handle_constraints('Volume', x, params, epi_constraint=True)
 
     plt.show(block=True)
 
 
 if __name__ == "__main__":
     main()
+    plt.show(block=True)

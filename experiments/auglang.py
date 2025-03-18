@@ -25,11 +25,6 @@ from metatop.profiling import ProfileConfig
 jax.config.update("jax_enable_x64", True)
 
 
-def colored_sink(message):
-    # Use message.formatted and sys.stdout.write
-    print(message.formatted)
-
-
 file_name = os.path.basename(__file__)
 log_file = f"{file_name}.log"
 logger.configure(
@@ -112,7 +107,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             beta=start_beta,
                             eta=0.5,
                             img_shape=(metamate.width, metamate.height),
-                            img_resolution=(200, 200))
+                            img_resolution=(200, 200),
+                            plot_interval=10,
+                            )
 
     # x = np.random.choice([0, 1], size=metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())

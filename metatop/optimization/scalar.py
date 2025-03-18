@@ -42,7 +42,7 @@ class ScalarObjective(ScalarOptimizationComponent):
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} f(x): {c:.4f}")
-            logger.info(f"{cs}")
+            logger.info(f"Raw Rayleigh Quotients: {cs}")
 
         stop_on_nan(c)
         return float(c) - self.eps
@@ -84,7 +84,7 @@ class RayleighRatioObjective(ScalarObjective):
         amean = (r2 + r3) / 2
         gmean = jnp.sqrt(r2*r3)
         hmean = 2 / (1/r2 + 1/r3)
-        return -r1/amean, jnp.array([r1, r2, r3])
+        return r1/amean, jnp.array([r1, r2, r3])
 
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
         return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
