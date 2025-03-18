@@ -126,7 +126,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             eta=0.5,
                             img_shape=(metamate.width, metamate.height),
                             img_resolution=(200, 200),
-                            plot_interval=10,
+                            plot_interval=25,
                             )
 
     # x = seed_density(init_run_idx, metamate.R.dim())
@@ -148,7 +148,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     opt.set_lower_bounds(np.append(np.zeros(x.size-1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size-1), np.inf))
 
-    # opt.set_param('dual_ftol_rel', 1e-6)
+    opt.set_param('dual_ftol_rel', 1e-6)
     # opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
