@@ -45,6 +45,10 @@ class OptimizationComponent(abc.ABC):
         pass
 
     def forward(self, x: np.ndarray):
+        """
+        forward is expecting just the density design DOFs
+        """
+        assert x.size == self.ops.metamaterial.R.dim()
         metamate = self.ops.metamaterial
 
         x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
@@ -61,6 +65,9 @@ class OptimizationComponent(abc.ABC):
         x = jax_projection(x, self.ops.beta, self.ops.eta)
         return x
 
+    def __str__(self):
+        return self.__class__.__name__
+
 
 class ScalarOptimizationComponent(OptimizationComponent):
 
@@ -71,9 +78,6 @@ class ScalarOptimizationComponent(OptimizationComponent):
     @property
     def n_constraints(self):
         return 1
-
-    def __str__(self):
-        return self.__class__.__name__
 
 
 class VectorOptimizationComponent(OptimizationComponent):

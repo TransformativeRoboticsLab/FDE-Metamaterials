@@ -8,15 +8,23 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import nlopt
 import numpy as np
-from jax.numpy.linalg import norm as jnorm
+from jax.numpy.linalg import inv as jinv
+from loguru import logger
 from matplotlib import gridspec
+from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
 from metatop.image import bitmapify
 from metatop.mechanics import inv_mandelize, mandelize, ray_q
+from metatop.optimization import OptimizationState
+from metatop.optimization.utils import (ScalarOptimizationComponent,
+                                        VectorOptimizationComponent,
+                                        stop_on_nan)
 from metatop.profiling import profile_block, profile_function
 
-from .utils import stop_on_nan
+
+def jnorm(x: jnp.ndarray, ord=2):
+    return jnp.linalg.norm(x, ord=ord)
 
 
 class EpigraphOptimizer(nlopt.opt):
@@ -26,53 +34,69 @@ class EpigraphOptimizer(nlopt.opt):
 
         self.active_constraints = []
 
-    def setup(self):
-        print("Setting up optimizer...")
-        self.set_min_objective(EpigraphObjective())
-        print("Adding constraints...")
-        if self.n_constraints > 0:
-            for n, g in enumerate(self.active_constraints):
-                print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
-                args_count = len(inspect.signature(g).parameters)
-                if args_count > 2:
-                    super().add_inequality_mconstraint(g, np.zeros(g.n_constraints))
-                elif args_count == 2:
-                    super().add_inequality_constraint(g, 0.)
-                else:
-                    raise ValueError(
-                        f"Constraint function {g} seems to take an incorrect number of arguments")
-        else:
-            raise Warning("No active constraints set")
+    # def setup(self):
+    #     print("Setting up optimizer...")
+    #     self.set_min_objective(EpigraphObjective())
+    #     print("Adding constraints...")
+    #     if self.n_constraints > 0:
+    #         for n, g in enumerate(self.active_constraints):
+    #             print(f"Constraint {n+1:d}/{self.n_constraints:d}: {g}")
+    #             if isinstance(g, ScalarOptimizationComponent):
+    #                 super().add_inequality_constraint(g, 0.)
+    #             elif isinstance(g, VectorOptimizationComponent):
+    #                 super().add_inequality_mconstraint(g, np.zeros(g.n_constraints))
+    #             else:
+    #                 raise ValueError(
+    #                     f"Constraint function {g} seems not be derived from abstract components.")
+    #     else:
+    #         logger.warning("No active constraints to set up!")
 
-        self.set_lower_bounds(np.append(np.zeros(self.size - 1), -np.inf))
-        self.set_upper_bounds(np.append(np.ones(self.size - 1), np.inf))
-        self.set_param('dual_ftol_rel', 1e-6)
+    #     self.set_lower_bounds(np.append(np.zeros(self.size - 1), -np.inf))
+    #     self.set_upper_bounds(np.append(np.ones(self.size - 1), np.inf))
+    #     self.set_param('dual_ftol_rel', 1e-6)
 
     def optimize(self, x):
-        self._update_t(x)
+        x[-1] = self._update_t(x)
+        logger.info(f"New t value: {x[-1]:.3e}")
         return super().optimize(x)
 
     def _update_t(self, x):
-        print(f"Updating t...\nOld t value {x[-1]:.3e}")
-        new_t = -np.inf
+        logger.info(f"Updating t...")
+        logger.info(f"Old t value {x[-1]:.3e}")
         x[-1] = 0.
+        new_t = -np.inf
         for g in self.active_constraints:
-            if len(inspect.signature(g).parameters) > 2:
-                print(f"Accounting for constraint {g} in t update")
-                results = np.zeros(g.n_constraints)
-                g(results, x, np.array([]), dummy_run=True)
-                new_t = max(new_t, *(results))
-        x[-1] = new_t
-        print(f"New t value: {x[-1]:.3e}")
+            if isinstance(g, EpigraphConstraint):
+                logger.info(f"Accounting for constraint {g} in t update")
+                if isinstance(g, VectorOptimizationComponent):
+                    results = np.zeros(g.n_constraints)
+                    g(results, x, np.array([]), dummy_run=True)
+                    print('results', results)
+                    new_t = max(new_t, *(results))
+                elif isinstance(g, ScalarOptimizationComponent):
+                    c = g(x, np.array([]))
+                    new_t = max(new_t, c)
+                else:
+                    logger.warning(
+                        f"Cannot account for constraint {g} in update t.")
+            else:
+                logger.info(f"Skipping constraint {g} in t update")
+        return new_t
 
     def add_inequality_mconstraint(self, *args, uses_t=True):
-        if uses_t:
+        con = args[0]
+        if isinstance(con, EpigraphConstraint):
             self.active_constraints.append(args[0])
+        else:
+            raise ValueError("First argument must be a constraint")
         return super().add_inequality_mconstraint(*args)
 
-    def add_inequality_constraint(self, *args, uses_t=True):
-        if uses_t:
+    def add_inequality_constraint(self, *args):
+        con = args[0]
+        if isinstance(con, EpigraphConstraint):
             self.active_constraints.append(args[0])
+        else:
+            raise ValueError("First argument must be a constraint")
         return super().add_inequality_constraint(*args)
 
     def add_equality_constraint(self, *args):
@@ -92,7 +116,7 @@ class EpigraphOptimizer(nlopt.opt):
         return len(self.active_constraints)
 
 
-class EpigraphObjective:
+class EpigraphObjective(ScalarOptimizationComponent):
     """
     A class representing a minimax optimization problem.
     We reformulate the problem as a nonlinear optimization problem by adding a slack variable t as the objective function.
@@ -132,485 +156,568 @@ class EpigraphObjective:
             raise ForcedStop(
                 "Objective function value is too large. Terminating optimization run.")
 
+        self.ops.obj_n_calls += 1
+        logger.info(f"{self.ops.obj_n_calls}:")
+        logger.info(f"{self.__str__()} t={t:.4f}")
+        self.ops.update_evals(self.__str__(), t)
+        self.ops.update_plot(self.__str__(), labels=['t'])
+
+        stop_on_nan(t)
         return t
 
+    def eval(self):
+        return
 
-class EpigraphConstraint(abc.ABC):
-    """
-    Abstract base class for epigraph constraints in minimax optimization problems.
+    def adjoint(eval):
+        return
 
-    These constraints reformulate objectives of the form min_x max{f1, f2, f3}
-    into the epigraph form with a slack variable t:
 
-    min_{x,t} t
-    s.t. f_i(x) - t <= 0 for all i
-    """
-    @abc.abstractmethod
-    def obj(self, x, C):
-        """
-        Compute the constraint objective function.
+# class EpigraphConstraint(abc.ABC):
+#     """
+#     Abstract base class for epigraph constraints in minimax optimization problems.
 
-        Parameters:
-        - x: Design variables
-        - C: Homogenized constitutive tensor
+#     These constraints reformulate objectives of the form min_x max{f1, f2, f3}
+#     into the epigraph form with a slack variable t:
 
-        Returns:
-        - c: Constraint values
-        - cs: Auxiliary output (e.g., actual Rayleigh quotients)
-        """
-        pass
+#     min_{x,t} t
+#     s.t. f_i(x) - t <= 0 for all i
+#     """
+#     @abc.abstractmethod
+#     def obj(self, x, C):
+#         """
+#         Compute the constraint objective function.
 
-    @abc.abstractmethod
-    def adjoint(self, x, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
-        """
-        Compute the adjoint pass for gradients.
+#         Parameters:
+#         - x: Design variables
+#         - C: Homogenized constitutive tensor
 
-        Parameters:
-        - x: Design variables
-        - grad: Array to store the gradient values
-        - dxfem_dx_vjp: VJP function from forward pass
-        - Chom: Homogenized constitutive tensor
-        - dChom_dxfem: Derivative of Chom w.r.t. xfem
-        """
-        pass
+#         Returns:
+#         - c: Constraint values
+#         - cs: Auxiliary output (e.g., actual Rayleigh quotients)
+#         """
+#         pass
 
-    @abc.abstractmethod
-    def __str__(self):
-        return "EpigraphConstraint"
+#     @abc.abstractmethod
+#     def adjoint(self, x, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
+#         """
+#         Compute the adjoint pass for gradients.
 
-    @abc.abstractmethod
-    def _setup_evals_lines(self):
-        """
-        Setup the evaluation lines for the optimization progress plot.
-        This is specific to each derived class.
+#         Parameters:
+#         - x: Design variables
+#         - grad: Array to store the gradient values
+#         - dxfem_dx_vjp: VJP function from forward pass
+#         - Chom: Homogenized constitutive tensor
+#         - dChom_dxfem: Derivative of Chom w.r.t. xfem
+#         """
+#         pass
 
-        This method should set:
-        - self.evals_lines: The plot lines for evaluation values
-        """
-        pass
+#     @abc.abstractmethod
+#     def __str__(self):
+#         return "EpigraphConstraint"
 
-    # <=====> Methods with implementations <=====>
-    """
-    Required: basis_v, ops, metamaterial
-    """
+#     @abc.abstractmethod
+#     def _setup_evals_lines(self):
+#         """
+#         Setup the evaluation lines for the optimization progress plot.
+#         This is specific to each derived class.
 
-    def __init__(self, basis_v, ops, metamaterial, extremal_mode, verbose=True, eps=1., silent=False, plot_interval=25, show_plot=True, img_resolution=(200, 200)):
+#         This method should set:
+#         - self.evals_lines: The plot lines for evaluation values
+#         """
+#         pass
 
-        # Required
-        if not np.allclose(basis_v.T @ basis_v, np.eye(3)):
+#     # <=====> Methods with implementations <=====>
+#     """
+#     Required: basis_v, ops, metamaterial
+#     """
+
+#     def __init__(self, basis_v, ops, metamaterial, extremal_mode, verbose=True, eps=1., silent=False, plot_interval=25, show_plot=True, img_resolution=(200, 200)):
+
+#         # Required
+#         if not np.allclose(basis_v.T @ basis_v, np.eye(3)):
+#             raise ValueError(
+#                 f"Input basis is not orthonormal:\n{basis_v}")
+#         self.basis_v = basis_v
+#         self.ops = ops
+#         self.metamaterial = metamaterial
+#         self.extremal_mode = extremal_mode
+
+#         # Optional
+#         self.verbose = verbose
+#         self.silent = silent
+#         self.eps = eps
+#         self.n_constraints = None  # To be defined by subclasses
+
+#         # Plotting
+#         self.plot_interval = plot_interval
+#         self.show_plot = show_plot
+#         self.img_resolution = img_resolution
+#         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
+
+#         # Initialize plotting elements
+#         self.fig = None
+#         self.evals_lines = None
+#         self.epoch_lines = []
+#         self.last_epoch_plotted = -1
+
+#     def __call__(self, results, x, grad, dummy_run=False):
+#         """
+#         Evaluate the constraint function and its gradient.
+
+#         Parameters:
+#         - results: Array to store the constraint values
+#         - x: Input vector (design variables and t)
+#         - grad: Array to store the gradient values
+#         - dummy_run: If True, only compute results without side effects
+
+#         Returns:
+#         - No return value; modifies results and grad in-place
+#         """
+#         # strip t off leaving all the other DOFs
+#         x_, t = x[:-1], x[-1]
+#         dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x_)
+
+#         c, cs = self.obj(x_, Chom)
+#         results[:] = c - t
+
+#         if dummy_run:
+#             return
+
+#         if grad.size > 0:
+#             self.adjoint(x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem)
+
+#         self.update_metrics(t, c, cs)
+
+#         if len(self.ops.evals) % self.plot_interval == 1:
+#             self.update_plot(x_)
+
+#         stop_on_nan(c)
+
+#     def forward(self, x):
+#         """
+#         Compute the forward pass: filter, project, solve the FE problem.
+
+#         Parameters:
+#         - x: Design variables
+
+#         Returns:
+#         - dxfem_dx_vjp: VJP function for backpropagation
+#         - Chom: Homogenized constitutive tensor
+#         - dChom_dxfem: Derivative of Chom w.r.t. xfem
+#         """
+#         x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
+
+#         self.metamaterial.x.vector()[:] = x_fem
+#         sols, Chom, _ = self.metamaterial.solve()
+#         Chom = jnp.asarray(Chom)
+#         E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
+#         dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
+
+#         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
+
+#         return dxfem_dx_vjp, Chom, dChom_dxfem
+
+#     def filter_and_project(self, x):
+#         """
+#         Apply filtering and projection to the design variables.
+
+#         Parameters:
+#         - x: Design variables
+
+#         Returns:
+#         - Filtered and projected design variables
+#         """
+#         x = self.ops.filt_fn(x)
+#         x = jax_projection(x, self.ops.beta, self.ops.eta)
+#         return x
+
+#     def update_metrics(self, t, c, cs):
+#         self.ops.evals.append([t, *c])
+#         if self.silent:
+#             return
+
+#         if self.verbose:
+#             print("-" * 30)
+#             print(
+#                 f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
+#             print("-" * 30)
+#             print(f"t: {t:.3e} g_ext(x): {c}")
+#             print(f"Actual Values: {cs}")
+#         else:
+#             print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
+
+#     def update_plot(self, x_):
+#         if self.fig is None:
+#             self._setup_plots()
+
+#         # Still None after setup (could happen if show_plot is False)
+#         if self.fig is None:
+#             return
+
+#         fields = self._prepare_fields(x_)
+#         self._update_image_plots(fields)
+#         self._update_evaluation_plot()
+
+#         if self.show_plot:
+#             self.fig.canvas.draw()
+#             plt.pause(1e-3)
+
+#     def plot_density(self, r_in, title=None, ax=None):
+#         r = fe.Function(r_in.function_space())
+#         r.vector()[:] = 1. - r_in.vector()[:]
+#         r.set_allow_extrapolation(True)
+
+#         if isinstance(ax, plt.Axes):
+#             plt.sca(ax)
+#         else:
+#             fig, ax = plt.subplots()
+
+#         ax.margins(x=0, y=0)
+
+#         # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
+#         # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
+#         cell_type = r_in.function_space().ufl_cell().cellname()
+#         if cell_type == 'quadrilateral':
+#             r_vec = r.vector()[:]
+#             # assume square space
+#             nely = np.sqrt(r_vec.size).astype(int)
+#             nelx = nely
+#             plt.imshow(r_vec.reshape((nely, nelx)),
+#                        cmap='gray', vmin=0, vmax=1)
+#             ax.set_title(title)
+#             return
+
+#         fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+
+#     def _prepare_fields(self, x):
+#         filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
+#         x_tilde = filt_fn(x)
+#         x_bar = jax_projection(x_tilde, beta, eta)
+#         x_img = bitmapify(self.metamaterial.x.copy(
+#             deepcopy=True), self.img_shape, self.img_resolution, invert=True)
+#         fields = {r'$\rho$': x,
+#                   r'$\tilde{\rho}$': x_tilde,
+#                   fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
+#                   r'$\bar{\rho}$ bitmap': x_img,
+#                   'Image tiling': np.tile(x_img, (3, 3))}
+#         if len(fields) != len(self.ax1):
+#             raise ValueError(
+#                 f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
+#         return fields
+
+#     def _update_image_plots(self, fields):
+#         r = fe.Function(self.metamaterial.R)
+#         for ax, (name, field) in zip(self.ax1, fields.items()):
+#             if field.shape[0] == self.metamaterial.R.dim():
+#                 r.vector()[:] = field
+#                 self.plot_density(r, title=f"{name}", ax=ax)
+#             else:
+#                 ax.imshow(field, cmap='gray')
+#                 ax.set_title(name)
+#             ax.set_xticks([])
+#             ax.set_yticks([])
+
+#     def _update_evaluation_plot(self):
+#         x_data = range(1, len(self.ops.evals)+1)
+#         y_data = np.asarray(self.ops.evals)
+
+#         # Make sure we only update as many lines as we have data columns
+#         for i, line in enumerate(self.evals_lines):
+#             if i < y_data.shape[1]:
+#                 line.set_data(x_data, y_data[:, i])
+
+#         self.ax2.relim()
+#         self.ax2.autoscale_view()
+#         self.ax2.set_xlim(left=0, right=len(self.ops.evals) + 2)
+
+#         # we only want to update epoch lines if there is a new one
+#         for idx in self.ops.epoch_iter_tracker:
+#             if idx > self.last_epoch_plotted:
+#                 self.last_epoch_plotted = idx
+#                 self.epoch_lines.append(self.ax2.axvline(x=idx, color='black',
+#                                                          linestyle='--', alpha=0.5, linewidth=3.))
+
+#     def _setup_plots(self):
+#         """Common plot setup for all derived classes"""
+#         plt.ion() if self.show_plot else plt.ioff()
+#         self.fig = plt.figure(figsize=(15, 8))
+#         gs = gridspec.GridSpec(2, 5, )
+#         self.ax1 = [plt.subplot(gs[0, 0]),
+#                     plt.subplot(gs[0, 1]),
+#                     plt.subplot(gs[0, 2]),
+#                     plt.subplot(gs[0, 3]),
+#                     plt.subplot(gs[0, 4]),
+#                     ]
+#         self.ax2 = plt.subplot(gs[1, :])
+#         self.ax2.grid(True)
+#         self.ax2.set(xlabel='Iterations',
+#                      ylabel='Function Evaluations',
+#                      xlim=(0, 10),
+#                      title='Optimization Progress')
+
+#         # Call the derived class's implementation to setup evaluation lines
+#         self._setup_evals_lines()
+
+#         # Make sure the lines are set up
+#         if self.evals_lines is None:
+#             raise RuntimeError("_setup_evals_lines must set self.evals_lines")
+
+
+class EpigraphConstraint:
+    """Marker interface for constraints that are bound in some way by the auxilary t variable"""
+
+    def split_t(self, x):
+        return x[:-1], x[-1]
+
+
+class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphConstraint):
+
+    def __init__(self, ops: OptimizationState, objective_type: str, eps: float = 0., verbose: bool = False, silent: bool = False):
+        super().__init__(ops, eps=eps, verbose=verbose, silent=silent)
+        self.obj_type = objective_type
+
+        self._available_obj_types = ('ray', 'ratio')
+        if self.obj_type not in self._available_obj_types:
             raise ValueError(
-                f"Input basis is not orthonormal:\n{basis_v}")
-        self.basis_v = basis_v
-        self.ops = ops
-        self.metamaterial = metamaterial
-        self.extremal_mode = extremal_mode
-
-        # Optional
-        self.verbose = verbose
-        self.silent = silent
-        self.eps = eps
-        self.n_constraints = None  # To be defined by subclasses
-
-        # Plotting
-        self.plot_interval = plot_interval
-        self.show_plot = show_plot
-        self.img_resolution = img_resolution
-        self.img_shape = (self.metamaterial.width, self.metamaterial.height)
-
-        # Initialize plotting elements
-        self.fig = None
-        self.evals_lines = None
-        self.epoch_lines = []
-        self.last_epoch_plotted = -1
+                f"Objective type {self.obj_type} is not available. Types are [{self._available_obj_types}]")
 
     def __call__(self, results, x, grad, dummy_run=False):
-        """
-        Evaluate the constraint function and its gradient.
+        x_, t = self.split_t(x)
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x_)
 
-        Parameters:
-        - results: Array to store the constraint values
-        - x: Input vector (design variables and t)
-        - grad: Array to store the gradient values
-        - dummy_run: If True, only compute results without side effects
-
-        Returns:
-        - No return value; modifies results and grad in-place
-        """
-        # strip t off leaving all the other DOFs
-        x_, t = x[:-1], x[-1]
-        dxfem_dx_vjp, Chom, dChom_dxfem = self.forward(x_)
-
-        c, cs = self.obj(x_, Chom)
+        c, cs = self.eval(Chom)
         results[:] = c - t
+
+        if not self.silent:
+            logger.info(f"{self.__str__()}")
+            logger.info(f"g(x): {c}")
+            logger.info(f"Raw Rayleigh Quotients: {cs}")
 
         if dummy_run:
             return
 
+        dc_dChom = jax.jacrev(self.eval,
+                              has_aux=True)(Chom)[0].reshape((self.n_constraints, 9))
+
         if grad.size > 0:
-            self.adjoint(x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem)
+            grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
-        self.update_metrics(t, c, cs)
+        self.ops.update_state(sols, Chom, dChom_dxfem,
+                              dxfem_dx_vjp, x_, increment_obj_n_calls=False)
+        id = self.__str__()
+        self.ops.update_evals(id, c,)
+        A = 'C' if self.ops.extremal_mode == 1 else 'S'
+        self.ops.update_plot(id, is_primary=True, labels=[
+                             rf"$R({A},v_1)$", rf"$1-R({A},v_2)$", rf"$1-R({A},v_3)$"])
 
-        if len(self.ops.evals) % self.plot_interval == 1:
-            self.update_plot(x_)
-
-        stop_on_nan(c)
-
-    def forward(self, x):
-        """
-        Compute the forward pass: filter, project, solve the FE problem.
-
-        Parameters:
-        - x: Design variables
-
-        Returns:
-        - dxfem_dx_vjp: VJP function for backpropagation
-        - Chom: Homogenized constitutive tensor
-        - dChom_dxfem: Derivative of Chom w.r.t. xfem
-        """
-        x_fem, dxfem_dx_vjp = jax.vjp(self.filter_and_project, x)
-
-        self.metamaterial.x.vector()[:] = x_fem
-        sols, Chom, _ = self.metamaterial.solve()
-        Chom = jnp.asarray(Chom)
-        E_max, nu = self.metamaterial.prop.E_max, self.metamaterial.prop.nu
-        dChom_dxfem = self.metamaterial.homogenized_C(sols, E_max, nu)[1]
-
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x_fem)
-
-        return dxfem_dx_vjp, Chom, dChom_dxfem
-
-    def filter_and_project(self, x):
-        """
-        Apply filtering and projection to the design variables.
-
-        Parameters:
-        - x: Design variables
-
-        Returns:
-        - Filtered and projected design variables
-        """
-        x = self.ops.filt_fn(x)
-        x = jax_projection(x, self.ops.beta, self.ops.eta)
-        return x
-
-    def update_metrics(self, t, c, cs):
-        self.ops.evals.append([t, *c])
-        if self.silent:
-            return
-
-        if self.verbose:
-            print("-" * 30)
-            print(
-                f"Epoch {self.ops.epoch:d}, Step {len(self.ops.evals):d}, Beta = {self.ops.beta:.1f}, Eta = {self.ops.eta:.1f}")
-            print("-" * 30)
-            print(f"t: {t:.3e} g_ext(x): {c}")
-            print(f"Actual Values: {cs}")
-        else:
-            print(f"{len(self.ops.evals):04d} --\tt: {t:.3e} \n\tg_ext(x): {c}")
-
-    def update_plot(self, x_):
-        if self.fig is None:
-            self._setup_plots()
-
-        # Still None after setup (could happen if show_plot is False)
-        if self.fig is None:
-            return
-
-        fields = self._prepare_fields(x_)
-        self._update_image_plots(fields)
-        self._update_evaluation_plot()
-
-        if self.show_plot:
-            self.fig.canvas.draw()
-            plt.pause(1e-3)
-
-    def plot_density(self, r_in, title=None, ax=None):
-        r = fe.Function(r_in.function_space())
-        r.vector()[:] = 1. - r_in.vector()[:]
-        r.set_allow_extrapolation(True)
-
-        if isinstance(ax, plt.Axes):
-            plt.sca(ax)
-        else:
-            fig, ax = plt.subplots()
-
-        ax.margins(x=0, y=0)
-
-        # quad meshes aren't supported using the standard plot interface but we can convert them to an image and use imshow
-        # the ordering of a quad mesh is row-major and imshow expects row-major so it works out
-        cell_type = r_in.function_space().ufl_cell().cellname()
-        if cell_type == 'quadrilateral':
-            r_vec = r.vector()[:]
-            # assume square space
-            nely = np.sqrt(r_vec.size).astype(int)
-            nelx = nely
-            plt.imshow(r_vec.reshape((nely, nelx)),
-                       cmap='gray', vmin=0, vmax=1)
-            ax.set_title(title)
-            return
-
-        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
-
-    def _prepare_fields(self, x):
-        filt_fn, beta, eta = self.ops.filt_fn, self.ops.beta, self.ops.eta
-        x_tilde = filt_fn(x)
-        x_bar = jax_projection(x_tilde, beta, eta)
-        x_img = bitmapify(self.metamaterial.x.copy(
-            deepcopy=True), self.img_shape, self.img_resolution, invert=True)
-        fields = {r'$\rho$': x,
-                  r'$\tilde{\rho}$': x_tilde,
-                  fr'$\bar{{\rho}}$ ($\beta$={int(beta):d})': x_bar,
-                  r'$\bar{\rho}$ bitmap': x_img,
-                  'Image tiling': np.tile(x_img, (3, 3))}
-        if len(fields) != len(self.ax1):
-            raise ValueError(
-                f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
-        return fields
-
-    def _update_image_plots(self, fields):
-        r = fe.Function(self.metamaterial.R)
-        for ax, (name, field) in zip(self.ax1, fields.items()):
-            if field.shape[0] == self.metamaterial.R.dim():
-                r.vector()[:] = field
-                self.plot_density(r, title=f"{name}", ax=ax)
-            else:
-                ax.imshow(field, cmap='gray')
-                ax.set_title(name)
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-    def _update_evaluation_plot(self):
-        x_data = range(1, len(self.ops.evals)+1)
-        y_data = np.asarray(self.ops.evals)
-
-        # Make sure we only update as many lines as we have data columns
-        for i, line in enumerate(self.evals_lines):
-            if i < y_data.shape[1]:
-                line.set_data(x_data, y_data[:, i])
-
-        self.ax2.relim()
-        self.ax2.autoscale_view()
-        self.ax2.set_xlim(left=0, right=len(self.ops.evals) + 2)
-
-        # we only want to update epoch lines if there is a new one
-        for idx in self.ops.epoch_iter_tracker:
-            if idx > self.last_epoch_plotted:
-                self.last_epoch_plotted = idx
-                self.epoch_lines.append(self.ax2.axvline(x=idx, color='black',
-                                                         linestyle='--', alpha=0.5, linewidth=3.))
-
-    def _setup_plots(self):
-        """Common plot setup for all derived classes"""
-        plt.ion() if self.show_plot else plt.ioff()
-        self.fig = plt.figure(figsize=(15, 8))
-        gs = gridspec.GridSpec(2, 5, )
-        self.ax1 = [plt.subplot(gs[0, 0]),
-                    plt.subplot(gs[0, 1]),
-                    plt.subplot(gs[0, 2]),
-                    plt.subplot(gs[0, 3]),
-                    plt.subplot(gs[0, 4]),
-                    ]
-        self.ax2 = plt.subplot(gs[1, :])
-        self.ax2.grid(True)
-        self.ax2.set(xlabel='Iterations',
-                     ylabel='Function Evaluations',
-                     xlim=(0, 10),
-                     title='Optimization Progress')
-
-        # Call the derived class's implementation to setup evaluation lines
-        self._setup_evals_lines()
-
-        # Make sure the lines are set up
-        if self.evals_lines is None:
-            raise RuntimeError("_setup_evals_lines must set self.evals_lines")
-
-
-class ExtremalConstraints(EpigraphConstraint):
-
-    def __init__(self, basis_v, ops, metamaterial, extremal_mode, objective_type, weights=jnp.ones(3), **kwargs):
-        super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
-
-        self.objective_type = objective_type
-
-        self.n_constraints = 2 if 'ratio' in self.objective_type else 3
-        self.weights = weights
-
-    def obj(self, x, C):
-        """
-        Matrix Normalization and Eigenvalue Control:
-
-        We normalize the homogenized material matrix (C) to its spectral norm (so the largest eigenvalue = 1) to simplify eigenvalue magnitude control, aiming to align basis vectors (v) with eigenvectors.
-        This normalization, while aiding eigenvector alignment, obscures the material's true stiffness.
-        Thus we will need to implement additional constraints to ensure basis_v are eigenvectors of C.
-        """
-
+    def eval(self, C: jnp.ndarray):
         M = mandelize(C)
-        # we use S instead of C for bimode materials
-        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+        M = jnp.linalg.inv(M) if self.ops.extremal_mode == 2 else M
         M /= jnorm(M, ord=2)
 
-        # Rayleigh quotients with unit length vectors of V
-        V = self.basis_v
-        r1, r2, r3 = self.weights*ray_q(M, V)
+        V = self.ops.basis_v
+        r1, r2, r3 = ray_q(M, V)
 
-        if self.objective_type == 'ray':
-            return jnp.log(jnp.array([r1, 1.-r2, 1.-r3])), jnp.array([r1, r2, r3,])
-        elif self.objective_type == 'ray_sq':
-            return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
-        elif self.objective_type == 'uni':
-            return (jnp.log(jnp.array[r1, r2 - r1 + 1e-3, r3 - r1 + 1e-3]), jnp.array([r1, r2, r3]))
-        # elif self.objective_type == 'norm':
-            # return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
-        # elif self.objective_type == 'norm_sq':
-            # return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
-        elif self.objective_type == 'ratio':
-            return jnp.log(jnp.array([r1/r2, r1/r3, ])), jnp.array([r1, r2, r3])
-        elif self.objective_type == 'ratio_sq':
-            return jnp.log(jnp.array([(r1/r2)**2, (r1/r3)**2, ])), jnp.array([r1, r2, r3])
-        elif self.objective_type == 'ratio_c1sq':
-            return jnp.log(jnp.array([r1**2/r2, r1**2/r3, ])), jnp.array([r1, r2, r3])
-        else:
-            raise ValueError(
-                f"Objective '{self.objective_type}' type not found.")
+        if self.obj_type == 'ray':
+            return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
+        elif self.obj_type == 'ratio':
+            return jnp.log(jnp.array([r1/r2, r1/r3])), jnp.array([r1, r2, r3])
 
-    def adjoint(self, x, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
-        # argnums=1 because we only care about derivative w.r.t. Chom here
-        dc_dChom = jax.jacrev(self.obj,
-                              argnums=1,
-                              has_aux=True)(x, Chom)[0].reshape((self.n_constraints, 9))
-        for n in range(self.n_constraints):
-            grad[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-            grad[n, -1] = -1.
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        nc = self.n_constraints
+        dc_dx = np.zeros((nc, dChom_dxfem.shape[1]+1))
+        for n in range(nc):
+            dc_dx[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+            dc_dx[n, -1] = -1.
+        return dc_dx
 
-    def _setup_evals_lines(self):
-        d = np.ones(self.n_constraints+1)
-        o = self.objective_type
-        if 'ratio' == o:
-            labels = [r'$t$',
-                      r'$(v_1^T C v_1)/(v_2^T C v_2)$',
-                      r'$(v_1^T C v_1)/(v_3^T C v_3)$']
-        elif 'ray' == o:
-            labels = [r'$t$',
-                      r'$(v_1^T C v_1)$',
-                      r'$1-(v_2^T C v_2)$',
-                      r'$1-(v_3^T C v_3)$']
-        elif 'ray_sq' == o:
-            labels = [r'$t$',
-                      r'$(v_1^T C v_1)^2$',
-                      r'$1-(v_2^T C v_2)^2$',
-                      r'$1-(v_3^T C v_3)^2$']
-        else:
-            labels = ['$t$',
-                      *(f'{o}_{n}' for n in range(self.n_constraints))]
-        """Setup the evaluation lines specific to ExtremalConstraints"""
-        if 'ratio' in self.objective_type:
-            self.evals_lines = self.ax2.plot([d],
-                                             [d],
-                                             marker='.',
-                                             label=labels,
-                                             )
-        else:
-            self.evals_lines = self.ax2.plot([d],
-                                             [d],
-                                             marker='.',
-                                             label=labels,
-                                             )
-        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
-
-    def __str__(self):
-        return "ExtremalConstraints"
+    @property
+    def n_constraints(self):
+        return 2 if 'ratio' in self.obj_type else 3
 
 
-class EigenvalueProblemConstraints(EpigraphConstraint):
-    def __init__(self, basis_v, ops, metamaterial, extremal_mode, weights=jnp.ones(3), check_valid=False, **kwargs):
-        # Initialize with base EpigraphConstraint initialization
-        super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
+# class ExtremalConstraints(EpigraphConstraint):
 
-        self.weights = weights
-        self.check_valid = check_valid
-        self.n_constraints = 7
+#     def __init__(self, basis_v, ops, metamaterial, extremal_mode, objective_type, weights=jnp.ones(3), **kwargs):
+#         super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
 
-        # Setup plots same as ExtremalConstraints
-        self.img_resolution = (200, 200)
-        self.img_shape = (self.metamaterial.width, self.metamaterial.height)
+#         self.objective_type = objective_type
 
-    def obj(self, x_: np.ndarray, C):
-        # We grab U out of x_ so ease derivative computation
-        return self._obj_wrt_U(self._select_U(x_), C)
+#         self.n_constraints = 2 if 'ratio' in self.objective_type else 3
+#         self.weights = weights
 
-    # We only care about the derivative of the objective w.r.t. the specific parts of x that comprise U.
-    # So we do this subcall to avoid differentiating against all of x.
-    def _obj_wrt_U(self, U, C):
-        M = mandelize(C)
-        M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
-        M /= jnorm(M, ord=2)
+#     def obj(self, x, C):
+#         """
+#         Matrix Normalization and Eigenvalue Control:
 
-        # Rayleigh quotients with U
-        r1, r2, r3 = self.weights*ray_q(M, U)
-        rays = jnp.array([r1, 1.-r2, 1.-r3])
+#         We normalize the homogenized material matrix (C) to its spectral norm (so the largest eigenvalue = 1) to simplify eigenvalue magnitude control, aiming to align basis vectors (v) with eigenvectors.
+#         This normalization, while aiding eigenvector alignment, obscures the material's true stiffness.
+#         Thus we will need to implement additional constraints to ensure basis_v are eigenvectors of C.
+#         """
 
-        V = self.basis_v
-        U_norms = jnp.linalg.norm(U, axis=0)
-        V_norms = jnp.linalg.norm(V, axis=0)
-        cosines = (1 + 1e-6 - jnp.diag(U.T@V) / (U_norms*V_norms))/self.eps
+#         M = mandelize(C)
+#         # we use S instead of C for bimode materials
+#         M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+#         M /= jnorm(M, ord=2)
 
-        ortho = jnp.linalg.norm(U.T @ U - jnp.eye(3), ord='fro')
+#         # Rayleigh quotients with unit length vectors of V
+#         V = self.basis_v
+#         r1, r2, r3 = self.weights*ray_q(M, V)
 
-        return (jnp.log(jnp.hstack([rays, cosines, [ortho]])),
-                jnp.hstack([jnp.array([r1, r2, r3]), cosines, [ortho]]))
+#         if self.objective_type == 'ray':
+#             return jnp.log(jnp.array([r1, 1.-r2, 1.-r3])), jnp.array([r1, r2, r3,])
+#         elif self.objective_type == 'ray_sq':
+#             return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
+#         elif self.objective_type == 'uni':
+#             return (jnp.log(jnp.array[r1, r2 - r1 + 1e-3, r3 - r1 + 1e-3]), jnp.array([r1, r2, r3]))
+#         # elif self.objective_type == 'norm':
+#             # return jnp.log(self.w*(jnp.array([jnorm(Cv1), 1-jnorm(Cv2), 1-jnorm(Cv3)])+1e-8)), jnp.array([jnorm(Cv1), jnorm(Cv2), jnorm(Cv3)])
+#         # elif self.objective_type == 'norm_sq':
+#             # return (jnp.log(self.w*jnp.array([Cv1@Cv1, 1 - Cv2@Cv2, 1-Cv3@Cv3, ])+1e-8), jnp.array([Cv1@Cv1, Cv2@Cv2, Cv3@Cv3]))
+#         elif self.objective_type == 'ratio':
+#             return jnp.log(jnp.array([r1/r2, r1/r3, ])), jnp.array([r1, r2, r3])
+#         elif self.objective_type == 'ratio_sq':
+#             return jnp.log(jnp.array([(r1/r2)**2, (r1/r3)**2, ])), jnp.array([r1, r2, r3])
+#         elif self.objective_type == 'ratio_c1sq':
+#             return jnp.log(jnp.array([r1**2/r2, r1**2/r3, ])), jnp.array([r1, r2, r3])
+#         else:
+#             raise ValueError(
+#                 f"Objective '{self.objective_type}' type not found.")
 
-    def adjoint(self, x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
-        # argnums=[0,1] because we care about both derivatives
-        jac_func = jax.jacrev(self._obj_wrt_U, argnums=[0, 1], has_aux=True)
-        dc_dU, dc_dChom = jac_func(self._select_U(x_), Chom)[0]
+#     def adjoint(self, x, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
+#         # argnums=1 because we only care about derivative w.r.t. Chom here
+#         dc_dChom = jax.jacrev(self.obj,
+#                               argnums=1,
+#                               has_aux=True)(x, Chom)[0].reshape((self.n_constraints, 9))
 
-        # both arguments get passed in a 3x3 matrices so we unfold them for easier referencing
-        dc_dU = dc_dU.reshape((self.n_constraints, 9))
-        dc_dChom = dc_dChom.reshape((self.n_constraints, 9))
+#     def _setup_evals_lines(self):
+#         d = np.ones(self.n_constraints+1)
+#         o = self.objective_type
+#         if 'ratio' == o:
+#             labels = [r'$t$',
+#                       r'$(v_1^T C v_1)/(v_2^T C v_2)$',
+#                       r'$(v_1^T C v_1)/(v_3^T C v_3)$']
+#         elif 'ray' == o:
+#             labels = [r'$t$',
+#                       r'$(v_1^T C v_1)$',
+#                       r'$1-(v_2^T C v_2)$',
+#                       r'$1-(v_3^T C v_3)$']
+#         elif 'ray_sq' == o:
+#             labels = [r'$t$',
+#                       r'$(v_1^T C v_1)^2$',
+#                       r'$1-(v_2^T C v_2)^2$',
+#                       r'$1-(v_3^T C v_3)^2$']
+#         else:
+#             labels = ['$t$',
+#                       *(f'{o}_{n}' for n in range(self.n_constraints))]
+#         """Setup the evaluation lines specific to ExtremalConstraints"""
+#         if 'ratio' in self.objective_type:
+#             self.evals_lines = self.ax2.plot([d],
+#                                              [d],
+#                                              marker='.',
+#                                              label=labels,
+#                                              )
+#         else:
+#             self.evals_lines = self.ax2.plot([d],
+#                                              [d],
+#                                              marker='.',
+#                                              label=labels,
+#                                              )
+#         self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
 
-        for n in range(self.n_constraints):
-            grad[n, :-10] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-            grad[n, -10:-1] = dc_dU[n, :]
-            grad[n, -1] = -1.
+#     def __str__(self):
+#         return "ExtremalConstraints"
 
-    def forward(self, x_):
-        return super().forward(self._strip_U(x_))
 
-    def update_plot(self, x_):
-        super().update_plot(self._strip_U(x_))
+# class EigenvalueProblemConstraints(EpigraphConstraint):
+#     def __init__(self, basis_v, ops, metamaterial, extremal_mode, weights=jnp.ones(3), check_valid=False, **kwargs):
+#         # Initialize with base EpigraphConstraint initialization
+#         super().__init__(basis_v, ops, metamaterial, extremal_mode, **kwargs)
 
-    def _strip_U(self, x_):
-        return x_[:-9]
+#         self.weights = weights
+#         self.check_valid = check_valid
+#         self.n_constraints = 7
 
-    def _select_U(self, x_):
-        return x_[-9:].reshape((3, 3))
+#         # Setup plots same as ExtremalConstraints
+#         self.img_resolution = (200, 200)
+#         self.img_shape = (self.metamaterial.width, self.metamaterial.height)
 
-    def _check_validity(self, x_):
-        if not self.check_valid:
-            return
-        if not self._strip_U(x_).size == self.metamaterial.R.dim():
-            raise ValueError(f"Mismatching size of x and R.dim()")
+#     def obj(self, x_: np.ndarray, C):
+#         # We grab U out of x_ so ease derivative computation
+#         return self._obj_wrt_U(self._select_U(x_), C)
 
-    def _setup_evals_lines(self):
-        """Setup evaluation lines specific to EigenvalueProblemConstraints"""
-        d = np.ones(self.n_constraints+1)
-        labels = ['$t$',
-                  '$u_1^TCu_1$',
-                  '$1-u_2^TCu_2$',
-                  '$1-u_3^TCu_3$',
-                  '$\cos(u_1,v_1)$',
-                  '$\cos(u_2,v_2)$',
-                  '$\cos(u_3,v_3)$',
-                  'ortho']
-        self.evals_lines = self.ax2.plot(
-            [d], [d], marker='.',
-            label=labels
-        )
-        self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+#     # We only care about the derivative of the objective w.r.t. the specific parts of x that comprise U.
+#     # So we do this subcall to avoid differentiating against all of x.
+#     def _obj_wrt_U(self, U, C):
+#         M = mandelize(C)
+#         M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
+#         M /= jnorm(M, ord=2)
 
-    def __str__(self):
-        return "EigenvalueProblemConstraints"
+#         # Rayleigh quotients with U
+#         r1, r2, r3 = self.weights*ray_q(M, U)
+#         rays = jnp.array([r1, 1.-r2, 1.-r3])
+
+#         V = self.basis_v
+#         U_norms = jnp.linalg.norm(U, axis=0)
+#         V_norms = jnp.linalg.norm(V, axis=0)
+#         cosines = (1 + 1e-6 - jnp.diag(U.T@V) / (U_norms*V_norms))/self.eps
+
+#         ortho = jnp.linalg.norm(U.T @ U - jnp.eye(3), ord='fro')
+
+#         return (jnp.log(jnp.hstack([rays, cosines, [ortho]])),
+#                 jnp.hstack([jnp.array([r1, r2, r3]), cosines, [ortho]]))
+
+#     def adjoint(self, x_, grad, dxfem_dx_vjp, Chom, dChom_dxfem):
+#         # argnums=[0,1] because we care about both derivatives
+#         jac_func = jax.jacrev(self._obj_wrt_U, argnums=[0, 1], has_aux=True)
+#         dc_dU, dc_dChom = jac_func(self._select_U(x_), Chom)[0]
+
+#         # both arguments get passed in a 3x3 matrices so we unfold them for easier referencing
+#         dc_dU = dc_dU.reshape((self.n_constraints, 9))
+#         dc_dChom = dc_dChom.reshape((self.n_constraints, 9))
+
+#         for n in range(self.n_constraints):
+#             grad[n, :-10] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+#             grad[n, -10:-1] = dc_dU[n, :]
+#             grad[n, -1] = -1.
+
+#     def forward(self, x_):
+#         return super().forward(self._strip_U(x_))
+
+#     def update_plot(self, x_):
+#         super().update_plot(self._strip_U(x_))
+
+#     def _strip_U(self, x_):
+#         return x_[:-9]
+
+#     def _select_U(self, x_):
+#         return x_[-9:].reshape((3, 3))
+
+#     def _check_validity(self, x_):
+#         if not self.check_valid:
+#             return
+#         if not self._strip_U(x_).size == self.metamaterial.R.dim():
+#             raise ValueError(f"Mismatching size of x and R.dim()")
+
+#     def _setup_evals_lines(self):
+#         """Setup evaluation lines specific to EigenvalueProblemConstraints"""
+#         d = np.ones(self.n_constraints+1)
+#         labels = ['$t$',
+#                   '$u_1^TCu_1$',
+#                   '$1-u_2^TCu_2$',
+#                   '$1-u_3^TCu_3$',
+#                   '$\cos(u_1,v_1)$',
+#                   '$\cos(u_2,v_2)$',
+#                   '$\cos(u_3,v_3)$',
+#                   'ortho']
+#         self.evals_lines = self.ax2.plot(
+#             [d], [d], marker='.',
+#             label=labels
+#         )
+#         self.ax2.legend(loc='upper left', bbox_to_anchor=(1.0, 1.0))
+
+#     def __str__(self):
+#         return "EigenvalueProblemConstraints"
 
 
 class SpectralNormConstraint:

@@ -42,7 +42,7 @@ class ScalarObjective(ScalarOptimizationComponent):
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} f(x): {c:.4f}")
-            logger.info(f"{cs}")
+            logger.info(f"Raw Rayleigh Quotients: {cs}")
 
         stop_on_nan(c)
         return float(c) - self.eps

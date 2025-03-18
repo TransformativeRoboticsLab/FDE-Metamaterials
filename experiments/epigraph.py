@@ -17,9 +17,9 @@ from metatop.filters import setup_filter
 from metatop.helpers import mirror_density
 from metatop.metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.scalar import (EigenvectorConstraint,
-                                         RayleighRatioObjective,
-                                         SameLargeValueConstraint)
+from metatop.optimization.epigraph import (EpigraphObjective,
+                                           EpigraphOptimizer,
+                                           PrimaryEpigraphConstraint)
 from metatop.profiling import ProfileConfig
 
 jax.config.update("jax_enable_x64", True)
@@ -56,6 +56,7 @@ def config():
     starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
     extremal_mode = 1
     basis_v = 'BULK'
+    objective_type = 'ray'
     nelx = nely = 50
     norm_filter_radius = 0.1
     verbose = False
@@ -63,6 +64,10 @@ def config():
     vector_constraint = True
     tighten_vector_constraint = True
     g_vec_eps = 1.
+    trace_constraint = False
+    g_trc_bnd = 0.3
+    init_run_idx = None  # if we want to start the run with the final output density of a previous run, this is the index in the mongodb that we want to grab the output density from
+    single_sim = False  # This is if we want to just run a single sim at a given param set, and not run the full optimization. We do this because we want to track the results in the database and it is easier than setting a bunch of parameters outside the experiment and calling them there. It only changes things so that the two for loops that execute the optimization run once and that nlopt actually only runs once as well. All other parameters still need to be set by the user
     enable_profiling = False
     log_to_db = True
 
@@ -81,7 +86,21 @@ def startup(config, command_name, logger):
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, enable_profiling, log_to_db, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, objective_type, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, trace_constraint, g_trc_bnd, init_run_idx, single_sim, enable_profiling, log_to_db, seed):
+
+    if single_sim:
+        print("SINGLE IS ENABLED. NOT RUNNING OPTIMIZATION. SETTINGS ARE FOR ONLY A SINGLE FORWARD SIMULATION")
+        n_betas = 1
+        n_epochs = 1
+        epoch_duration = 1
+        starting_epoch_duration = epoch_duration
+        interim_plot = False
+        vector_constraint = False
+        tighten_vector_constraint = False
+        g_vec_eps = 1.
+        trace_constraint = False
+        g_trc_bnd = 1.
+        weight_scaling_factor = 1.
 
     run_id, outname = generate_output_filepath(
         ex, extremal_mode, basis_v, seed)
@@ -95,7 +114,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                                   nely,
                                   mesh_cell_type='tri',
                                   domain_shape='square')
-
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
 
     # global optimization state
@@ -111,48 +129,46 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             plot_interval=10,
                             )
 
-    # x = np.random.choice([0, 1], size=metamate.R.dim())
+    # x = seed_density(init_run_idx, metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())
-    # x = mirror_density(x, metamate.R, type='xy')[0]
+    x = np.append(x, 1.)  # append t for epigraph
 
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = RayleighRatioObjective(ops, verbose=True)
-    g1 = EigenvectorConstraint(ops, eps=1e-3, verbose=True)
-    g2 = SameLargeValueConstraint(ops, eps=1e-3, verbose=True)
+    f = EpigraphObjective(ops)
+    g1 = PrimaryEpigraphConstraint(ops,
+                                   objective_type=objective_type,
+                                   verbose=True)
 
-    opt = nlopt.opt(nlopt.LD_AUGLAG, x.size)
+    opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
+    opt.add_inequality_mconstraint(g1, np.zeros(g1.n_constraints))
 
-    local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
-    opt.set_local_optimizer(local_opt)
+    opt.set_lower_bounds(np.append(np.zeros(x.size-1), -np.inf))
+    opt.set_upper_bounds(np.append(np.ones(x.size-1), np.inf))
 
-    opt.add_inequality_constraint(g1, 0.)
-    opt.add_inequality_constraint(g2, 0.)
-
-    opt.set_lower_bounds(0.)
-    opt.set_upper_bounds(1.)
+    # opt.set_param('dual_ftol_rel', 1e-6)
     # opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
     x_history = [x.copy()]
     for n, beta in enumerate(betas, 1):
-        print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
+        logger.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
         ops.beta, ops.epoch = beta, n
         x[:] = opt.optimize(x)
-        # try:
-        #     x[:] = opt.optimize(x)
-        # except nlopt.ForcedStop:
-        #     print(f"nlopt forced stop {e}")
-        #     # sys.exit(-2)
-        # except Exception as e:
-        #     print(f"Optimization stopped {e}")
-        #     # sys.exit(-1)
-        x_history.append(x.copy())
-        opt.set_maxeval(epoch_duration)
-        ops.epoch_iter_tracker.append(len(ops.evals))
+    # for i in range(n_epochs):
+    #     for n, beta in enumerate(betas, 1):
+    #         run_optimization(epoch_duration, betas, ops, x,
+    #                          g_ext, opt, x_history, n, beta)
+    #         fem_profiler.report()
+
+    #     print_epoch_summary(opt, i)
+    #     log_and_save_results(ex, run_id, outname, metamate,
+    #                          img_rez, img_shape, ops, x, g_ext, i)
+
+    #     g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
     # ===== End Optimization Loop =====
 
@@ -165,8 +181,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                  img_shape,
                  ops,
                  x,
-                 f,
+                 g_ext,
                  x_history)
 
-    if f.show_plot:
-        plt.close(f.fig)
+    if g_ext.show_plot:
+        plt.close(g_ext.fig)
