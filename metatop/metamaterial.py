@@ -22,6 +22,7 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
     metamaterial = Metamaterial(
         E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
     if 'tri' in mesh_cell_type:
+        logger.debug("Creating mesh with triangular cells")
         P0 = fe.Point(0, 0)
         P1 = fe.Point(1, 1)
         if 'rect' in domain_shape:
@@ -32,6 +33,7 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
         metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
+        logger.debug("Creating mesh with quadrilateral cells")
         metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
                                                     [nelx, nely],
                                                     fe.CellType.Type.quadrilateral)
@@ -43,7 +45,7 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
 
 
 class Metamaterial:
-    def __init__(self, E_max, E_min, nu, nelx, nely, mesh=None, x=None, domain_shape=None, profile=False):
+    def __init__(self, E_max: float, E_min: float, nu: float, nelx: int, nely: int, mesh: fe.Mesh = None, x: fe.Function = None, domain_shape: str = None, profile: bool = False):
         self.prop: Properties = Properties(E_max, E_min, nu)
         self.nelx: int = nelx
         self.nely: int = nely
@@ -73,14 +75,33 @@ class Metamaterial:
 
         plt.show(block=True)
 
-    def plot_density(self):
+    def plot_density(self, ax=None, cmap='gray'):
         r = fe.Function(self.R)
-        r.vector()[:] = 1. - self.x.vector()[:]
+        r.vector()[:] = self.x.vector()[:]
+        if cmap == 'gray':
+            r.vector()[:] = 1. - r.vector()[:]
         r.set_allow_extrapolation(True)
 
+        if isinstance(ax, plt.Axes):
+            plt.sca(ax)
+        else:
+            fig, ax = plt.subplots()
+        ax.clear()
+        ax.margins(x=0, y=0)
         title = f"Density - Average {np.mean(self.x.vector()[:]):.3f}"
-        plt.figure()
-        fe.plot(r, cmap='gray', vmin=0, vmax=1, title=title)
+        ax.set_title(title)
+
+        cell_type = self.R.ufl_cell().cellname()
+        if cell_type == 'quadrilateral':
+            logger.debug("Plotting image using quad cells")
+            x_vec = r.vector()[:]
+            nely = np.sqrt(x_vec.size).astype(int)
+            nelx = nely
+            plt.imshow(x_vec.reshape((nely, nelx)),
+                       cmap=cmap, vmin=0, vmax=1)
+            return
+
+        fe.plot(r, cmap=cmap, vmin=0, vmax=1, title=title)
         plt.show(block=True)
 
     def create_function_spaces(self, elem_degree=1):

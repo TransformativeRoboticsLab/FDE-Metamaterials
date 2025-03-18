@@ -1,7 +1,12 @@
+import itertools
+
 import fenics as fe
 import jax
 import jax.numpy as jnp
 import numpy as np
+import sympy
+from loguru import logger
+from sympy.core.symbol import symbols
 
 MANDEL = jnp.diag(jnp.array([1., 1., jnp.sqrt(2)]))
 INV_MANDEL = jnp.diag(jnp.array([1., 1., 1./jnp.sqrt(2)]))
@@ -243,3 +248,77 @@ def matrix_invariants(M):
         'dev(M)': I2,
         'det(M)': I3
     }
+
+
+def convert_isotropic_properties(input_props: dict[str, float]):
+
+    num_inputs = sum(1 for v in input_props.values() if v is not None)
+    if num_inputs != 2:
+        raise ValueError("Exactly two material properties must be provided.")
+
+    E = input_props.get('E')
+    G = input_props.get('G')
+    nu = input_props.get('nu')
+    K = input_props.get('K')
+
+    for p, v in input_props.items():
+        if p == 'nu':
+            if v is not None and (v < -1 or v > 0.5):
+                raise ValueError(
+                    f"Poisson's ratio (nu = {nu} is outside the valid range [-1, 0.5])")
+        else:
+            if v is not None and v <= 0.:
+                raise ValueError(f"Parameter {p} must be positive")
+
+    try:
+        if E is not None and G is not None:
+            nu = E / (2 * G) - 1
+            K = E*G / (3 * (3 * G - E))
+        elif E is not None and nu is not None:
+            G = E / (2 * (1 + nu))
+            K = E / (3 * (1 - 2 * nu))
+        elif E is not None and K is not None:
+            nu = (3 * K - E) / (6 * K)
+            G = (3 * K * E) / (9 * K - E)
+        elif G is not None and nu is not None:
+            E = 2 * G * (1 + nu)
+            K = (2 * G * (1 + nu)) / (3 * (1 - 2 * nu))
+        elif G is not None and K is not None:
+            E = (9 * K * G) / (3 * K + G)
+            nu = (3 * K - 2 * G) / (2 * (3 * K + G))
+        elif nu is not None and K is not None:
+            E = 3 * K * (1 - 2 * nu)
+            G = (3 * K * (1 - 2 * nu)) / (2 * (1 + nu))
+
+    except ZeroDivisionError as e:
+        E = None
+        G = None
+        K = None
+        nu = None
+        logger.error(
+            f"Encountered zero division when calculating properties: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error when calculating properties: {e}")
+
+    return dict(E=E, G=G, K=K, nu=nu)
+
+
+if __name__ == "__main__":
+
+    E0 = 1
+    G0 = 0.384615
+    K0 = 0.833333
+    nu0 = 0.3
+    props = {'E': E0, 'G': G0, 'K': K0, 'nu': nu0}
+    keys = ['E', 'G', 'K', 'nu']
+
+    for k1, k2 in itertools.combinations(keys, 2):
+        input_props = {k: props[k] if k in [k1, k2] else None for k in keys}
+        calculated_props = convert_isotropic_properties(input_props)
+        # print(f"Input: {k1}={props[k1]}, {k2}={props[k2]}")
+        # print(f"Calculated: {calculated_props}")
+        for k, v in props.items():
+            if not np.isclose(v, calculated_props[k]):
+                raise ValueError(
+                    f"Mismatch of calculated and input properties for {k}: input={v:.3f}, calcualted={calculated_props[k]}")
+    logger.info("Passed property check")

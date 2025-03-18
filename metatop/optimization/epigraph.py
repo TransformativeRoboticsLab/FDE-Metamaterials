@@ -24,6 +24,9 @@ from metatop.profiling import profile_block, profile_function
 
 
 def spec_norm(x: np.ndarray):
+    """
+    Special function for the spectral norm. It is very easy to forget to put `ord=2` and the default for matrices is the Frobenius norm, which we do not want.
+    """
     return jnp.linalg.norm(x, ord=2)
 
 
