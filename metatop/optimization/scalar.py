@@ -24,28 +24,28 @@ class ScalarObjective(ScalarOptimizationComponent):
 
         sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
 
-        (c, cs), dc_dChom = jax.value_and_grad(
-            self.eval, has_aux=True)(Chom)
+        try:
+            (c, cs), dc_dChom = jax.value_and_grad(
+                self.eval, has_aux=True)(Chom)
+        except Exception as e:
+            logger.error(
+                f"Error in calculating value and grad in {self.__class__.__name__}: {e}")
+            raise e
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
 
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
-            # name = self.__class__.__name__
-            # logger.debug(f"{name} Grad max: {np.max(grad):.4f}")
-            # logger.debug(f"{name} Grad min: {np.min(grad):.4f}")
-            # logger.debug(f"{name} Grad Norm {np.linalg.norm(grad):.4f}")
 
-        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
         id = self.__str__()
-        self.ops.update_evals(id, c)
-        self.ops.update_plot(id, is_primary=True)
+        self.ops.update_evals_and_plot(id, c, is_primary=True)
 
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} f(x): {c:.4f}")
-            logger.info(f"Raw Rayleigh Quotients: {cs}")
+            logger.info(cs)
 
         stop_on_nan(c)
-        return float(c) - self.eps
+        return float(c)
 
 
 class ScalarConstraint(ScalarOptimizationComponent):
@@ -54,23 +54,19 @@ class ScalarConstraint(ScalarOptimizationComponent):
 
         Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
 
-        c, dc_dChom = jax.value_and_grad(self.eval)(Chom)
+        (c, cs), dc_dChom = jax.value_and_grad(self.eval, has_aux=True)(Chom)
 
         if grad.size > 0:
-            grad[:] = self.adjoint(dxfem_dx_vjp, dChom_dxfem, dc_dChom)
-            # print(f"Grad max: {np.max(grad)}")
-            # print(f"Grad min: {np.min(grad)}")
-            # print(f"Grad norm: {np.linalg.norm(grad)}")
+            grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
         id = self.__str__()
-        self.ops.update_evals(component_id=id, c=c)
-        self.ops.update_plot(component_id=id)
+        self.ops.update_evals_and_plot(id, cs, is_primary=True)
 
         if not self.silent:
-            logger.info(f"{self.__str__()} g(x): {c:.4f}")
+            logger.info(f"{self.__str__()} g(x): {cs:.4f}")
 
         stop_on_nan(c)
-        return float(c) - self.eps
+        return float(c)
 
 
 class RayleighRatioObjective(ScalarObjective):
@@ -85,9 +81,6 @@ class RayleighRatioObjective(ScalarObjective):
         gmean = jnp.sqrt(r2*r3)
         hmean = 2 / (1/r2 + 1/r3)
         return r1/amean, jnp.array([r1, r2, r3])
-
-    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
-        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
 
 
 class EigenvectorConstraint(ScalarConstraint):
@@ -115,10 +108,7 @@ class EigenvectorConstraint(ScalarConstraint):
                 e_vecs[:, p[2]], e_vecs[:, p[2]]), ord='fro')**2
             min_penalty = jnp.minimum(min_penalty, current_penalty)
 
-        return min_penalty
-
-    def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
-        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+        return min_penalty, min_penalty
 
 
 class SameLargeValueConstraint(ScalarConstraint):
@@ -132,11 +122,7 @@ class SameLargeValueConstraint(ScalarConstraint):
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
 
-        return jnp.abs(r2-r3)
-
-    def adjoint(self, dxfem_dx_vjp, dChom_dxfem, dc_dChom):
-        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
-
+        return jnp.abs(r2-r3), jnp.array([r2, r3])
 
 # class EnergyConstraints:
 

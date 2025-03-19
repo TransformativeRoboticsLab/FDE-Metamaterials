@@ -75,6 +75,9 @@ class ScalarOptimizationComponent(OptimizationComponent):
     def __call__(self, x: np.ndarray, grad: np.ndarray):
         pass
 
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        return dxfem_dx_vjp(dc_dChom.flatten() @ dChom_dxfem)[0]
+
     @property
     def n_constraints(self):
         return 1
@@ -85,6 +88,13 @@ class VectorOptimizationComponent(OptimizationComponent):
     @abc.abstractmethod
     def __call__(self, results: np.ndarray, x: np.ndarray, grad: np.ndarray):
         pass
+
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        nc = self.n_constraints
+        dc_dx = np.zeros((nc, dChom_dxfem.shape[1]))
+        for n in range(nc):
+            dc_dx[n, :] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
+        return dc_dx
 
 
 def stop_on_nan(x: float | np.ndarray):
