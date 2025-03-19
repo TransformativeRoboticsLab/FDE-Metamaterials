@@ -53,10 +53,9 @@ class EpigraphOptimizer(nlopt.opt):
                 if isinstance(g, VectorOptimizationComponent):
                     results = np.zeros(g.n_constraints)
                     g(results, x, np.array([]), dummy_run=True)
-                    print('results', results)
                     new_t = max(new_t, *(results))
                 elif isinstance(g, ScalarOptimizationComponent):
-                    c = g(x, np.array([]))
+                    c = g(x, np.array([]), dummy_run=True)
                     new_t = max(new_t, c)
                 else:
                     logger.warning(
@@ -65,7 +64,7 @@ class EpigraphOptimizer(nlopt.opt):
                 logger.info(f"Skipping constraint {g} in t update")
         return new_t
 
-    def add_inequality_mconstraint(self, *args, uses_t=True):
+    def add_inequality_mconstraint(self, *args):
         con = args[0]
         if isinstance(con, EpigraphComponent):
             self.active_constraints.append(args[0])
@@ -168,22 +167,22 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         super().__init__(ops, eps=eps, verbose=verbose, silent=silent)
         self.obj_type = objective_type
 
-        self._available_obj_types = ('ray', 'ratio')
-        if self.obj_type not in self._available_obj_types:
+        if self.obj_type not in self.obj_fns:
             raise ValueError(
-                f"Objective type {self.obj_type} is not available. Types are [{self._available_obj_types}]")
+                f"Objective type {self.obj_type} is not available. Types are [{self._obj_fns}]")
 
     def __call__(self, results, x, grad, dummy_run=False):
         x_, t = self.split_t(x)
         sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x_)
+        self.ops.update_state(sols, Chom, dChom_dxfem,
+                              dxfem_dx_vjp, x_, increment_obj_n_calls=False)
 
         c, cs = self.eval(Chom)
         results[:] = c - t
 
         if not self.silent:
-            logger.info(f"{self.__str__()}")
-            logger.info(f"g(x): {c}")
-            logger.info(f"Raw Rayleigh Quotients: {cs}")
+            logger.info(f"{self.__str__()} log(g(x)): {c}")
+            logger.info(f"g(x): {cs}")
 
         if dummy_run:
             return
@@ -194,10 +193,8 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
-        self.ops.update_state(sols, Chom, dChom_dxfem,
-                              dxfem_dx_vjp, x_, increment_obj_n_calls=False)
         id = self.__str__()
-        self.ops.update_evals(id, c,)
+        self.ops.update_evals(id, c)
         A = 'C' if self.ops.extremal_mode == 1 else 'S'
         self.ops.update_plot(id, is_primary=True, labels=[
                              rf"$R({A},v_1)$", rf"$1-R({A},v_2)$", rf"$1-R({A},v_3)$"])
@@ -210,10 +207,12 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
 
-        if self.obj_type == 'ray':
-            return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
-        elif self.obj_type == 'ratio':
-            return jnp.log(jnp.array([r1/r2, r1/r3])), jnp.array([r1, r2, r3])
+        return self.obj_fns[self.obj_type](r1, r2, r3)
+
+        # if self.obj_type == 'ray':
+        #     return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
+        # elif self.obj_type == 'ratio':
+        #     return jnp.log(jnp.array([r1/r2, r1/r3])), jnp.array([r1, r2, r3])
 #         elif self.objective_type == 'ray_sq':
 #             return (jnp.log(jnp.array([r1**2, (1. - r2**2), (1. - r3**2), ])+1e-8), jnp.array([r1, r2, r3, ]))
 #         elif self.objective_type == 'uni':
@@ -231,17 +230,87 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #                 f"Objective '{self.objective_type}' type not found.")
 
     def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
-        nc = self.n_constraints
-        dc_dx = np.zeros((nc, dChom_dxfem.shape[1]+1))
-        for n in range(nc):
-            dc_dx[n, :-1] = dxfem_dx_vjp(dc_dChom[n, :] @ dChom_dxfem)[0]
-            dc_dx[n, -1] = -1.
-        return dc_dx
+        dc_dx = super().adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+        return np.hstack([dc_dx, -np.ones((dc_dx.shape[0], 1))])
 
     @property
     def n_constraints(self):
         return 2 if 'ratio' in self.obj_type else 3
 
+    @property
+    def obj_fns(self):
+        fns = {
+            'ray': lambda y1, y2, y3: (jnp.log(jnp.array([y1, 1-y2, 1-y3])),
+                                       jnp.array([y1, y2, y3])),
+            'ratio': lambda y1, y2, y3: (jnp.log(jnp.array([y1/y2, y1/y3])),
+                                         jnp.array([y1, y2, y3]))
+        }
+        return fns
+
+
+class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
+    """ A flexible eigenvector constraint class that can either handle all the eigenvector error as a scalar or we can constrain against each of the eignevector residuals directly"""
+
+    def __init__(self, ops, eps, con_type: str, silent=False, verbose=False):
+        super().__init__(ops, eps, silent, verbose)
+
+        self.con_type = con_type
+
+        if self.con_type not in self._con_types:
+            raise ValueError(
+                f"Constraint type {self.con_type} invalid. Must be one of {self._con_types}.")
+
+        logger.debug(f"{self.__str__()} with {self.con_type}")
+
+    def __call__(self, results, x, grad, dummy_run=False):
+
+        t = self.split_t(x)[1]
+        Chom, dChom_dxfem, dxfem_dx_vjp = self.ops.Chom, self.ops.dChom_dxfem, self.ops.dxfem_dx_vjp
+
+        c, cs = self.eval(Chom)
+        results[:] = c - t
+
+        if not self.silent:
+            logger.info(f"{self.__str__()} log(g(x)): {c}")
+            logger.info(f"g(x): {cs}")
+
+        if dummy_run:
+            return
+
+        dc_dChom = jax.jacrev(self.eval,
+                              has_aux=True)(Chom)[0].reshape((self.n_constraints, 9))
+
+        if grad.size > 0:
+            grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+
+        self.ops.update_evals_and_plot(self.__str__(), c)
+
+    def eval(self, C):
+        M = mandelize(C)
+        M /= spec_norm(M)
+
+        V = self.ops.basis_v
+        R = jnp.diag(ray_q(M, V))
+
+        axis = 0 if self.con_type == 'vector' else None
+        res = jnp.sum(jnp.square(M@V-V@R), axis=axis)
+
+        return jnp.log(res/self.eps), res
+
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        dc_dx = super().adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+        return np.hstack([dc_dx, -np.ones((dc_dx.shape[0], 1))])
+
+    @property
+    def n_constraints(self):
+        return 1 if 'scalar' == self.con_type else 3
+
+    @property
+    def _con_types(self):
+        return ('scalar', 'vector')
+
+
+# vvvvvvvvvvvvv Ardhive vvvvvvvvvvvvvvvvvvvvv
 
 # class EigenvalueProblemConstraints(EpigraphConstraint):
 #     def __init__(self, basis_v, ops, metamaterial, extremal_mode, weights=jnp.ones(3), check_valid=False, **kwargs):
@@ -333,7 +402,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #     def __str__(self):
 #         return "EigenvalueProblemConstraints"
 
-
 # class SpectralNormConstraint:
 
 #     def __init__(self, ops, bound=1., verbose=True):
@@ -366,7 +434,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
 #     def __str__(self):
 #         return "SpectralNormConstraint"
-
 
 # class EigenvectorConstraint:
 
@@ -424,7 +491,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #     def __str__(self):
 #         return "EigenvectorConstraint"
 
-
 # class TraceConstraint:
 
 #     def __init__(self, ops, bound=3e-1, verbose=True):
@@ -453,7 +519,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
 #     def __str__(self):
 #         return "TraceConstraint"
-
 
 # class InvariantsConstraint:
 
@@ -501,7 +566,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #             print(
 #                 f"Second Invariant: {-c[1]:.2e} (Target >={-self.eps[1]:.3f})")
 #             print(f"Det: {c[2]:.2e} (Target <={self.eps[2]:.3f})")
-
 
 # class GeometricConstraints:
 
@@ -696,7 +760,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #         # match return format of jnp.gradient
 #         return grad_y, grad_x
 
-
 # class OffDiagonalConstraint:
 #     def __init__(self, v, ops, eps=1e-3, verbose=True):
 #         self.v = v
@@ -728,7 +791,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
 #     def __str__(self):
 #         return "OffDiagonalConstraint"
-
 
 # class VolumeConstraint:
 

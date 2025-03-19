@@ -16,7 +16,8 @@ from metatop.fem_profiler import fem_profiler
 from metatop.filters import setup_filter
 from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.epigraph import (EpigraphObjective,
+from metatop.optimization.epigraph import (EigenvectorEpigraphConstraint,
+                                           EpigraphObjective,
                                            EpigraphOptimizer,
                                            PrimaryEpigraphConstraint)
 from metatop.profiling import ProfileConfig
@@ -140,24 +141,37 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     g1 = PrimaryEpigraphConstraint(ops,
                                    objective_type=objective_type,
                                    verbose=True)
+    g2 = EigenvectorEpigraphConstraint(ops, con_type='vector', eps=1.)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
     opt.add_inequality_mconstraint(g1, np.zeros(g1.n_constraints))
+    opt.add_inequality_mconstraint(g2, np.zeros(g2.n_constraints))
 
     opt.set_lower_bounds(np.append(np.zeros(x.size-1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size-1), np.inf))
 
     opt.set_param('dual_ftol_rel', 1e-6)
-    # opt.set_maxeval(starting_epoch_duration)
+    opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
     x_history = [x.copy()]
-    for n, beta in enumerate(betas, 1):
-        logger.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
-        ops.beta, ops.epoch = beta, n
-        x[:] = opt.optimize(x)
+    for i in range(n_epochs):
+        for n, beta in enumerate(betas, 1):
+            logger.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
+            ops.beta, ops.epoch = beta, n
+            try:
+                x[:] = opt.optimize(x)
+            except Exception as e:
+                logger.error(f"Exception occured during optimization: {e}")
+                raise e
+
+            opt.set_maxeval(epoch_duration)
+
+        print_epoch_summary(opt, i)
+
+        g2.eps = g2.eps / 10 if tighten_vector_constraint else g2.eps
     # for i in range(n_epochs):
     #     for n, beta in enumerate(betas, 1):
     #         run_optimization(epoch_duration, betas, ops, x,
@@ -171,6 +185,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     #     g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
 
     # ===== End Optimization Loop =====
+    plt.show(block=True)
 
     # ===== Post-Processing =====
     save_results(ex,

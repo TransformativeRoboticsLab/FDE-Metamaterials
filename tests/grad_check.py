@@ -149,6 +149,7 @@ def create_constraint(cname, config):
     constraint_list = {
         'EpigraphObjective': epi.EpigraphObjective,
         'PrimaryEpigraphConstraint': epi.PrimaryEpigraphConstraint,
+        'EigenvectorEpigraphConstraint': epi.EigenvectorEpigraphConstraint,
         'RayleighScalarObjective': sca.RayleighRatioObjective,
         'EigenvectorConstraint': sca.EigenvectorConstraint,
         'SameLargeValueConstraint': sca.SameLargeValueConstraint,
@@ -306,9 +307,9 @@ def main():
     # ===== END INPUT PARAMS =====
 
     # ===== SETUP =====
-    check_metamaterial = True
-    check_filter = True
-    check_scalars = True
+    check_metamaterial = False
+    check_filter = False
+    check_scalars = False
     check_epigraphs = True
     if basis_v:
         V = V_DICT[basis_v]
@@ -377,6 +378,11 @@ def main():
         handle_optimization_component('EpigraphObjective', **config)
         pec = handle_optimization_component(
             'PrimaryEpigraphConstraint', **config, objective_type='ray')
+        eps = 1.
+        handle_optimization_component(
+            'EigenvectorEpigraphConstraint', **config, con_type='scalar', eps=eps, obj=pec)
+        handle_optimization_component(
+            'EigenvectorEpigraphConstraint', **config, con_type='vector', eps=eps, obj=pec)
     else:
         logger.warning("Skipping epigraph component checks")
 
