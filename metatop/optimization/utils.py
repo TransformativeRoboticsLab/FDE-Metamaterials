@@ -7,7 +7,7 @@ from loguru import logger
 from nlopt import ForcedStop
 
 from metatop.filters import jax_projection
-from metatop.metamaterial import Metamaterial
+from metatop.Metamaterial import Metamaterial
 from metatop.optimization import OptimizationState
 
 

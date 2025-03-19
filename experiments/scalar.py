@@ -10,7 +10,7 @@ from metatop import V_DICT
 from metatop.filters import jax_projection, setup_filter
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                matrix_invariants)
-from metatop.metamaterial import setup_metamaterial
+from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (EnergyConstraints,
                                          RayleighRatioObjective)

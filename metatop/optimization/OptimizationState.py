@@ -10,7 +10,7 @@ from matplotlib import gridspec
 
 from metatop.filters import DensityFilter, HelmholtzFilter, jax_projection
 from metatop.image import bitmapify
-from metatop.metamaterial import Metamaterial
+from metatop.Metamaterial import Metamaterial
 
 
 class OptimizationPlot:

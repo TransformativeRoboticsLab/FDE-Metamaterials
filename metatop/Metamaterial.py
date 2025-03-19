@@ -8,7 +8,7 @@ import numpy.testing as npt
 from loguru import logger
 from matplotlib import pyplot as plt
 
-from .boundary import PeriodicDomain
+from .boundaries import PeriodicDomain
 from .fem_profiler import (fem_profiler, profile_assembly,
                            profile_fem_solution, profile_solve)
 from .mechanics import (lame_parameters, linear_strain, linear_stress,

@@ -14,7 +14,7 @@ import metatop.optimization.scalar as sca
 from metatop import V_DICT
 from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
-from metatop.metamaterial import setup_metamaterial
+from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.utils import (OptimizationComponent,
                                         ScalarOptimizationComponent,

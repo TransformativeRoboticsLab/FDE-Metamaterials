@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 from metatop.image import img2func
 from metatop.mechanics import (calculate_elastic_constants,
                                convert_isotropic_properties)
-from metatop.metamaterial import setup_metamaterial
+from metatop.Metamaterial import setup_metamaterial
 
 np.set_printoptions(precision=3)
 

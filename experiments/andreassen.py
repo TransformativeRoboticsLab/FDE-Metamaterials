@@ -1,32 +1,34 @@
+from sacred.observers import MongoObserver
+from sacred import Experiment
+from metatop.utils import forward_solve, log_values
+from metatop.optimization.scalar import (BulkModulusConstraint,
+                                         IsotropicConstraint, VolumeConstraint)
+from metatop.optimization.examples import AndreassenOptimization
+from metatop.optimization import OptimizationState
+from metatop.Metamaterial import setup_metamaterial
+from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
+                               matrix_invariants)
+from metatop.image import bitmapify
+from metatop.filters import jax_projection, setup_filter
+from metatop import V_DICT
+from matplotlib import pyplot as plt
+import numpy as np
+import nlopt
 import os
 import pickle
 
 import jax
 
 jax.config.update("jax_enable_x64", True)
-import nlopt
-import numpy as np
-from matplotlib import pyplot as plt
 
-from metatop import V_DICT
-from metatop.filters import jax_projection, setup_filter
-from metatop.helpers import forward_solve, log_values
-from metatop.image import bitmapify
-from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
-                               matrix_invariants)
-from metatop.metamaterial import setup_metamaterial
-from metatop.optimization import OptimizationState
-from metatop.optimization.examples import AndreassenOptimization
-from metatop.optimization.scalar import (BulkModulusConstraint,
-                                         IsotropicConstraint, VolumeConstraint)
 
 np.set_printoptions(precision=5)
 
-from sacred import Experiment
-from sacred.observers import MongoObserver
 
 ex = Experiment('andreassen')
-ex.observers.append(MongoObserver.create(url='localhost:27017', db_name='metatop'))
+ex.observers.append(MongoObserver.create(
+    url='localhost:27017', db_name='metatop'))
+
 
 @ex.config
 def config():
@@ -39,12 +41,13 @@ def config():
     verbose = interim_plot = True
     obj_type = 'pr'
     vol_frac = 0.35
-    bulk_modulus_ratio = 0.2*1e-2 # 0.2% of base K
+    bulk_modulus_ratio = 0.2*1e-2  # 0.2% of base K
     iso_eps = 1e-5
+
 
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, nely, norm_filter_radius, verbose, interim_plot, obj_type, vol_frac, bulk_modulus_ratio, iso_eps, seed):
-    
+
     dirname = './output/andreassen'
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -52,7 +55,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     fname += f'_{obj_type}'
     fname += f'_seed_{seed}'
     outname = dirname + '/' + fname
-    
+
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== End Preamble =====
 
@@ -73,14 +76,14 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     ops = OptimizationState(beta=1,
                             eta=0.5,
                             filt=filt,
-                            filt_fn = filt_fn,
+                            filt_fn=filt_fn,
                             epoch_iter_tracker=[1],
                             pen=penalty)
 
     # seeding the initial density
     x = np.random.uniform(0., 1., metamate.R.dim()) * (vol_frac * 2)
     # ===== End Component Setup =====
-    
+
     # ===== Optimizer setup ======
     f = AndreassenOptimization(obj_type=obj_type,
                                metamaterial=metamate,
@@ -88,9 +91,10 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
                                verbose=verbose,
                                plot=interim_plot,
                                plot_interval=epoch_duration//2)
-    
+
     g_vol = VolumeConstraint(vol_frac, ops=ops, verbose=verbose)
-    g_bulk = BulkModulusConstraint(E_max, nu, bulk_modulus_ratio, ops=ops, verbose=verbose)
+    g_bulk = BulkModulusConstraint(
+        E_max, nu, bulk_modulus_ratio, ops=ops, verbose=verbose)
     g_iso = IsotropicConstraint(iso_eps, ops, verbose=verbose)
 
     opt = nlopt.opt(nlopt.LD_MMA, x.size)
@@ -98,7 +102,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     opt.add_inequality_constraint(g_vol, 0.)
     opt.add_inequality_constraint(g_bulk, 0.)
     opt.add_inequality_constraint(g_iso, 0.)
-    
+
     opt.set_lower_bounds(np.zeros(x.size))
     opt.set_upper_bounds(np.ones(x.size))
     # opt.set_param('dual_ftol_rel', 1e-6)
@@ -129,7 +133,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
         x[:] = opt.optimize(x)
         x_history.append(x.copy())
         ops.epoch_iter_tracker.append(len(f.evals))
-        
+
         print(f"\n===== Epoch Summary: {n} =====")
         print(f"Final Objective: {opt.last_optimum_value():.3f}")
         print(f"Result Code: {opt.last_optimize_result()}")
@@ -156,7 +160,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
     print('Final Eigenvectors:\n', v)
 
     ASU = anisotropy_index(final_C, input_style='mandel')
-    elastic_constants = calculate_elastic_constants(final_C, input_style='mandel')
+    elastic_constants = calculate_elastic_constants(
+        final_C, input_style='mandel')
     invariants = matrix_invariants(final_C)
     print('Final ASU:', ASU)
     print('Final Elastic Constants:', elastic_constants)
@@ -166,11 +171,11 @@ def main(E_max, E_min, nu, start_beta, n_betas, penalty, epoch_duration, nelx, n
         pickle.dump({'x': x,
                      'x_history': x_history},
                     f)
-        
+
     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
     plt.imsave(f"{outname}.png", x_img, cmap='gray')
-    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4,4)), cmap='gray')
-    
+    plt.imsave(f"{outname}_array.png", np.tile(x_img, (4, 4)), cmap='gray')
+
     ex.info['final_C'] = final_C
     ex.info['eigvals'] = w
     ex.info['norm_eigvals'] = w / np.max(w)

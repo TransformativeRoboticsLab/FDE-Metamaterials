@@ -14,13 +14,13 @@ from experiments.utils import *
 from metatop import V_DICT
 from metatop.fem_profiler import fem_profiler
 from metatop.filters import setup_filter
-from metatop.helpers import mirror_density
-from metatop.metamaterial import setup_metamaterial
+from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (EigenvectorConstraint,
                                          RayleighRatioObjective,
                                          SameLargeValueConstraint)
 from metatop.profiling import ProfileConfig
+from metatop.utils import mirror_density
 
 jax.config.update("jax_enable_x64", True)
 
