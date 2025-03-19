@@ -281,7 +281,7 @@ class Metamaterial:
         try:
             npt.assert_allclose(grad_fd, grad_analytical, rtol=1e-5, atol=1e-8)
             logger.info(
-                "Metamaterial gradient check passed")
+                "PASS: Metamaterial gradient check")
         except AssertionError as e:
             logger.error(f"Metamaterial gradient check failed")
             logger.error(

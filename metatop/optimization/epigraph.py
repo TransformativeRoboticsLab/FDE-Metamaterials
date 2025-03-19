@@ -205,7 +205,7 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
     def eval(self, C: jnp.ndarray):
         M = mandelize(C)
         M = jnp.linalg.inv(M) if self.ops.extremal_mode == 2 else M
-        M /= spec_norm(M, ord=2)
+        M /= spec_norm(M)
 
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)

@@ -108,7 +108,7 @@ class OptimizationPlot:
 @dataclass
 class OptimizationState:
     # Optimization definition values
-    basis_v: np.ndarray = field(default_factory=lambda: np.zeros((3, 3)))
+    basis_v: np.ndarray = None
     extremal_mode: int = None
     metamaterial: Metamaterial = None
     filt: Union[DensityFilter, HelmholtzFilter] = None
@@ -146,11 +146,11 @@ class OptimizationState:
         if self.show_plot:
             self.opt_plot.setup()
 
-        if self.extremal_mode not in [1, 2]:
+        if self.extremal_mode and self.extremal_mode not in [1, 2]:
             raise ValueError(
                 f"Invalid extremal_mode: {self.extremal_mode}. Must be 1 or 2.")
 
-        if not np.allclose(self.basis_v.T@self.basis_v, np.eye(3)):
+        if self.basis_v is not None and not np.allclose(self.basis_v.T@self.basis_v, np.eye(3)):
             raise ValueError("basis_v is not orthonormal.")
 
     def update_plot(self, component_id: str, is_primary: bool = False, draw_now: bool = False, labels: list = []):
@@ -239,7 +239,7 @@ class OptimizationState:
         filt_type = type(self.filt).__name__ if self.filt else "None"
         return (f"Optimization State:\n"
                 f"  basis_v: {self.basis_v}\n"
-                f"  extremal_mode: {self.extremal_mode}"
+                f"  extremal_mode: {self.extremal_mode}\n"
                 f"  sols: {self.sols}\n"
                 f"  Chom: {self.Chom.shape}\n"
                 f"  dChom_dxfem: {self.dChom_dxfem.shape}\n"

@@ -3,6 +3,7 @@ from functools import partial
 
 import fenics as fe
 import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.testing as npt
@@ -24,6 +25,27 @@ jax.config.update("jax_enable_x64", True)
 
 
 np.random.seed(0)
+
+
+class QuadraticChecker(ScalarOptimizationComponent):
+
+    def __call__(self, x, grad):
+
+        c, dc = jax.value_and_grad(self.eval)(x)
+
+        if grad.size > 0:
+            grad[:] = dc
+
+        return float(c)
+
+    def eval(self, x):
+        return jnp.sum(x**2)
+
+    def adjoint(self):
+        pass
+
+    def analytical_grad(self, x):
+        return 2 * x
 
 
 def precompute_obj(obj, x):
@@ -217,11 +239,11 @@ def handle_optimization_component(name: str, ops: OptimizationState, x: np.ndarr
 
     try:
         npt.assert_allclose(grad_analytical, grad_fd, rtol=rtol, atol=atol)
-        logger.info(f"Component {component} passed finite difference check.")
+        logger.info(f"PASS: Component {component}")
         return component
     except Exception as e:
         logger.error(
-            f"Component {component} failed finite difference check: {e}")
+            f"FAIL: Component {component}: {e}")
         return None
 
 
@@ -244,7 +266,31 @@ def initialize_filter(norm_filter_radius, metamate):
     return filt, filt_fn
 
 
+def self_check():
+
+    quad_check = QuadraticChecker(OptimizationState(show_plot=False))
+
+    N = 100
+    x = np.random.normal(size=N)
+    grad_jax = np.zeros_like(x)
+
+    quad_check(x, grad_jax)
+    grad_fd = finite_difference_checker(quad_check, x)
+
+    grad_an = quad_check.analytical_grad(x)
+
+    try:
+        npt.assert_allclose(grad_jax, grad_fd, rtol=1e-5, atol=1e-8)
+        npt.assert_allclose(grad_an, grad_fd, rtol=1e-5, atol=1e-8)
+    except AssertionError as e:
+        logger.error(
+            f"Self check on finite difference method did not pass: {e}")
+
+    logger.info("PASS: Self check of finite differencing")
+
+
 def main():
+    self_check()
     plt.ion()
     # ===== INPUT PARAMS =====
     E_max, E_min, nu = 1., 1/30., 0.4
@@ -260,9 +306,9 @@ def main():
     # ===== END INPUT PARAMS =====
 
     # ===== SETUP =====
-    check_metamaterial = False
+    check_metamaterial = True
     check_filter = True
-    check_scalars = False
+    check_scalars = True
     check_epigraphs = True
     if basis_v:
         V = V_DICT[basis_v]
@@ -293,6 +339,11 @@ def main():
 
     # Initial design variables
     x = np.random.uniform(0., 1, size=metamate.R.dim())
+    config = dict(
+        ops=ops,
+        x=x,
+        plot=False
+    )
     # ===== END SETUP =====
 
     # ===== CHECK COMPONENTS =====
@@ -312,18 +363,20 @@ def main():
     # ===== SCALAR CONSTRAINTS =====
     if check_scalars:
         logger.info("Checking scalar components")
-        rsc = handle_optimization_component('RayleighScalarObjective', ops, x)
-        handle_optimization_component('EigenvectorConstraint', ops, x, obj=rsc)
+        rsc = handle_optimization_component(
+            'RayleighScalarObjective', **config)
         handle_optimization_component(
-            'SameLargeValueConstraint', ops, x, obj=rsc)
+            'EigenvectorConstraint', **config, obj=rsc)
+        handle_optimization_component(
+            'SameLargeValueConstraint', **config, obj=rsc)
     else:
         logger.warning("Skipping scalar component checks")
 
     if check_epigraphs:
         logger.info("Checking epigraph components")
-        handle_optimization_component('EpigraphObjective', ops, x)
+        handle_optimization_component('EpigraphObjective', **config)
         pec = handle_optimization_component(
-            'PrimaryEpigraphConstraint', ops, x, objective_type='ray')
+            'PrimaryEpigraphConstraint', **config, objective_type='ray')
     else:
         logger.warning("Skipping epigraph component checks")
 

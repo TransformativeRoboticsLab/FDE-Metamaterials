@@ -338,10 +338,10 @@ def _check_filter_gradient(filter_obj, x, eps=1e-6, rtol=1e-5, atol=1e-8, show_p
 
     try:
         np.testing.assert_allclose(jax_grad, fd_grad, rtol=rtol, atol=atol)
-        logger.info(f"{name} gradient check passed")
+        logger.info(f"PASS: {name} gradient check")
     except AssertionError as e:
         logger.error(
-            f"Assertion error for {name} gradient check: {e}")
+            f"FAIL: {name} gradient check:\n{e}")
 
 
 if __name__ == "__main__":
