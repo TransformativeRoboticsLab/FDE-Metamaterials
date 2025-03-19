@@ -153,6 +153,10 @@ class OptimizationState:
         if self.basis_v is not None and not np.allclose(self.basis_v.T@self.basis_v, np.eye(3)):
             raise ValueError("basis_v is not orthonormal.")
 
+    def update_evals_and_plot(self, component_id: str, c: float | np.ndarray, is_primary: bool = False, draw_now: bool = False, labels: list = []):
+        self.update_evals(component_id, c)
+        self.update_plot(component_id, is_primary, draw_now, labels)
+
     def update_plot(self, component_id: str, is_primary: bool = False, draw_now: bool = False, labels: list = []):
         draw = self.show_plot and (
             draw_now or self.obj_n_calls % self.plot_interval == 1)
