@@ -19,7 +19,8 @@ from metatop.mechanics import inv_mandelize, mandelize, ray_q
 from metatop.optimization import OptimizationState
 from metatop.optimization.OptimizationComponents import (
     ScalarOptimizationComponent, VectorOptimizationComponent)
-from metatop.optimization.utils import stop_on_nan
+from metatop.optimization.utils import (process_C_bimode, process_C_unimode,
+                                        stop_on_nan)
 from metatop.profiling import profile_block, profile_function
 
 
@@ -164,21 +165,6 @@ class EpigraphObjective(ScalarOptimizationComponent, EpigraphComponent):
 
 class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
-    @staticmethod
-    @jax.jit
-    def _process_C_unimode(C):
-        M = mandelize(C)
-        M /= spec_norm(M)
-        return M
-
-    @staticmethod
-    @jax.jit
-    def _process_C_bimode(C):
-        M = mandelize(C)
-        M = jnp.linalg.inv(M)
-        M /= spec_norm(M)
-        return M
-
     def __init__(self, ops: OptimizationState, objective_type: str, eps: float = 0., verbose: bool = False, silent: bool = False):
         super().__init__(ops, eps=eps, verbose=verbose, silent=silent)
         self.obj_type = objective_type
@@ -190,9 +176,9 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         self.obj_fn = self._obj_fns[self.obj_type]
 
         if ops.extremal_mode == 1:
-            self._process_C = self._process_C_unimode
+            self._process_C = process_C_unimode
         elif ops.extremal_mode == 2:
-            self._process_C = self._process_C_bimode
+            self._process_C = process_C_bimode
         else:
             raise ValueError(f"Incorrect extremal mode. Must be 1 or 2.")
 
