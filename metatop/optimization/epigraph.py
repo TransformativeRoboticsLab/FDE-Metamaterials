@@ -145,12 +145,12 @@ class EpigraphObjective(ScalarOptimizationComponent, EpigraphComponent):
             raise ForcedStop(
                 "Objective function value is too large. Terminating optimization run.")
 
-        if not self.silent:
-            self.ops.obj_n_calls += 1
+        if not self.silent and self.ops.print_now():
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} t={t:.2e}")
-            self.ops.update_evals(self.__str__(), t)
-            self.ops.update_plot(self.__str__(), labels=['t'])
+
+        self.ops.obj_n_calls += 1
+        self.ops.update_evals_and_plot(self.__str__(), t, labels=['t'])
 
         stop_on_nan(t)
         return t
@@ -177,13 +177,17 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
     def __call__(self, results, x, grad, dummy_run=False):
         x_, t = self.split_t(x)
         sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x_)
-        self.ops.update_state(sols, Chom, dChom_dxfem,
-                              dxfem_dx_vjp, x_, increment_obj_n_calls=False)
+        self.ops.update_state(sols,
+                              Chom,
+                              dChom_dxfem,
+                              dxfem_dx_vjp,
+                              x_,
+                              increment_obj_n_calls=False)
 
         c, cs = self.eval(Chom)
         results[:] = c - t
 
-        if not self.silent:
+        if not self.silent and self.ops.print_now():
             logger.info(f"{self.__str__()} log(g(x)): {c}")
             logger.info(f"g(x): {cs}")
 
@@ -197,8 +201,10 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
         id = self.__str__()
-        self.ops.update_evals(id, c)
-        self.ops.update_plot(id, is_primary=True, labels=self.labels)
+        self.ops.update_evals_and_plot(id,
+                                       c,
+                                       is_primary=True,
+                                       labels=self.labels)
 
     def eval(self, C: jnp.ndarray):
         M = mandelize(C)
@@ -286,7 +292,7 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
         c, cs = self.eval(Chom)
         results[:] = c - t
 
-        if not self.silent:
+        if not self.silent and self.ops.print_now():
             logger.info(f"{self.__str__()} log(g(x)): {c}")
             logger.info(f"g(x): {cs}")
 
@@ -299,7 +305,9 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
-        self.ops.update_evals_and_plot(self.__str__(), c)
+        self.ops.update_evals_and_plot(self.__str__(),
+                                       c,
+                                       labels=self._labels[self.con_type])
 
     def eval(self, C):
         M = mandelize(C)
@@ -323,6 +331,16 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
     @property
     def _con_types(self):
         return ('scalar', 'vector')
+
+    @property
+    def _labels(self):
+        labels = {
+            'scalar': [r"$||CV-VR||_F^2$"],
+            'vector': [r"$||Cv_1 - R(C,v_1)v_1||_2^2$",
+                       r"$||Cv_2 - R(C,v_2)v_2||_2^2$",
+                       r"$||Cv_3 - R(C,v_3)v_3||_2^2$"],
+        }
+        return labels
 
 
 # vvvvvvvvvvvvv Ardhive vvvvvvvvvvvvvvvvvvvvv

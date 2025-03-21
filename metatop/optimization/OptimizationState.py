@@ -243,11 +243,14 @@ class OptimizationState:
                   'Image tiling': np.tile(x_img, (3, 3))}
         return fields
 
+    def print_now(self):
+        return self.obj_n_calls % self.print_inverval == 0
+
     def __repr__(self):
         filt_type = type(self.filt).__name__ if self.filt else None
         return (f"OptimizationState(sols={self.sols}, Chom={self.Chom.tolist()}, "
                 f"dChom_dxfem={self.dChom_dxfem.tolist()}, dxfem_dx_vjp={self.dxfem_dx_vjp}, "
-                f"xfem={self.xfem.tolist()}, beta={self.beta}, eta={self.eta}, pen={self.pen}, "
+                f"x={self.x.tolist()}, beta={self.beta}, eta={self.eta}, pen={self.pen}, "
                 f"filt={self.filt}, filt_fn={self.filt_fn}, epoch={self.epoch}, "
                 f"epoch_iter_tracker={self.epoch_iter_tracker}, evals={self.evals})")
 
