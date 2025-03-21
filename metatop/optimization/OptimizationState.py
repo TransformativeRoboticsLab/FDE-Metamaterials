@@ -43,6 +43,9 @@ class OptimizationPlot:
                      title='Optimization Progress',
                      **kwargs)
 
+        # Draw the figure once to initialize everything
+        self.fig.canvas.draw()
+
     def update_eval_plot(self, component_id: str, evals: list[dict]):
         for n, eval in enumerate(evals):
             id = f"{component_id}_{n}"
@@ -58,6 +61,7 @@ class OptimizationPlot:
             raise ValueError(
                 f"Number of fields ({len(fields):d}) must match number of axes ({len(self.ax1):d})")
         for ax, (name, field) in zip(self.ax1, fields.items()):
+            ax.clear()  # Clear the axis completely
             if field.shape[0] == projection_function.function_space().dim():
                 projection_function.vector()[:] = field
                 self._plot_density(projection_function, title=f"{name}", ax=ax)
@@ -71,9 +75,9 @@ class OptimizationPlot:
         logger.debug(f"{self.__class__.__name__} drawing")
         self.ax2.relim()
         self.ax2.autoscale_view()
-        self.ax2.legend()
         self.ax2.legend(loc='lower right', bbox_to_anchor=(1.1, 1))
         self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
         plt.pause(1e-3)
 
     def _plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
@@ -87,7 +91,6 @@ class OptimizationPlot:
             plt.sca(ax)
         else:
             fig, ax = plt.subplots()
-        ax.clear()
 
         ax.margins(x=0, y=0)
 
@@ -99,12 +102,15 @@ class OptimizationPlot:
             # assume square space
             nely = np.sqrt(r_vec.size).astype(int)
             nelx = nely
-            plt.imshow(r_vec.reshape((nely, nelx)),
-                       cmap='gray', vmin=0, vmax=1)
+            img = ax.imshow(r_vec.reshape((nely, nelx)),
+                            cmap='gray', vmin=0, vmax=1)
             ax.set_title(title)
-            return
+            return img
 
-        p = fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+        # We don't return the fenics plot object as it's not compatible with blitting
+        fe.plot(r, cmap=cmap, vmin=vmin, vmax=vmax, title=title)
+        ax.set_title(title)
+        return None
 
 
 @dataclass
@@ -144,6 +150,7 @@ class OptimizationState:
     # Misc.
     verbose: bool = True
     silent: bool = False
+    print_inverval: int = 5
 
     def __post_init__(self):
         if self.show_plot:
@@ -156,9 +163,8 @@ class OptimizationState:
         if self.basis_v is not None and not np.allclose(self.basis_v.T@self.basis_v, np.eye(3)):
             raise ValueError("basis_v is not orthonormal.")
 
-    def update_evals_and_plot(self, component_id: str, c: float | np.ndarray, is_primary: bool = False, draw_now: bool = False, labels: list = []):
+    def update_evals_and_plot(self, component_id: str, c: float | np.ndarray, draw_now: bool = False, labels: list = []):
         self.update_evals(component_id, c)
-        self.update_plot(component_id, is_primary, labels)
 
         # draw if
         # show plot is on
@@ -167,14 +173,19 @@ class OptimizationState:
         # OR
         # it is time to draw based on plot intervals and its the last component
         draw = self.show_plot and (
-            draw_now or (self.obj_n_calls % self.plot_interval == 1 and component_id == list(self.evals.keys())[-1]))
+            draw_now or
+            (self.obj_n_calls % self.plot_interval == 1 and component_id == list(self.evals.keys())[-1]))
 
         if draw:
+            update_images = True
+            for comp_id in self.evals.keys():
+                self.update_plot(comp_id, update_images, labels)
+                update_images = False
+
             self.opt_plot.draw()
 
-    def update_plot(self, component_id: str, is_primary: bool = False, labels: list = []):
-
-        if is_primary:
+    def update_plot(self, component_id: str, update_images: bool = False, labels: list = []):
+        if update_images:
             fields = self._prepare_fields(self.x)
             r = fe.Function(self.metamaterial.R)
             self.opt_plot.update_images(r, fields)

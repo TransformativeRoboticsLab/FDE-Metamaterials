@@ -38,7 +38,7 @@ class ScalarObjective(ScalarOptimizationComponent):
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
         id = self.__str__()
-        self.ops.update_evals_and_plot(id, c, is_primary=True)
+        self.ops.update_evals_and_plot(id, c)
 
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
@@ -352,7 +352,7 @@ class VolumeConstraint(ScalarOptimizationComponent):
             grad[:] = dc_dx
 
         id = self.__str__()
-        self.ops.update_evals_and_plot(id, cs, is_primary=True)
+        self.ops.update_evals_and_plot(id, cs)
 
         if not self.silent:
             logger.info(f"{self.__str__()} g(x): {cs:.4f}")

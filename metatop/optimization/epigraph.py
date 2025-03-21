@@ -211,7 +211,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         id = self.__str__()
         self.ops.update_evals_and_plot(id,
                                        c,
-                                       is_primary=True,
                                        labels=self.labels)
 
     def eval(self, C: jnp.ndarray):
