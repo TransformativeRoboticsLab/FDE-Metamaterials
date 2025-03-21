@@ -255,24 +255,6 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 #             raise ValueError(
 #                 f"Objective '{self.objective_type}' type not found.")
 
-    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
-        dc_dx = super().adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
-        return np.hstack([dc_dx, -np.ones((dc_dx.shape[0], 1))])
-
-    @property
-    def n_constraints(self):
-        return 2 if 'ratio' in self.obj_type else 3
-
-    @property
-    def obj_fns(self):
-        fns = {
-            'ray': lambda y1, y2, y3: (jnp.log(jnp.array([y1, 1-y2, 1-y3])),
-                                       jnp.array([y1, y2, y3])),
-            'ratio': lambda y1, y2, y3: (jnp.log(jnp.array([y1/y2, y1/y3])),
-                                         jnp.array([y1, y2, y3]))
-        }
-        return fns
-
 
 class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
     """ A flexible eigenvector constraint class that can either handle all the eigenvector error as a scalar or we can constrain against each of the eignevector residuals directly"""
