@@ -148,7 +148,7 @@ class EpigraphObjective(ScalarOptimizationComponent, EpigraphComponent):
         if not self.silent:
             self.ops.obj_n_calls += 1
             logger.info(f"{self.ops.obj_n_calls}:")
-            logger.info(f"{self.__str__()} t={t:.4f}")
+            logger.info(f"{self.__str__()} t={t:.2e}")
             self.ops.update_evals(self.__str__(), t)
             self.ops.update_plot(self.__str__(), labels=['t'])
 
