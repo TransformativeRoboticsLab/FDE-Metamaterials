@@ -21,7 +21,7 @@ class OptimizationPlot:
         self.ax2: plt.Axes = None
         self.eval_lines: dict[str, plt.Line2D] = {}
 
-    def setup(self):
+    def setup(self, **kwargs):
         if self.fig:
             logger.debug(
                 "Optimization plot already created. Why are you calling setup again?")
@@ -40,7 +40,8 @@ class OptimizationPlot:
         self.ax2.grid(True)
         self.ax2.set(xlabel='Iterations',
                      ylabel='Evals',
-                     title='Optimization Progress')
+                     title='Optimization Progress',
+                     **kwargs)
 
     def update_eval_plot(self, component_id: str, evals: list[dict]):
         for n, eval in enumerate(evals):
@@ -67,10 +68,11 @@ class OptimizationPlot:
             ax.set_yticks([])
 
     def draw(self):
+        logger.debug(f"{self.__class__.__name__} drawing")
         self.ax2.relim()
         self.ax2.autoscale_view()
         self.ax2.legend()
-        self.ax2.legend(loc='upper right', bbox_to_anchor=(1.1, 1))
+        self.ax2.legend(loc='lower right', bbox_to_anchor=(1.1, 1))
         self.fig.canvas.draw()
         plt.pause(1e-3)
 
@@ -137,6 +139,7 @@ class OptimizationState:
     show_plot: bool = True
     img_shape: tuple[float, float] = (1., 1.)
     img_resolution: tuple[int, int] = (200, 200)
+    eval_axis_kwargs: dict = field(default_factory=dict)
 
     # Misc.
     verbose: bool = True
@@ -144,7 +147,7 @@ class OptimizationState:
 
     def __post_init__(self):
         if self.show_plot:
-            self.opt_plot.setup()
+            self.opt_plot.setup(**self.eval_axis_kwargs)
 
         if self.extremal_mode and self.extremal_mode not in [1, 2]:
             raise ValueError(
@@ -155,13 +158,21 @@ class OptimizationState:
 
     def update_evals_and_plot(self, component_id: str, c: float | np.ndarray, is_primary: bool = False, draw_now: bool = False, labels: list = []):
         self.update_evals(component_id, c)
-        self.update_plot(component_id, is_primary, draw_now, labels)
+        self.update_plot(component_id, is_primary, labels)
 
-    def update_plot(self, component_id: str, is_primary: bool = False, draw_now: bool = False, labels: list = []):
+        # draw if
+        # show plot is on
+        # AND
+        # we want to draw now
+        # OR
+        # it is time to draw based on plot intervals and its the last component
         draw = self.show_plot and (
-            draw_now or self.obj_n_calls % self.plot_interval == 1)
-        if not draw:
-            return
+            draw_now or (self.obj_n_calls % self.plot_interval == 1 and component_id == list(self.evals.keys())[-1]))
+
+        if draw:
+            self.opt_plot.draw()
+
+    def update_plot(self, component_id: str, is_primary: bool = False, labels: list = []):
 
         if is_primary:
             fields = self._prepare_fields(self.x)
@@ -185,7 +196,11 @@ class OptimizationState:
                     labels.append(f"{component_id}_{n}")
 
         evals = []
-        x_data = range(1, self.obj_n_calls+1)
+        # x_data = range(1, self.obj_n_calls+1)
+        len_data = eval_data.size if eval_data.ndim == 1 else eval_data.shape[0]
+        start_iter = self.obj_n_calls - len_data + 1
+        end_iter = self.obj_n_calls + 1
+        x_data = range(start_iter, end_iter)
         if eval_data.ndim == 1:
             evals.append({'x_data': x_data,
                           'y_data': eval_data,
@@ -197,9 +212,6 @@ class OptimizationState:
                               'label': labels[n]})
 
         self.opt_plot.update_eval_plot(component_id, evals)
-
-        if component_id == list(self.evals.keys())[-1]:
-            self.opt_plot.draw()
 
     def update_state(self, sols, Chom, dChom_dxfem, dxfem_dx_vjp, x, increment_obj_n_calls=True):
         self.sols = sols
