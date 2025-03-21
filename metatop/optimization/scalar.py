@@ -29,7 +29,7 @@ class ScalarObjective(ScalarOptimizationComponent):
                 self.eval, has_aux=True)(Chom)
         except Exception as e:
             logger.error(
-                f"Error in calculating value and grad in {self.__class__.__name__}: {e}")
+                f"Error in calculating value and grad in {self.__str__()}: {e}")
             raise e
         self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
 
@@ -41,8 +41,8 @@ class ScalarObjective(ScalarOptimizationComponent):
 
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
-            logger.info(f"{self.__str__()} f(x): {c:.4f}")
-            logger.info(cs)
+            logger.info(f"{self.__str__()}\nf(x): {c:.4f}")
+            logger.info(f"Raw values:\n{cs}")
 
         stop_on_nan(c)
         return float(c)
@@ -52,35 +52,162 @@ class ScalarConstraint(ScalarOptimizationComponent):
 
     def __call__(self, _, grad):
 
+        # We don't need to rerun the forward solve so we just bring in the last solved state from the OPS
         Chom, dxfem_dx_vjp, dChom_dxfem = self.ops.Chom, self.ops.dxfem_dx_vjp, self.ops.dChom_dxfem
 
+        # This is a little wasteful if we aren't using gradient based optimizations, but MMA is gradient based so we'll always need it
         (c, cs), dc_dChom = jax.value_and_grad(self.eval, has_aux=True)(Chom)
 
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
         id = self.__str__()
-        self.ops.update_evals_and_plot(id, cs, is_primary=True)
+        self.ops.update_evals_and_plot(id, cs)
 
         if not self.silent:
-            logger.info(f"{self.__str__()} g(x): {cs:.4f}")
+            logger.info(f"{self.__str__()} g(x): {c:2e}")
+            logger.info(f"Raw values: {cs}")
 
         stop_on_nan(c)
         return float(c)
 
 
+class RayleighMinimaxObjective(ScalarObjective):
+
+    def eval(self, C):
+        M = mandelize(C)
+        M /= jnorm(M, ord=2)
+
+        V = self.ops.basis_v
+        r1, r2, r3 = ray_q(M, V)
+
+        return jnp.max(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
+
+
+class MatrixMatchingObjective(ScalarObjective):
+
+    def __init__(self, *args, low_val: float = 0.01, **kwargs):
+        super().__init__(*args, **kwargs)
+        desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
+
+        V = self.ops.basis_v
+        self.Mstar = V @ desired_eigenvalues @ V.T
+        logger.info(f"Desired M:\n{self.Mstar}")
+
+    def eval(self, C):
+        M = mandelize(C)
+        M /= jnorm(M, ord=2)
+        Mstar = self.Mstar
+
+        diff = M - Mstar
+        val = jnp.sum(jnp.square(diff)) * (-1)**(self.ops.extremal_mode+1)
+        return val, diff
+
+    def __str__(self):
+        return r"$||M-M^*||_F$"
+
+
+class PoissonsRatioObjective(ScalarObjective):
+
+    def eval(self, C):
+        M = jnp.linalg.inv(mandelize(C))
+        # M /= jnorm(M, ord=2)
+
+        return -M[0, 1] / M[0, 0], M
+
+    def __str__(self):
+        return r"$\nu^*$"
+
+
+class BulkModulusConstraint(ScalarConstraint):
+
+    def __init__(self, *args, a: float = 0.002, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.eps = a * self._calc_K(self.ops.metamaterial.prop.E_max,
+                                    self.ops.metamaterial.prop.nu)
+        logger.warning(
+            "Ignoring kwarg eps value. BulkModulusConstraint calculates its own based on `a`.")
+
+    def eval(self, C):
+
+        C11 = C[0, 0]
+        C12 = C[0, 1]
+        C22 = C[1, 1]
+
+        K_plane = (C11 * C22 - C12**2) / C11
+        return self.eps - K_plane, K_plane
+
+    def _calc_K(self, E, nu):
+        # computes plane stress bulk modulus from E and nu
+        K = E / (3 * (1 - 2 * nu))
+        G = E / (2 * (1 + nu))
+        K_plane = 9.*K*G / (3.*K + 4.*G)
+        return K_plane
+
+    def __str__(self):
+        return fr"$K^* \geq {self.eps:.2e}$"
+
+
+@jax.jit
+def isotropic_C(C):
+
+    Cii = (C[0, 0] + C[1, 1]) / 2.
+    Ckk = (C[0, 0] - C[0, 1]) / 2.
+    Ciso = C.at[0, 0].set(Cii)
+    Ciso = Ciso.at[1, 1].set(Cii)
+    Ciso = Ciso.at[2, 2].set(Ckk)
+    return Ciso
+
+
+class IsotropicConstraint(ScalarConstraint):
+
+    def eval(self, C):
+
+        Ciso = isotropic_C(C)
+
+        diff = C - Ciso
+        val = jnp.sum(jnp.square(diff)) / Ciso[0, 0]**2
+
+        return val - self.eps, val
+
+    def __str__(self):
+        return r"$\frac{||C-C^{iso}||_F}{(C_{11}^{iso})^2}$"
+
+
 class RayleighRatioObjective(ScalarObjective):
+
+    def __init__(self, *args, mean_type: str, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if mean_type not in self._eval_fns:
+            raise ValueError(
+                f"Mean type {mean_type} not in eval_fns.\n" +
+                f"Must be one of {self._eval_fns.keys()}")
+        self.eval_fn = self._eval_fns[mean_type]
 
     def eval(self, C):
         M = mandelize(C)
         # M = jnp.linalg.inv(M) if self.extremal_mode == 2 else M
         M /= jnorm(M, ord=2)
 
-        r1, r2, r3 = ray_q(M, self.ops.basis_v)
-        amean = (r2 + r3) / 2
-        gmean = jnp.sqrt(r2*r3)
-        hmean = 2 / (1/r2 + 1/r3)
-        return r1/amean, jnp.array([r1, r2, r3])
+        V = self.ops.basis_v
+        r1, r2, r3 = ray_q(M, V)
+        num = r1
+        den = self.eval_fn(jnp.array([r2, r3]))
+        return num/den, jnp.array([r1, r2, r3])
+
+    def __str__(self):
+        return r"$R(M,v_1) / h(R(M,v_20, R(M,v_3))$"
+
+    @property
+    def _eval_fns(self):
+        eval_fns = {
+            'amean': lambda r: jnp.mean(r),
+            'gmean': lambda r: jnp.power(jnp.product(r), 1/r.size),
+            'hmean': lambda r: None if jnp.any(r) <= 0 else r.size / jnp.sum(1/r)
+        }
+        return eval_fns
 
 
 class EigenvectorConstraint(ScalarConstraint):
@@ -111,18 +238,34 @@ class EigenvectorConstraint(ScalarConstraint):
         return min_penalty, min_penalty
 
 
+class NormEigenvectorConstraint(ScalarConstraint):
+
+    def eval(self, C: jnp.ndarray):
+        M = mandelize(C)
+        M /= jnorm(M, ord=2)
+
+        V = self.ops.basis_v
+        R = jnp.diag(ray_q(M, V))
+
+        res = jnp.sum(jnp.square(M@V - V @ R))
+
+        return res, res
+
+
 class SameLargeValueConstraint(ScalarConstraint):
 
     def eval(self, C):
         M = mandelize(C)
         # M = jnp.linalg.norm(M) if self.extremal_mode == 2 else M
-        M /= jnorm(M)
+        M /= jnorm(M, ord=2)
 
         # e1, e2, e3 = jnp.linalg.eigvalsh(M)
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
 
-        return jnp.abs(r2-r3), jnp.array([r2, r3])
+        out = (r2-r3)**2
+
+        return out, out
 
 
 class TraceObjective(ScalarObjective):
@@ -131,6 +274,15 @@ class TraceObjective(ScalarObjective):
         M = mandelize(C)
 
         return -jnp.trace(M)**2, jnp.trace(M)
+
+
+class TraceConstraint(ScalarConstraint):
+
+    def eval(self, C):
+        M = mandelize(C)
+        val = jnp.trace(M)
+
+        return self.eps - val, val
 
 
 class DetObjective(ScalarObjective):
@@ -213,7 +365,7 @@ class VolumeConstraint(ScalarOptimizationComponent):
         return V - self.eps, V
 
     def __str__(self):
-        return "Volume"
+        return fr"$V \geq {self.eps:2f}$"
 
         # class EnergyConstraints:
 
