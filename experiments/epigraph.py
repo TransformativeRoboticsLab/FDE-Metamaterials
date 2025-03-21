@@ -35,7 +35,7 @@ logger.configure(
          "level": "DEBUG",
          },
         {"sink": sys.stderr,
-         "level": "INFO",
+         "level": "DEBUG",
          "format": "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <white>{message}</white>"}
     ]
 )
@@ -133,6 +133,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # x = seed_density(init_run_idx, metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())
     x = np.append(x, 1.)  # append t for epigraph
+    x_history = [x.copy()]
 
     # ===== End Component Setup =====
 
@@ -144,20 +145,32 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     g2 = EigenvectorEpigraphConstraint(ops, con_type='vector', eps=g_vec_eps)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
+    opt.set_param('dual_ftol_rel', 1e-8)
     opt.set_min_objective(f)
     opt.add_inequality_mconstraint(g1, np.zeros(g1.n_constraints))
-    opt.add_inequality_mconstraint(g2, np.zeros(g2.n_constraints))
+    # opt.add_inequality_mconstraint(g2, np.zeros(g2.n_constraints))
 
     opt.set_lower_bounds(np.append(np.zeros(x.size-1), -np.inf))
     opt.set_upper_bounds(np.append(np.ones(x.size-1), np.inf))
 
-    opt.set_param('dual_ftol_rel', 1e-6)
+    # ===== Warm start =====
+    logger.info(10*'=' + "Beginning warming start" + 10*'=')
     opt.set_maxeval(starting_epoch_duration)
+    x[:] = opt.optimize(x)
+    ops.opt_plot.draw()
+    x_history.append(x.copy())
+    opt.set_ftol_rel(1e-6)
+    opt.set_xtol_rel(1e-6)
+    opt.set_maxeval(epoch_duration)
+    logger.info(10*'=' + "Warming completed" + 10*'=')
+
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
-    x_history = [x.copy()]
-    for i in range(n_epochs):
+    for m in range(n_epochs):
+        logger.info(10*'=' + f"Epoch {m}" + 10*'=')
+        if m > 0:
+            logger.info(f"===== Vector eps: {g2.eps} =====")
         for n, beta in enumerate(betas, 1):
             logger.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
             ops.beta, ops.epoch = beta, n
@@ -166,23 +179,18 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
             except Exception as e:
                 logger.error(f"Exception occured during optimization: {e}")
                 raise e
-
+            x_history.append(x.copy())
+            logger.info(
+                f"Optimizer terminated with code: {opt.last_optimize_result()}")
+            ops.opt_plot.draw()
             opt.set_maxeval(epoch_duration)
 
-        print_epoch_summary(opt, i)
+        print_epoch_summary(opt, m)
 
-        g2.eps = g2.eps / 10 if tighten_vector_constraint else g2.eps
-    # for i in range(n_epochs):
-    #     for n, beta in enumerate(betas, 1):
-    #         run_optimization(epoch_duration, betas, ops, x,
-    #                          g_ext, opt, x_history, n, beta)
-    #         fem_profiler.report()
-
-    #     print_epoch_summary(opt, i)
-    #     log_and_save_results(ex, run_id, outname, metamate,
-    #                          img_rez, img_shape, ops, x, g_ext, i)
-
-    #     g_vec.eps = g_vec.eps / 10 if tighten_vector_constraint else g_vec.eps
+        if m == 0:
+            opt.add_inequality_mconstraint(g2, np.zeros(g2.n_constraints))
+        else:
+            g2.eps = g2.eps / 2. if tighten_vector_constraint else g2.eps
 
     # ===== End Optimization Loop =====
     plt.show(block=True)
