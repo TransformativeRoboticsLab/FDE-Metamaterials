@@ -28,12 +28,12 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
         if 'rect' in domain_shape:
             P1 = fe.Point(np.sqrt(3), 1)
             nelx = int(nelx * np.sqrt(3))
-            print(
+            logger.info(
                 f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
         metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
-        logger.debug("Creating mesh with quadrilateral cells")
+        logger.info("Creating mesh with quadrilateral cells")
         metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
                                                     [nelx, nely],
                                                     fe.CellType.Type.quadrilateral)
