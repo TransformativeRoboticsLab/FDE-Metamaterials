@@ -16,7 +16,9 @@ from metatop.mechanics import mandelize, ray_q
 from metatop.optimization import OptimizationState
 
 from .OptimizationComponents import *
-from .utils import stop_on_nan
+from .utils import (affine_invariant_distance_sq, commutation_distance_sq,
+                    frobenius_distance_sq, log_euclidean_distance_sq,
+                    process_C_bimode, process_C_unimode, stop_on_nan)
 
 
 class ScalarObjective(ScalarOptimizationComponent):
@@ -89,20 +91,27 @@ class MatrixMatchingObjective(ScalarObjective):
 
     def __init__(self, *args, low_val: float = 0.01, **kwargs):
         super().__init__(*args, **kwargs)
-        desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
+
+        if self.ops.extremal_mode == 1:
+            self.process_C = process_C_unimode
+        elif self.ops.extremal_mode == 2:
+            self.process_C = process_C_bimode
 
         V = self.ops.basis_v
+        desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
         self.Mstar = V @ desired_eigenvalues @ V.T
+        logger.info(f"Extremal mode: {self.ops.extremal_mode}")
         logger.info(f"Desired M:\n{self.Mstar}")
 
     def eval(self, C):
-        M = mandelize(C)
-        M /= jnorm(M, ord=2)
+        M = self.process_C(C)
         Mstar = self.Mstar
 
-        diff = M - Mstar
-        val = jnp.sum(jnp.square(diff)) * (-1)**(self.ops.extremal_mode+1)
-        return val, diff
+        val = frobenius_distance_sq(M, Mstar)
+        # val = log_euclidean_distance(M, Mstar)
+        # val = affine_invariant_distance_sq(M, Mstar)
+        # val = commutation_distance_sq(M, Mstar)
+        return val, M
 
     def __str__(self):
         return r"$\|M-M^*\|_F$"
