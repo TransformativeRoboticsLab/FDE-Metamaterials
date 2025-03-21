@@ -141,7 +141,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     g1 = PrimaryEpigraphConstraint(ops,
                                    objective_type=objective_type,
                                    verbose=True)
-    g2 = EigenvectorEpigraphConstraint(ops, con_type='vector', eps=1.)
+    g2 = EigenvectorEpigraphConstraint(ops, con_type='vector', eps=g_vec_eps)
 
     opt = EpigraphOptimizer(nlopt.LD_MMA, x.size)
     opt.set_min_objective(f)
