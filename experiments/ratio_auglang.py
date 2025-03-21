@@ -1,26 +1,20 @@
-import incense
 import incense.artifact
 import jax
 import nlopt
 import numpy as np
-from dotenv import load_dotenv
-from incense import ExperimentLoader
-from incense.artifact import PickleArtifact as PA
 from loguru import logger
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
 from experiments.utils import *
 from metatop import V_DICT
-from metatop.fem_profiler import fem_profiler
 from metatop.filters import setup_filter
 from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.scalar import (EigenvectorConstraint,
+from metatop.optimization.scalar import (NormEigenvectorConstraint,
                                          RayleighRatioObjective,
                                          SameLargeValueConstraint)
 from metatop.profiling import ProfileConfig
-from metatop.utils import mirror_density
 
 jax.config.update("jax_enable_x64", True)
 
