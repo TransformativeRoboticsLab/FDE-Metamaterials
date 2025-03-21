@@ -235,7 +235,7 @@ class EigenvectorConstraint(ScalarConstraint):
                 e_vecs[:, p[2]], e_vecs[:, p[2]]), ord='fro')**2
             min_penalty = jnp.minimum(min_penalty, current_penalty)
 
-        return min_penalty, min_penalty
+        return min_penalty - self.eps, min_penalty
 
 
 class NormEigenvectorConstraint(ScalarConstraint):
@@ -249,7 +249,7 @@ class NormEigenvectorConstraint(ScalarConstraint):
 
         res = jnp.sum(jnp.square(M@V - V @ R))
 
-        return res, res
+        return res - self.eps, res
 
 
 class SameLargeValueConstraint(ScalarConstraint):
@@ -265,7 +265,7 @@ class SameLargeValueConstraint(ScalarConstraint):
 
         out = (r2-r3)**2
 
-        return out, out
+        return out - self.eps, out
 
 
 class TraceObjective(ScalarObjective):

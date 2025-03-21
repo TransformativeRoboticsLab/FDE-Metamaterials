@@ -102,7 +102,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             eta=0.5,
                             img_shape=(metamate.width, metamate.height),
                             img_resolution=(200, 200),
-                            plot_interval=10,
+                            plot_interval=25,
+                            eval_axis_kwargs=dict(yscale='log')
                             )
 
     # x = np.random.choice([0, 1], size=metamate.R.dim())
@@ -113,21 +114,21 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
 
     # ===== Optimizer setup ======
     f = RayleighRatioObjective(ops, verbose=True)
-    g1 = EigenvectorConstraint(ops, eps=1e-3, verbose=True)
-    g2 = SameLargeValueConstraint(ops, eps=1e-3, verbose=True)
+    g1 = NormEigenvectorConstraint(ops, eps=1e-3)
+    g2 = SameLargeValueConstraint(ops, eps=1e-3)
 
     opt = nlopt.opt(nlopt.LD_AUGLAG, x.size)
+    opt.set_ftol_rel(1e-6)
+
     opt.set_min_objective(f)
+    opt.add_inequality_constraint(g1, 0.)
+    opt.add_inequality_constraint(g2, 0.)
 
     local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
     opt.set_local_optimizer(local_opt)
 
-    opt.add_inequality_constraint(g1, 0.)
-    opt.add_inequality_constraint(g2, 0.)
-
     opt.set_lower_bounds(0.)
     opt.set_upper_bounds(1.)
-    # opt.set_maxeval(starting_epoch_duration)
     # ===== End Optimizer setup ======
 
     # ===== Optimization Loop =====
