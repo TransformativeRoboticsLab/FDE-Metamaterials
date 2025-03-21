@@ -122,7 +122,8 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
 
     # x = np.random.choice([0, 1], size=metamate.R.dim())
     x = 0.7*np.random.uniform(0., 1., size=metamate.R.dim())
-    x = mirror_density(x, metamate.R, type='x')[0]
+    # x = mirror_density(x, metamate.R, axis='x')[0]
+    x_history = [x.copy()]
 
     # ===== End Component Setup =====
 
@@ -142,7 +143,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
 
     # ===== Warm start =====
     logger.info("Starting warm start with 50 iterations")
-    x_history = [x.copy()]
     opt.set_maxeval(50)
     x[:] = opt.optimize(x)
     opt.set_maxeval(100)
