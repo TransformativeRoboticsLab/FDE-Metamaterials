@@ -42,7 +42,7 @@ class ScalarObjective(ScalarOptimizationComponent):
         id = self.__str__()
         self.ops.update_evals_and_plot(id, c)
 
-        if not self.silent:
+        if not self.silent and self.ops.print_now():
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} f(x): {c:.4f}")
             logger.info(f"Raw values:\n{cs}")
@@ -67,7 +67,7 @@ class ScalarConstraint(ScalarOptimizationComponent):
         id = self.__str__()
         self.ops.update_evals_and_plot(id, cs)
 
-        if not self.silent:
+        if not self.silent and self.ops.print_now():
             logger.info(f"{self.__str__()} g(x): {c:2e}")
             logger.info(f"Raw values: {cs}")
 
