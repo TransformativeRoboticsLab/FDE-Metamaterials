@@ -23,6 +23,7 @@ from metatop.optimization.utils import (ScalarOptimizationComponent,
 from metatop.profiling import profile_block, profile_function
 
 
+@jax.jit
 def spec_norm(x: np.ndarray):
     """
     Special function for the spectral norm. It is very easy to forget to put `ord=2` and the default for matrices is the Frobenius norm, which we do not want.
@@ -257,9 +258,9 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
 
 class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
-    """ A flexible eigenvector constraint class that can either handle all the eigenvector error as a scalar or we can constrain against each of the eignevector residuals directly"""
+    """ A flexible eigenvector constraint class that can either handle all the eigenvector error as a scalar or we can constrain against each of the total eignevector residuals directly"""
 
-    def __init__(self, ops, eps, con_type: str, silent=False, verbose=False):
+    def __init__(self, ops, eps, con_type: str = 'vector', silent=False, verbose=False):
         super().__init__(ops, eps, silent, verbose)
 
         self.con_type = con_type
@@ -269,6 +270,13 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
                 f"Constraint type {self.con_type} invalid. Must be one of {self._con_types}.")
 
         logger.debug(f"{self.__str__()} with {self.con_type}")
+
+        axis = 0 if self.con_type == 'vector' else None
+
+        @jax.jit
+        def res_fn(A):
+            return jnp.sum(jnp.square(A), axis=axis)
+        self.res_fn = res_fn
 
     def __call__(self, results, x, grad, dummy_run=False):
 
@@ -300,8 +308,7 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
         V = self.ops.basis_v
         R = jnp.diag(ray_q(M, V))
 
-        axis = 0 if self.con_type == 'vector' else None
-        res = jnp.sum(jnp.square(M@V-V@R), axis=axis)
+        res = self.res_fn(M@V - V@R)
 
         return jnp.log(res/self.eps), res
 
