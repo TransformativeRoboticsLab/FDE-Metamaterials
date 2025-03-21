@@ -41,7 +41,7 @@ class ScalarObjective(ScalarOptimizationComponent):
 
         if not self.silent:
             logger.info(f"{self.ops.obj_n_calls}:")
-            logger.info(f"{self.__str__()}\nf(x): {c:.4f}")
+            logger.info(f"{self.__str__()} f(x): {c:.4f}")
             logger.info(f"Raw values:\n{cs}")
 
         stop_on_nan(c)
