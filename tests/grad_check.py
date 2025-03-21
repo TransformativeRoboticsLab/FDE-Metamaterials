@@ -17,9 +17,9 @@ from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
 from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.utils import (OptimizationComponent,
-                                        ScalarOptimizationComponent,
-                                        VectorOptimizationComponent)
+from metatop.optimization.OptimizationComponents import (
+    OptimizationComponent, ScalarOptimizationComponent,
+    VectorOptimizationComponent)
 
 jax.config.update("jax_enable_x64", True)
 

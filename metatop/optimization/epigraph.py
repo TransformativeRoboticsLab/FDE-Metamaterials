@@ -17,9 +17,9 @@ from metatop.filters import jax_projection
 from metatop.image import bitmapify
 from metatop.mechanics import inv_mandelize, mandelize, ray_q
 from metatop.optimization import OptimizationState
-from metatop.optimization.utils import (ScalarOptimizationComponent,
-                                        VectorOptimizationComponent,
-                                        stop_on_nan)
+from metatop.optimization.OptimizationComponents import (
+    ScalarOptimizationComponent, VectorOptimizationComponent)
+from metatop.optimization.utils import stop_on_nan
 from metatop.profiling import profile_block, profile_function
 
 
@@ -164,6 +164,21 @@ class EpigraphObjective(ScalarOptimizationComponent, EpigraphComponent):
 
 class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
+    @staticmethod
+    @jax.jit
+    def _process_C_unimode(C):
+        M = mandelize(C)
+        M /= spec_norm(M)
+        return M
+
+    @staticmethod
+    @jax.jit
+    def _process_C_bimode(C):
+        M = mandelize(C)
+        M = jnp.linalg.inv(M)
+        M /= spec_norm(M)
+        return M
+
     def __init__(self, ops: OptimizationState, objective_type: str, eps: float = 0., verbose: bool = False, silent: bool = False):
         super().__init__(ops, eps=eps, verbose=verbose, silent=silent)
         self.obj_type = objective_type
@@ -173,6 +188,13 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
                 f"Objective type {self.obj_type} is not available. Types are [{self._obj_fns}]")
 
         self.obj_fn = self._obj_fns[self.obj_type]
+
+        if ops.extremal_mode == 1:
+            self._process_C = self._process_C_unimode
+        elif ops.extremal_mode == 2:
+            self._process_C = self._process_C_bimode
+        else:
+            raise ValueError(f"Incorrect extremal mode. Must be 1 or 2.")
 
     def __call__(self, results, x, grad, dummy_run=False):
         x_, t = self.split_t(x)
@@ -207,10 +229,7 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
                                        labels=self.labels)
 
     def eval(self, C: jnp.ndarray):
-        M = mandelize(C)
-        M = jnp.linalg.inv(M) if self.ops.extremal_mode == 2 else M
-        M /= spec_norm(M)
-
+        M = self._process_C(C)
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
 
@@ -335,10 +354,10 @@ class EigenvectorEpigraphConstraint(VectorOptimizationComponent, EpigraphCompone
     @property
     def _labels(self):
         labels = {
-            'scalar': [r"$||CV-VR||_F^2$"],
-            'vector': [r"$||Cv_1 - R(C,v_1)v_1||_2^2$",
-                       r"$||Cv_2 - R(C,v_2)v_2||_2^2$",
-                       r"$||Cv_3 - R(C,v_3)v_3||_2^2$"],
+            'scalar': [r"$\|CV-VR\|_F^2$"],
+            'vector': [r"$\|Cv_1 - R(C,v_1)v_1\|_2^2$",
+                       r"$\|Cv_2 - R(C,v_2)v_2\|_2^2$",
+                       r"$\|Cv_3 - R(C,v_3)v_3\|_2^2$"],
         }
         return labels
 

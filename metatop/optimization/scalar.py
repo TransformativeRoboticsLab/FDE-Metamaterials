@@ -15,7 +15,8 @@ from metatop.image import bitmapify
 from metatop.mechanics import mandelize, ray_q
 from metatop.optimization import OptimizationState
 
-from .utils import *
+from .OptimizationComponents import *
+from .utils import stop_on_nan
 
 
 class ScalarObjective(ScalarOptimizationComponent):
@@ -104,7 +105,7 @@ class MatrixMatchingObjective(ScalarObjective):
         return val, diff
 
     def __str__(self):
-        return r"$||M-M^*||_F$"
+        return r"$\|M-M^*\|_F$"
 
 
 class PoissonsRatioObjective(ScalarObjective):
