@@ -40,33 +40,33 @@ def beta_function(vol_frac, size):
     return np.random.beta(a, b, size)
 
 
-def mirror_density(density, fn_space, type=None):
-    if type == 'x':
+def mirror_density(density, fn_space, axis=None):
+    if axis == 'y':
         ref_angles = [np.pi/2]
         def domain(x): return x[0] > 0.
-    elif type == 'y':
+    elif axis == 'x':
         ref_angles = [np.pi]
         def domain(x): return x[1] > 0.
-    elif type == 'xy':
+    elif axis == 'xy':
         ref_angles = [np.pi/2, np.pi, 3*np.pi/2]
         def domain(x): return x[0] > 0. and x[1] > 0.
-    elif type == 'xyd':
+    elif axis == 'xyd':
         ref_angles = [np.pi/4, np.pi/2, np.pi*3/4,
                       np.pi, 5*np.pi/4, 3*np.pi/2, 7*np.pi/4]
 
         def domain(x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1.
-    elif type == 'hex':
+    elif axis == 'hex':
         ref_angles = [np.pi/6, np.pi/2, 5*np.pi/6,
                       np.pi, 7*np.pi/6, 3*np.pi/2, 11*np.pi/6]
 
         def domain(
             x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
-    elif type is None:
+    elif axis is None:
         print("Mirror type specified is None. Not applying mirror.")
         return
     else:
         raise ValueError(
-            f"Invalid mirror type: {type}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
+            f"Invalid mirror type: {axis}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
 
     mirror_density = density.copy()
     dofs = fn_space.tabulate_dof_coordinates()
