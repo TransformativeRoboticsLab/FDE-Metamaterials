@@ -15,10 +15,10 @@ INV_MANDEL = jnp.diag(jnp.array([1., 1., 1./jnp.sqrt(2)]))
 @jax.jit
 def ray_q(A: jnp.ndarray, X: jnp.ndarray):
     """
-    Calculate Rayleigh quotient(s) for vector(s) v with matrix M.
+    Calculate Rayleigh quotient(s) for vector(s) X with matrix M.
 
     Args:
-        X: Vector (n,) or matrix (n,m) where columns are vectors
+        X: Vector (n,) or matrix (n,n) where columns are vectors
         A: Matrix (n,n) 
 
     Returns:
