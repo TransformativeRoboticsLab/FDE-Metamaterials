@@ -167,9 +167,11 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         super().__init__(ops, eps=eps, verbose=verbose, silent=silent)
         self.obj_type = objective_type
 
-        if self.obj_type not in self.obj_fns:
+        if self.obj_type not in self._obj_fns:
             raise ValueError(
                 f"Objective type {self.obj_type} is not available. Types are [{self._obj_fns}]")
+
+        self.obj_fn = self._obj_fns[self.obj_type]
 
     def __call__(self, results, x, grad, dummy_run=False):
         x_, t = self.split_t(x)
@@ -195,9 +197,7 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
 
         id = self.__str__()
         self.ops.update_evals(id, c)
-        A = 'C' if self.ops.extremal_mode == 1 else 'S'
-        self.ops.update_plot(id, is_primary=True, labels=[
-                             rf"$R({A},v_1)$", rf"$1-R({A},v_2)$", rf"$1-R({A},v_3)$"])
+        self.ops.update_plot(id, is_primary=True, labels=self.labels)
 
     def eval(self, C: jnp.ndarray):
         M = mandelize(C)
@@ -207,8 +207,34 @@ class PrimaryEpigraphConstraint(VectorOptimizationComponent, EpigraphComponent):
         V = self.ops.basis_v
         r1, r2, r3 = ray_q(M, V)
 
-        return self.obj_fns[self.obj_type](r1, r2, r3)
+        return self.obj_fn(r1, r2, r3)
 
+    def adjoint(self, dc_dChom, dChom_dxfem, dxfem_dx_vjp):
+        dc_dx = super().adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+        return np.hstack([dc_dx, -np.ones((dc_dx.shape[0], 1))])
+
+    @property
+    def labels(self):
+        A = 'C' if self.ops.extremal_mode == 1 else 'S'
+        labels = {
+            'ray': [rf"$R({A},v_1)$", rf"$1-R({A},v_2)$", rf"$1-R({A},v_3)$"],
+            'ratio': [rf"$R({A}, v_1)/R({A}, v_2)$", rf"$R({A}, v_1)/R({A}, v_3)$"]
+        }
+        return labels[self.obj_type]
+
+    @property
+    def n_constraints(self):
+        return 2 if 'ratio' in self.obj_type else 3
+
+    @property
+    def _obj_fns(self):
+        fns = {
+            'ray': lambda y1, y2, y3: (jnp.log(jnp.array([y1, 1-y2, 1-y3])),
+                                       jnp.array([y1, y2, y3])),
+            'ratio': lambda y1, y2, y3: (jnp.log(jnp.array([y1/y2, y1/y3])),
+                                         jnp.array([y1, y2, y3]))
+        }
+        return fns
         # if self.obj_type == 'ray':
         #     return jnp.log(jnp.array([r1, 1-r2, 1-r3])), jnp.array([r1, r2, r3])
         # elif self.obj_type == 'ratio':
