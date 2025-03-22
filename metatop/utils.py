@@ -23,7 +23,7 @@ def beta_function(vol_frac, size):
     return np.random.beta(a, b, size)
 
 
-def mirror_density(density, fn_space, axis=None):
+def mirror_density(x, fn_space, axis=None):
     if axis == 'y':
         ref_angles = [np.pi/2]
         def domain(x): return x[0] > 0.
@@ -45,13 +45,14 @@ def mirror_density(density, fn_space, axis=None):
         def domain(
             x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
     elif axis is None:
-        logger.warning("Mirror type specified is None. Not applying mirror.")
-        return
-    else:
-        raise ValueError(
-            f"Invalid mirror type: {axis}. Must be one of 'x', 'y', 'xy', 'xyd', 'hex'")
+        logger.warning(f"Mirror axis input is {axis}. Not applying mirror.")
+        return x, (None, None)
 
-    mirror_density = density.copy()
+    else:
+        logger.warning(
+            f"Mirror type specified is {axis}, which isn't a valid input. Must be of type ['x', 'y', 'xy', 'xyd', 'hex'] Not applying mirror.")
+        return x, (None, None)
+    mirror_x = x.copy()
     dofs = fn_space.tabulate_dof_coordinates()
 
     mesh = fn_space.mesh()
@@ -84,9 +85,9 @@ def mirror_density(density, fn_space, axis=None):
             if not np.isinf(d):
                 mirror_source.append(n)
                 mirror_target.append(idx)
-                mirror_density[idx] = mirror_density[n]
+                mirror_x[idx] = mirror_x[n]
 
-    return mirror_density, (mirror_source, mirror_target)
+    return mirror_x, (mirror_source, mirror_target)
 
 
 # can be useful if we want to specify a circular domain of high density in the middle of the entire area

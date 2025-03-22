@@ -175,12 +175,13 @@ class OptimizationState:
             is_scheduled_update and is_last_component))
 
         if should_draw:
-            update_images = True
-            for comp_id in self.evals.keys():
-                self.update_plot(comp_id, update_images, labels)
-                update_images = False
+            self.draw(update_images=True)
 
-            self.opt_plot.draw()
+    def draw(self, update_images: bool = False):
+        for comp_id in self.evals.keys():
+            self.update_plot(comp_id, update_images)
+            update_images = False
+        self.opt_plot.draw()
 
     def update_plot(self, component_id: str, update_images: bool = False, labels: list = []):
         if update_images:

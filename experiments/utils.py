@@ -3,12 +3,14 @@ import pickle
 import random
 import sys
 from os import getenv as env
+from pathlib import Path
 
 import dotenv
 import nlopt
 import numpy as np
 from incense import ExperimentLoader
 from incense.artifact import PickleArtifact as PA
+from loguru import logger
 from PIL import Image
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -18,7 +20,9 @@ from metatop import V_DICT
 from metatop.filters import jax_projection, jax_simp
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
-                               matrix_invariants)
+                               mandelize, matrix_invariants)
+from metatop.optimization import OptimizationState
+from metatop.optimization.OptimizationComponents import OptimizationComponent
 
 dotenv.load_dotenv()
 MONGO_URI = env('LOCAL_MONGO_URI')
@@ -110,10 +114,10 @@ def get_random_value(param):
 
 
 def validate_param_value(param, value, verbose=True):
-    print(f"Validating parameter '{param}' with value: {value}")
+    logger.info(f"Validating parameter '{param}' with value: {value}")
     spec = PARAMETER_SPECS.get(param, None)
     if spec is None:
-        print(f"Parameter '{param}' not found in PARAMETER_SPECS")
+        logger.info(f"Parameter '{param}' not found in PARAMETER_SPECS")
         return False
 
     s_type = spec.get('type', None)
@@ -147,7 +151,7 @@ def validate_param_value(param, value, verbose=True):
                 f"Invalid integer value for parameter '{param}': {value}. Must be between {spec['range'][0]} and {spec['range'][1]}")
 
     if verbose:
-        print(
+        logger.info(
             f"Parameter '{param}' validated successfully with value: {value}")
 
 
@@ -174,13 +178,14 @@ def setup_mongo_observer(mongo_uri, db_name):
     try:
         client = MongoClient(mongo_uri, server_api=ServerApi('1'))
         if client.address and client.address[0] == 'localhost':
-            print("Connected to local MongoDB observer.")
+            logger.info("Connected to local MongoDB observer.")
         else:
-            print("Connected to remote MongoDB observer.")
+            logger.info("Connected to remote MongoDB observer.")
         return MongoObserver(client=client, db_name=db_name)
     except Exception as e:
-        print(f"MongoDB connection failed: {e}")
-        print("Falling back to file observer in directory ./{db_name}_runs")
+        logger.info(f"MongoDB connection failed: {e}")
+        logger.info(
+            "Falling back to file observer in directory ./{db_name}_runs")
         return FileStorageObserver('metatop_runs')
 
 
@@ -201,18 +206,7 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     epoch_duration: {epoch_duration}
     a: {a}
     """
-    print(summary)
-
-
-def forward_solve(x, metamaterial, ops, simp=False):
-    metamaterial.x.vector()[:] = jax_projection(
-        ops.filt_fn(x), ops.beta, ops.eta)
-    if simp:
-        metamaterial.x.vector()[:] = jax_simp(
-            metamaterial.x.vector()[:], ops.pen)
-    m = np.diag(np.array([1, 1, np.sqrt(2)]))
-    C = m @ np.asarray(metamaterial.solve()[1]) @ m
-    return C
+    logger.info(summary)
 
 
 def log_values(experiment, C):
@@ -220,57 +214,57 @@ def log_values(experiment, C):
         for i in range(3):
             for j in range(3):
                 experiment.log_scalar(f"C_{i}{j}", C[i, j])
-        print('C:\n', C)
+        logger.info('C:\n', C)
         w = np.linalg.eigvalsh(C)
         for i, v in enumerate(w):
             experiment.log_scalar(f"Eigenvalue_{i}", v)
-            print(f"Eigenvalue_{i}: {v}")
+            logger.info(f"Eigenvalue_{i}: {v}")
         for i, v in enumerate(w / np.max(w)):
             experiment.log_scalar(f"Normed_Eigenvalue_{i}", v)
-            print(f"Normed_Eigenvalue_{i}: {v}")
+            logger.info(f"Normed_Eigenvalue_{i}: {v}")
         ASU = anisotropy_index(C, input_style='mandel')
         for k, v in ASU.items():
             experiment.log_scalar(k, v)
-            print(f"{k}: {v}")
+            logger.info(f"{k}: {v}")
         constants = calculate_elastic_constants(C, input_style='mandel')
         for k, v in constants.items():
             experiment.log_scalar(k, v)
-            print(f"{k}: {v}")
+            logger.info(f"{k}: {v}")
     except Exception as e:
-        print(f"Error logging values: {e}")
+        logger.info(f"Error logging values: {e}")
 
 
-def save_fig_and_artifact(experiment, fig, outname, artifact_name):
+def save_fig_and_artifact(experiment, fig, dirname: Path, artifact_name: str):
     try:
-        fname = outname + f'_{artifact_name}'
+        fname = (dirname / artifact_name).with_suffix('.png')
         fig.savefig(fname)
         experiment.add_artifact(fname, artifact_name)
-        print(
+        logger.info(
             f"Successfully saved figure {fname} and added to artifacts under name {artifact_name}")
     except Exception as e:
-        print(f"Error saving figure: {e}")
+        logger.info(f"Error saving figure: {e}")
 
 
-def save_bmp_and_artifact(experiment, data, outname, artifact_name):
+def save_bmp_and_artifact(experiment, data, dirname, artifact_name):
     try:
         data = data.astype(np.uint8)
-        fname = outname + f'_{artifact_name}'
+        fname = (dirname / artifact_name).with_suffix('.png')
         img = Image.fromarray(data, mode='L').convert('1')
         img.save(fname)
         experiment.add_artifact(fname, artifact_name)
-        print(
+        logger.info(
             f"Successfully saved image {fname} and added to artifacts under name {artifact_name}")
     except Exception as e:
-        print(f"Error saving image: {e}")
+        logger.info(f"Error saving image: {e}")
 
 
 def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta):
-    print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
+    logger.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
     ops.beta, ops.epoch = beta, n
     try:
         x[:] = opt.optimize(x)
     except nlopt.ForcedStop as e:
-        print(f"Optimization stopped: {e}")
+        logger.info(f"Optimization stopped: {e}")
         sys.exit(1)
     x_history.append(x.copy())
     opt.set_maxeval(epoch_duration)
@@ -278,84 +272,83 @@ def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, be
     ops.epoch_iter_tracker.append(len(ops.evals))
 
 
-if __name__ == "__main__":
-    for _ in range(10_000):
-        for param in PARAMETER_SPECS.keys():
-            v = get_random_value(param)
-            validate_param_value(param, v, verbose=False)
-
-
-def generate_output_filepath(ex, extremal_mode, basis_v, seed):
+def generate_output_dir(ex, extremal_mode: int, basis_v: str):
     run_id = ex.current_run._id
-    dirname = './output/epigraph'
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-    fname = str(run_id)
-    fname += f'_{basis_v}'
-    fname += f'_m_{extremal_mode}'
-    fname += f'_seed_{seed}'
-    outname = dirname + '/' + fname
-    return run_id, outname
+    main_name = Path(sys.argv[0]).stem
+
+    if extremal_mode == 1:
+        mode = 'unimode'
+    elif extremal_mode == 2:
+        mode = 'bimode'
+    else:
+        mode = 'undefined'
+    outdir = Path("./output/") / main_name / str(mode) / basis_v / str(run_id)
+    outdir.mkdir(parents=True, exist_ok=True)
+    return run_id, outdir
 
 
 def print_epoch_summary(opt, i):
-    print(f"\n===== Epoch Summary: {i+1} =====")
-    print(f"Final Objective: {opt.last_optimum_value():.3f}")
-    print(f"Result Code: {opt.last_optimize_result()}")
-    print(f"===== End Epoch Summary: {i+1} =====\n")
+    logger.info(f"\n===== Epoch Summary: {i+1} =====")
+    logger.info(f"Final Objective: {opt.last_optimum_value():.3f}")
+    logger.info(f"Result Code: {opt.last_optimize_result()}")
+    logger.info(f"===== End Epoch Summary: {i+1} =====\n")
 
 
-def log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, i):
-    g_ext.update_plot(x[:-1])
-    save_fig_and_artifact(ex, g_ext.fig, outname,
-                          f'{run_id}_timeline_e-{i+1}.png')
+# def log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, i):
+#     g_ext.update_plot(x[:-1])
+#     save_fig_and_artifact(ex, g_ext.fig, outname,
+#                           f'{run_id}_timeline_e-{i+1}.png')
 
-    metamate.x.vector()[:] = x[:-1]
-    ex.log_scalar('volume_fraction', metamate.volume_fraction)
-    log_values(ex, forward_solve(x[:-1], metamate, ops))
+#     metamate.x.vector()[:] = x[:-1]
+#     ex.log_scalar('volume_fraction', metamate.volume_fraction)
+#     log_values(ex, forward_solve(x[:-1], metamate, ops))
 
-    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
+#     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
+#     save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
 
 
-def save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, objective, x_history):
-    x_ = x[:metamate.R.dim()]
-    final_C = forward_solve(x_, metamate, ops)
+def save_results(ex, ops: OptimizationState, objective: OptimizationComponent):
+    basis_v_str = [k for k, v in V_DICT.items() if np.allclose(v, ops.basis_v)]
+    run_id, outdir = generate_output_dir(ex, ops.extremal_mode, basis_v_str[0])
+    metamate = ops.metamaterial
 
-    w, v = np.linalg.eigh(final_C)
-    print('Final C:\n', final_C)
-    print('Final Eigenvalues:\n', w)
-    print('Final Eigenvalue Ratios:\n', w / np.max(w))
-    print('Final Eigenvectors:\n', v)
+    # strip off any extra design variables in case we were running like an epigraph or something else with extra variables
+    x = ops.x_history[-1][:metamate.R.dim()]
 
-    ASU = anisotropy_index(final_C, input_style='mandel')
+    final_M = mandelize(objective.forward(x)[1])
+
+    w, v = np.linalg.eigh(final_M)
+    logger.info(f'Final M:\n{final_M}')
+    logger.info(f'Final Eigenvalues: {w}')
+    logger.info(f'Final Eigenvalue Ratios: {w / np.max(w)}')
+    logger.info(f'Final Eigenvectors:\n{v}')
+
     elastic_constants = calculate_elastic_constants(
-        final_C, input_style='mandel')
-    invariants = matrix_invariants(final_C)
-    print('Final ASU:', ASU)
-    print('Final Elastic Constants:', elastic_constants)
-    print('Final Invariants:', invariants)
+        final_M, input_style='mandel')
+    invariants = matrix_invariants(final_M)
+    logger.info(f'Final elastic constants:\n{elastic_constants}')
+    logger.info(f'Final invariants: \n{invariants}')
 
-    with open(f'{outname}.pkl', 'wb') as f:
-        pickle.dump({'x': x,
-                     'x_history': x_history,
-                     'evals': ops.evals},
-                    f)
+    pickle_fname = outdir / 'x_and_evals.pkl'
+    with open(pickle_fname, 'wb') as f:
+        out = dict(
+            x_history=ops.x_history,
+            evals=ops.evals,
+        )
+        pickle.dump(out, f)
 
-    save_fig_and_artifact(ex, objective.fig, outname, f'{run_id}_timeline.png')
-    x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-    save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell.png')
-    save_bmp_and_artifact(ex, np.tile(x_img, (4, 4)),
-                          outname, f'{run_id}_array.png')
+    save_fig_and_artifact(ex, ops.opt_plot.fig, outdir, 'timeline')
+    x_img = bitmapify(metamate.x, ops.img_shape,
+                      ops.img_resolution, invert=True)
+    save_bmp_and_artifact(ex, x_img, outdir, 'cell')
+    save_bmp_and_artifact(ex, np.tile(x_img, (4, 4)), outdir, 'array')
 
-    ex.info['final_C'] = final_C
+    ex.info['final_M'] = final_M
     ex.info['eigvals'] = w
     ex.info['norm_eigvals'] = w / np.max(w)
-    ex.info['eigvecs'] = v
-    ex.info['ASU'] = ASU
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
-    ex.add_artifact(f'{outname}.pkl')
+    ex.add_artifact(str(pickle_fname))
 
 
 def seed_density(init_run_idx, size):
@@ -368,26 +361,27 @@ def seed_density(init_run_idx, size):
             # Use the final output density from another run, dropping the final t value
             x = pickle_artifact.as_type(PA).render()['x'][:-1]
             if not isinstance(x, np.ndarray):
-                print(
+                logger.info(
                     f"It looks like 'x' from the pickle artifact from run {init_run_idx} was not a numpy array.")
-                print(f"Falling back to random density instead.")
+                logger.info(f"Falling back to random density instead.")
                 init_run_idx = None
             elif np.size(x) != size:
-                print(
+                logger.info(
                     f"It looks like the loaded initial density from run {init_run_idx} is a different size than needed for this run.")
-                print(
+                logger.info(
                     f"loaded density size {np.size(x)}, function space size: {size}")
-                print(f"Falling back to random density instead.")
+                logger.info(f"Falling back to random density instead.")
                 init_run_idx = None
             else:
-                print(
+                logger.info(
                     f"Successfully seeded intial density with final density from run {init_run_idx}.")
         else:
-            print(f"Pickle artifact not found for index {init_run_idx:d}")
-            print("Seeding with random density instead.")
+            logger.info(
+                f"Pickle artifact not found for index {init_run_idx:d}")
+            logger.info("Seeding with random density instead.")
             init_run_idx = None  # Fallback to random seeding
     if init_run_idx is None:
-        print("Seeding with random density")
+        logger.info("Seeding with random density")
         x = np.random.uniform(0., 1., size)
 
     # Append 1 for t value
@@ -400,3 +394,10 @@ def extract_pickle_artifact(init_run_idx):
     exp = loader.find_by_id(init_run_idx)
     # sift through the artifacts of the experiment and return the pickle artifact or None if nothing is found
     return next((v for k, v in exp.artifacts.items() if '.pkl' in k), None)
+
+
+if __name__ == "__main__":
+    for _ in range(10_000):
+        for param in PARAMETER_SPECS.keys():
+            v = get_random_value(param)
+            validate_param_value(param, v, verbose=False)

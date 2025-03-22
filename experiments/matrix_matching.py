@@ -43,7 +43,7 @@ ex = Experiment('extremal')
 @ex.config
 def config():
     E_max, E_min, nu = 1., 1/30., 0.4
-    start_beta, n_betas = 8, 4
+    start_beta, n_betas = 1, 7
     epoch_duration, warm_start_duration = 200, 100
     extremal_mode = 1
     basis_v = 'BULK'
@@ -56,6 +56,7 @@ def config():
     g_vec_eps = 1.
     enable_profiling = False
     log_to_db = True
+    verbose = False
 
 
 @ex.config_hook
@@ -94,10 +95,16 @@ def run_warm_start(opt: nlopt.opt, x: np.ndarray):
     We run a warm start because the gradient tends to be small at the very beginning. This means that it may falsely trigger a successful termination based on relative tolerance settings. So we run first without tolerances to force it to find at least some inital design, then turn on the tolerances
     """
 
+    x_ = x.copy()
+    maxeval = opt.get_maxeval()
+    if maxeval <= 0:
+        loggeru.info("Warm start being skipped")
+        return x_
+
     loggeru.info(
-        f"Starting warm start with {opt.get_maxeval()} iterations")
+        f"Beginning warm start with {opt.get_maxeval()} iterations")
     try:
-        x[:] = opt.optimize(x)
+        x_[:] = opt.optimize(x_)
     except nlopt.ForcedStop as e:
         loggeru.error(f"NLOpt forced stop: {e}")
         raise
@@ -106,16 +113,20 @@ def run_warm_start(opt: nlopt.opt, x: np.ndarray):
         raise
     loggeru.info(
         f"Warm start complete. Now shifting to graduated beta increase.")
-    return x
+    return x_
 
 
-def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: OptimizationState, x_history: list[np.ndarray]):
+def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: OptimizationState):
     """Run the main optimization loop with graduated beta increases.
+
+    x_history: Doesn't track the incoming density, only tracks the output of the opt.optimize(x) call
 
     Returns:
         tuple: (x, x_history, status_code) where status_code is the final NLOpt result code.
 
     """
+    x_ = x.copy()
+    x_history = []
     loggeru.info(
         f"Running {len(betas)} beta increasing epochs with max {opt.get_maxeval()} iterations per epoch.")
 
@@ -126,7 +137,7 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
         loggeru.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
         ops.beta, ops.epoch = beta, n
         try:
-            x[:] = opt.optimize(x)
+            x_[:] = opt.optimize(x_)
         except nlopt.ForcedStop as e:
             loggeru.error(f"NLOpt forced stop: {e}")
         except Exception as e:
@@ -135,17 +146,18 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
         status_code = opt.last_optimize_result()
         loggeru.info(f"Optimizer exited with code: {status_code}")
 
-        x_history.append(x.copy())
+        x_history.append(x_.copy())
         ops.epoch_iter_tracker.append(len(ops.evals))
 
-    return x, x_history, status_code
+    ops.draw(update_images=True)
+
+    return x_, x_history, status_code
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, seed):
 
-    run_id, outname = generate_output_filepath(
-        ex, extremal_mode, basis_v, seed)
+    loggeru.debug(f"Seed: {seed}")
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -164,8 +176,9 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
                             img_shape=(metamate.width, metamate.height),
                             img_resolution=(200, 200),
                             plot_interval=25,
-                            show_plot=show_plot
-                            # eval_axis_kwargs=dict(yscale='log')
+                            show_plot=show_plot,
+                            verbose=verbose,
+                            eval_axis_kwargs=dict(yscale='log')
                             )
 
     x = np.random.uniform(0., 1., size=metamate.R.dim())
@@ -175,7 +188,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
         loggeru.error(
             f"Issue with applying mirror density. Mirror not applied.")
         loggeru.error(e)
-    x_history = [x.copy()]
+    ops.x_history.append(x.copy())
 
     # ===== End Component Setup =====
 
@@ -187,15 +200,15 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== Warm start =====
     opt.set_maxeval(warm_start_duration)
     x = run_warm_start(opt, x)
+    ops.x_history.append(x.copy())
 
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
     opt.set_maxeval(epoch_duration)
     opt.set_ftol_rel(1e-6)
     opt.set_xtol_rel(1e-6)
-    x, x_history, status_code = run_optimization_loop(
-        opt, x, betas, ops, x_history)
-
+    x, x_history, status_code = run_optimization_loop(opt, x, betas, ops)
+    ops.x_history.extend(x_history)
     loggeru.info(
         f"Optimization complete with final NLOpt status code: {status_code}")
 
@@ -204,6 +217,10 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== Post-Processing =====
     Chom = f.forward(x)[1]
     loggeru.info(calculate_elastic_constants(Chom, input_style='standard'))
+    try:
+        save_results(ex, ops, f)
+    except Exception as e:
+        logger.error(f"Error when saving results: {e}")
     # save_results(ex,
     #              run_id, t:
     #              outname,

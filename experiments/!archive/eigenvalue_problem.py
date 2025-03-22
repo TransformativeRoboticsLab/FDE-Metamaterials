@@ -85,7 +85,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
         g_trc_bnd = 1.
         weight_scaling_factor = 1.
 
-    run_id, outname = generate_output_filepath(
+    run_id, outname = generate_output_dir(
         ex, extremal_mode, basis_v, seed)
 
     if extremal_mode == 1:

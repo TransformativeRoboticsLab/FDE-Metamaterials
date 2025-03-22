@@ -91,7 +91,7 @@ def startup(config, command_name, logger):
 @ex.automain
 def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, enable_profiling, log_to_db, seed):
 
-    run_id, outname = generate_output_filepath(
+    run_id, outname = generate_output_dir(
         ex, extremal_mode, basis_v, seed)
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
