@@ -52,6 +52,8 @@ def mirror_density(x, fn_space, axis=None):
         logger.warning(
             f"Mirror type specified is {axis}, which isn't a valid input. Must be of type ['x', 'y', 'xy', 'xyd', 'hex'] Not applying mirror.")
         return x, (None, None)
+
+    logger.info(f"Applying {axis} axis symmetry to density field.")
     mirror_x = x.copy()
     dofs = fn_space.tabulate_dof_coordinates()
 

@@ -91,7 +91,7 @@ PARAMETER_SPECS = {
     },
     'mirror_axis': {
         'type': 'cat',
-        'values': ['x', 'y', 'xy', 'xyd']
+        'values': ['x', 'y', 'xy', 'xyd', None]
     }
 }
 

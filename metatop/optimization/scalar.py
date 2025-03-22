@@ -90,8 +90,14 @@ class RayleighMinimaxObjective(ScalarObjective):
 
 class MatrixMatchingObjective(ScalarObjective):
 
-    def __init__(self, *args, low_val: float = 0.01, **kwargs):
+    def __init__(self, *args, low_val: float = 0.01, dist_type: str = 'fro', **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.dist_type = dist_type
+        if dist_type == 'fro':
+            self.dist_fn = frobenius_distance_sq
+        else:
+            raise NotImplementedError()
 
         if self.ops.extremal_mode == 1:
             self.process_C = process_C_unimode
@@ -108,7 +114,7 @@ class MatrixMatchingObjective(ScalarObjective):
         M = self.process_C(C)
         Mstar = self.Mstar
 
-        val = frobenius_distance_sq(M, Mstar)
+        val = self.dist_fn(M, Mstar)
         # NOTE: None of these seem to work as well as Frobenius, but they haven't been extensively tested
         # val = log_euclidean_distance_sq(M, Mstar)
         # val = affine_invariant_distance_sq(M, Mstar)

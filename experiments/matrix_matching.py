@@ -47,6 +47,7 @@ def config():
     epoch_duration, warm_start_duration = 200, 50
     extremal_mode = 1
     basis_v = 'BULK'
+    dist_type = 'fro'
     nelx = nely = 50
     mirror_axis = None
     norm_filter_radius = 0.1
@@ -86,7 +87,7 @@ def setup_optimizer(objective_function, x_size, opt_type=nlopt.LD_MMA):
     return opt
 
 
-def run_warm_start(opt: nlopt.opt, x: np.ndarray, ops: OptimizationState):
+def run_warm_start(opt: nlopt.opt, x: np.ndarray):
     """Execute the warm start phase of optimization. 
 
     Returns:
@@ -114,8 +115,6 @@ def run_warm_start(opt: nlopt.opt, x: np.ndarray, ops: OptimizationState):
     loggeru.info(
         f"Warm start complete. Now shifting to graduated beta increase.")
 
-    ops.x = x_.copy()
-    save_intermediate_results(ex, ops, 0)
     return x_
 
 
@@ -159,7 +158,7 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, seed):
 
     loggeru.debug(f"Seed: {seed}")
 
@@ -197,14 +196,16 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = MatrixMatchingObjective(ops, low_val=E_min)
+    f = MatrixMatchingObjective(ops, low_val=E_min, dist_type=dist_type)
     opt = setup_optimizer(f, x.size)
     # ===== End Optimizer setup ======
 
     # ===== Warm start =====
     opt.set_maxeval(warm_start_duration)
-    x = run_warm_start(opt, x)
+    x[:] = run_warm_start(opt, x)
     ops.x_history.append(x.copy())
+    ops.x = x.copy()
+    save_intermediate_results(ex, ops, 0)
 
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
