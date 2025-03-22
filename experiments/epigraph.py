@@ -196,16 +196,16 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     plt.show(block=True)
 
     # ===== Post-Processing =====
-    save_results(ex,
-                 run_id,
-                 outname,
-                 metamate,
-                 img_rez,
-                 img_shape,
-                 ops,
-                 x,
-                 g_ext,
-                 x_history)
+    save_final_results(ex,
+                       run_id,
+                       outname,
+                       metamate,
+                       img_rez,
+                       img_shape,
+                       ops,
+                       x,
+                       g_ext,
+                       x_history)
 
     if g_ext.show_plot:
         plt.close(g_ext.fig)

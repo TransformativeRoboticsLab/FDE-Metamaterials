@@ -78,7 +78,7 @@ class OptimizationPlot:
         self.ax2.legend(loc='lower right', bbox_to_anchor=(1.1, 1))
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        plt.pause(1e-3)
+        plt.pause(1e-1)
 
     def _plot_density(self, r_in, cmap='gray', vmin=0, vmax=1, title=None, ax=None, colorbar=False):
         r = fe.Function(r_in.function_space())

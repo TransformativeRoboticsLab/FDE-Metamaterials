@@ -17,7 +17,6 @@ from pymongo.server_api import ServerApi
 from sacred.observers import FileStorageObserver, MongoObserver
 
 from metatop import V_DICT
-from metatop.filters import jax_projection, jax_simp
 from metatop.image import bitmapify
 from metatop.mechanics import (anisotropy_index, calculate_elastic_constants,
                                mandelize, matrix_invariants)
@@ -64,7 +63,7 @@ PARAMETER_SPECS = {
     },
     'basis_v': {
         'type': 'cat',
-        'values': ['BULK', 'VERT', 'HSA', 'SHEAR']
+        'values': ['BULK', 'PSHEAR', 'SSHEAR', 'VERT', 'NSC', 'NSC3']
     },
     'objective_type': {
         'type': 'cat',
@@ -72,11 +71,11 @@ PARAMETER_SPECS = {
     },
     'nelx': {
         'type': 'int',
-        'range': (1, 1_000),
+        'range': (10, 1_000),
     },
     'nely': {
         'type': 'int',
-        'range': (1, 1_000),
+        'range': (10, 1_000),
     },
     'norm_filter_radius': {
         'type': 'float',
@@ -90,6 +89,10 @@ PARAMETER_SPECS = {
         'type': 'float',
         'values': tuple(10**(-n) for n in range(4)),
     },
+    'mirror_axis': {
+        'type': 'cat',
+        'values': ['x', 'y', 'xy', 'xyd']
+    }
 }
 
 
@@ -209,24 +212,24 @@ def print_summary(optim_type, nelx, nely, E_max, E_min, nu, vol_frac, betas, eta
     logger.info(summary)
 
 
-def log_values(experiment, C):
+def log_values(experiment, M):
     try:
         for i in range(3):
             for j in range(3):
-                experiment.log_scalar(f"C_{i}{j}", C[i, j])
-        logger.info('C:\n', C)
-        w = np.linalg.eigvalsh(C)
+                experiment.log_scalar(f"C_{i}{j}", M[i, j])
+        logger.info(f'C:\n{M}',)
+        w = np.linalg.eigvalsh(M)
         for i, v in enumerate(w):
             experiment.log_scalar(f"Eigenvalue_{i}", v)
             logger.info(f"Eigenvalue_{i}: {v}")
         for i, v in enumerate(w / np.max(w)):
             experiment.log_scalar(f"Normed_Eigenvalue_{i}", v)
             logger.info(f"Normed_Eigenvalue_{i}: {v}")
-        ASU = anisotropy_index(C, input_style='mandel')
+        ASU = anisotropy_index(M, input_style='mandel')
         for k, v in ASU.items():
             experiment.log_scalar(k, v)
             logger.info(f"{k}: {v}")
-        constants = calculate_elastic_constants(C, input_style='mandel')
+        constants = calculate_elastic_constants(M, input_style='mandel')
         for k, v in constants.items():
             experiment.log_scalar(k, v)
             logger.info(f"{k}: {v}")
@@ -236,7 +239,7 @@ def log_values(experiment, C):
 
 def save_fig_and_artifact(experiment, fig, dirname: Path, artifact_name: str):
     try:
-        fname = (dirname / artifact_name).with_suffix('.png')
+        fname = dirname / artifact_name
         fig.savefig(fname)
         experiment.add_artifact(fname, artifact_name)
         logger.info(
@@ -248,7 +251,7 @@ def save_fig_and_artifact(experiment, fig, dirname: Path, artifact_name: str):
 def save_bmp_and_artifact(experiment, data, dirname, artifact_name):
     try:
         data = data.astype(np.uint8)
-        fname = (dirname / artifact_name).with_suffix('.png')
+        fname = dirname / artifact_name
         img = Image.fromarray(data, mode='L').convert('1')
         img.save(fname)
         experiment.add_artifact(fname, artifact_name)
@@ -256,6 +259,18 @@ def save_bmp_and_artifact(experiment, data, dirname, artifact_name):
             f"Successfully saved image {fname} and added to artifacts under name {artifact_name}")
     except Exception as e:
         logger.info(f"Error saving image: {e}")
+
+
+def save_history(ex, outdir, x_history: list, evals: dict):
+    try:
+        pickle_fname = outdir / 'history.pkl'
+        with open(pickle_fname, 'wb') as f:
+            pickle.dump({'x_history': x_history, 'evals': evals}, f)
+        ex.add_artifact(str(pickle_fname))
+        return True
+    except Exception as e:
+        logger.error(f"Issue with saving pickle: {e}")
+        return False
 
 
 def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, beta):
@@ -272,7 +287,9 @@ def run_optimization(epoch_duration, betas, ops, x, g_ext, opt, x_history, n, be
     ops.epoch_iter_tracker.append(len(ops.evals))
 
 
-def generate_output_dir(ex, extremal_mode: int, basis_v: str):
+def generate_output_dir(ex, ops: OptimizationState):
+    basis_v = get_basis_str_from_array(ops)
+    extremal_mode = ops.extremal_mode
     run_id = ex.current_run._id
     main_name = Path(sys.argv[0]).stem
 
@@ -284,7 +301,7 @@ def generate_output_dir(ex, extremal_mode: int, basis_v: str):
         mode = 'undefined'
     outdir = Path("./output/") / main_name / str(mode) / basis_v / str(run_id)
     outdir.mkdir(parents=True, exist_ok=True)
-    return run_id, outdir
+    return outdir
 
 
 def print_epoch_summary(opt, i):
@@ -294,28 +311,31 @@ def print_epoch_summary(opt, i):
     logger.info(f"===== End Epoch Summary: {i+1} =====\n")
 
 
-# def log_and_save_results(ex, run_id, outname, metamate, img_rez, img_shape, ops, x, g_ext, i):
-#     g_ext.update_plot(x[:-1])
-#     save_fig_and_artifact(ex, g_ext.fig, outname,
-#                           f'{run_id}_timeline_e-{i+1}.png')
+def save_intermediate_results(ex, ops: OptimizationState, i: int):
+    ops.draw(update_images=True)
 
-#     metamate.x.vector()[:] = x[:-1]
-#     ex.log_scalar('volume_fraction', metamate.volume_fraction)
-#     log_values(ex, forward_solve(x[:-1], metamate, ops))
+    outdir = generate_output_dir(ex, ops)
 
-#     x_img = bitmapify(metamate.x, img_shape, img_rez, invert=True)
-#     save_bmp_and_artifact(ex, x_img, outname, f'{run_id}_cell_e-{i+1}.png')
+    save_fig_and_artifact(ex, ops.opt_plot.fig, outdir, f'timeline_e-{i}.png')
+
+    M = np.asarray(mandelize(ops.Chom))
+    log_values(ex, M)
+
+    ex.log_scalar('volume_fraction', ops.metamaterial.volume_fraction)
+
+    x_img = bitmapify(ops.metamaterial.x, ops.img_shape,
+                      ops.img_resolution, invert=True)
+    save_bmp_and_artifact(ex, x_img, outdir, f'cell_e-{i}.png')
 
 
-def save_results(ex, ops: OptimizationState, objective: OptimizationComponent):
-    basis_v_str = [k for k, v in V_DICT.items() if np.allclose(v, ops.basis_v)]
-    run_id, outdir = generate_output_dir(ex, ops.extremal_mode, basis_v_str[0])
-    metamate = ops.metamaterial
+def save_final_results(ex, ops: OptimizationState, obj: OptimizationComponent):
+    ops.draw(update_images=True)
+    outdir = generate_output_dir(ex, ops)
 
     # strip off any extra design variables in case we were running like an epigraph or something else with extra variables
-    x = ops.x_history[-1][:metamate.R.dim()]
+    metamate = ops.metamaterial
 
-    final_M = mandelize(objective.forward(x)[1])
+    final_M = np.asarray(mandelize(ops.Chom))
 
     w, v = np.linalg.eigh(final_M)
     logger.info(f'Final M:\n{final_M}')
@@ -329,26 +349,27 @@ def save_results(ex, ops: OptimizationState, objective: OptimizationComponent):
     logger.info(f'Final elastic constants:\n{elastic_constants}')
     logger.info(f'Final invariants: \n{invariants}')
 
-    pickle_fname = outdir / 'x_and_evals.pkl'
-    with open(pickle_fname, 'wb') as f:
-        out = dict(
-            x_history=ops.x_history,
-            evals=ops.evals,
-        )
-        pickle.dump(out, f)
+    save_history(ex, outdir, ops.x_history, ops.evals)
 
-    save_fig_and_artifact(ex, ops.opt_plot.fig, outdir, 'timeline')
+    save_fig_and_artifact(ex, ops.opt_plot.fig, outdir, 'timeline.png')
+    # we use the metamate.x here because it was already filtered and projected
     x_img = bitmapify(metamate.x, ops.img_shape,
                       ops.img_resolution, invert=True)
-    save_bmp_and_artifact(ex, x_img, outdir, 'cell')
-    save_bmp_and_artifact(ex, np.tile(x_img, (4, 4)), outdir, 'array')
+    save_bmp_and_artifact(ex, x_img, outdir, 'cell.png')
+    save_bmp_and_artifact(ex, np.tile(x_img, (4, 4)), outdir, 'array.png')
 
     ex.info['final_M'] = final_M
     ex.info['eigvals'] = w
     ex.info['norm_eigvals'] = w / np.max(w)
     ex.info['elastic_constants'] = elastic_constants
     ex.info['invariants'] = invariants
-    ex.add_artifact(str(pickle_fname))
+
+
+def get_basis_str_from_array(ops):
+    basis_v_str = [k for k, v in V_DICT.items() if np.allclose(v, ops.basis_v)]
+    if len(basis_v_str) > 1:
+        raise ValueError("There is ambiguity with which basis you used.")
+    return basis_v_str[0]
 
 
 def seed_density(init_run_idx, size):

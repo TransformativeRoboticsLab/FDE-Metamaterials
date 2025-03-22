@@ -44,7 +44,7 @@ ex = Experiment('extremal')
 def config():
     E_max, E_min, nu = 1., 1/30., 0.4
     start_beta, n_betas = 1, 7
-    epoch_duration, warm_start_duration = 200, 100
+    epoch_duration, warm_start_duration = 200, 50
     extremal_mode = 1
     basis_v = 'BULK'
     nelx = nely = 50
@@ -86,7 +86,7 @@ def setup_optimizer(objective_function, x_size, opt_type=nlopt.LD_MMA):
     return opt
 
 
-def run_warm_start(opt: nlopt.opt, x: np.ndarray):
+def run_warm_start(opt: nlopt.opt, x: np.ndarray, ops: OptimizationState):
     """Execute the warm start phase of optimization. 
 
     Returns:
@@ -113,6 +113,9 @@ def run_warm_start(opt: nlopt.opt, x: np.ndarray):
         raise
     loggeru.info(
         f"Warm start complete. Now shifting to graduated beta increase.")
+
+    ops.x = x_.copy()
+    save_intermediate_results(ex, ops, 0)
     return x_
 
 
@@ -149,7 +152,8 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
         x_history.append(x_.copy())
         ops.epoch_iter_tracker.append(len(ops.evals))
 
-    ops.draw(update_images=True)
+        ops.x = x_.copy()
+        save_intermediate_results(ex, ops, n)
 
     return x_, x_history, status_code
 
@@ -209,16 +213,16 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     opt.set_xtol_rel(1e-6)
     x, x_history, status_code = run_optimization_loop(opt, x, betas, ops)
     ops.x_history.extend(x_history)
+    ops.x = x.copy()
     loggeru.info(
         f"Optimization complete with final NLOpt status code: {status_code}")
 
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    Chom = f.forward(x)[1]
-    loggeru.info(calculate_elastic_constants(Chom, input_style='standard'))
+    loggeru.info(calculate_elastic_constants(ops.Chom, input_style='standard'))
     try:
-        save_results(ex, ops, f)
+        save_final_results(ex, ops, f)
     except Exception as e:
         logger.error(f"Error when saving results: {e}")
     # save_results(ex,

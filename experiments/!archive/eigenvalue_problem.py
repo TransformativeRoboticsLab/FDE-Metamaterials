@@ -166,16 +166,16 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    save_results(ex,
-                 run_id,
-                 outname,
-                 metamate,
-                 img_rez,
-                 img_shape,
-                 ops,
-                 x,
-                 g_eig,
-                 x_history)
+    save_final_results(ex,
+                       run_id,
+                       outname,
+                       metamate,
+                       img_rez,
+                       img_shape,
+                       ops,
+                       x,
+                       g_eig,
+                       x_history)
 
     if g_eig.show_plot:
         plt.close(g_eig.fig)
