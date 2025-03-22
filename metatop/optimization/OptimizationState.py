@@ -128,6 +128,7 @@ class OptimizationState:
     dChom_dxfem: np.array = field(default_factory=lambda: np.zeros((3, 3, 1)))
     dxfem_dx_vjp: Callable[[np.ndarray], np.ndarray] = None
     x: np.array = field(default_factory=lambda: np.zeros(1))
+    x_history: list = field(default_factory=lambda: [])
 
     # Optimization values
     beta: float = 1.
