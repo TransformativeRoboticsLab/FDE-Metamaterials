@@ -166,17 +166,14 @@ class OptimizationState:
     def update_evals_and_plot(self, component_id: str, c: float | np.ndarray, draw_now: bool = False, labels: list = []):
         self.update_evals(component_id, c)
 
-        # draw if
-        # show plot is on
-        # AND
-        # we want to draw now
-        # OR
-        # it is time to draw based on plot intervals and its the last component
-        draw = self.show_plot and (
-            draw_now or
-            (self.obj_n_calls % self.plot_interval == 1 and component_id == list(self.evals.keys())[-1]))
+        is_first_call = self.obj_n_calls == 1
+        is_scheduled_update = self.obj_n_calls % self.plot_interval == 0
+        is_last_component = component_id == list(self.evals.keys())[-1]
 
-        if draw:
+        should_draw = draw_now or (is_first_call or (
+            is_scheduled_update and is_last_component))
+
+        if should_draw:
             update_images = True
             for comp_id in self.evals.keys():
                 self.update_plot(comp_id, update_images, labels)
