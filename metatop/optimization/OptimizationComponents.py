@@ -68,6 +68,10 @@ class OptimizationComponent(abc.ABC):
     def __str__(self):
         return self.__class__.__name__
 
+    @property
+    def _label(self):
+        return self.__str__()
+
 
 class ScalarOptimizationComponent(OptimizationComponent):
 

@@ -39,13 +39,13 @@ class ScalarObjective(ScalarOptimizationComponent):
         if grad.size > 0:
             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
 
-        id = self.__str__()
-        self.ops.update_evals_and_plot(id, c)
+        self.ops.update_evals_and_plot(self._label, c)
 
         if not self.silent and self.ops.print_now():
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__str__()} f(x): {c:.4f}")
-            logger.info(f"Raw values:\n{cs}")
+            if self.verbose:
+                logger.info(f"Raw values:\n{cs}")
 
         stop_on_nan(c)
         return float(c)
@@ -69,7 +69,8 @@ class ScalarConstraint(ScalarOptimizationComponent):
 
         if not self.silent and self.ops.print_now():
             logger.info(f"{self.__str__()} g(x): {c:2e}")
-            logger.info(f"Raw values: {cs}")
+            if self.verbose:
+                logger.info(f"Raw values: {cs}")
 
         stop_on_nan(c)
         return float(c)
@@ -108,13 +109,18 @@ class MatrixMatchingObjective(ScalarObjective):
         Mstar = self.Mstar
 
         val = frobenius_distance_sq(M, Mstar)
-        # val = log_euclidean_distance(M, Mstar)
+        # NOTE: None of these seem to work as well as Frobenius, but they haven't been extensively tested
+        # val = log_euclidean_distance_sq(M, Mstar)
         # val = affine_invariant_distance_sq(M, Mstar)
         # val = commutation_distance_sq(M, Mstar)
         return val, M
 
     def __str__(self):
-        return r"$\|M-M^*\|_F$"
+        return self.__class__.__name__
+
+    @property
+    def _label(self):
+        return r"$\|M-M^*\|_F^2$"
 
 
 class PoissonsRatioObjective(ScalarObjective):
