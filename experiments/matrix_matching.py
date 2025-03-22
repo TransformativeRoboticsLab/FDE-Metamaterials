@@ -171,7 +171,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     x = np.random.uniform(0., 1., size=metamate.R.dim())
     try:
         x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
-    except ValueError as e:
+    except Exception as e:
         loggeru.error(
             f"Issue with applying mirror density. Mirror not applied.")
         loggeru.error(e)
