@@ -261,11 +261,17 @@ def save_bmp_and_artifact(experiment, data, dirname, artifact_name):
         logger.info(f"Error saving image: {e}")
 
 
-def save_history(ex, outdir, x_history: list, evals: dict):
+def save_history(ex, outdir: Path, ops: OptimizationState):
+    x_history = ops.x_history
+    evals = ops.evals
+    iter_tracker = ops.epoch_iter_tracker
     try:
         pickle_fname = outdir / 'history.pkl'
         with open(pickle_fname, 'wb') as f:
-            pickle.dump({'x_history': x_history, 'evals': evals}, f)
+            pickle.dump({'x_history': x_history,
+                         'evals': evals,
+                         'iter_tracker': iter_tracker},
+                        f)
         ex.add_artifact(str(pickle_fname))
         return True
     except Exception as e:
@@ -349,7 +355,7 @@ def save_final_results(ex, ops: OptimizationState, obj: OptimizationComponent):
     logger.info(f'Final elastic constants:\n{elastic_constants}')
     logger.info(f'Final invariants: \n{invariants}')
 
-    save_history(ex, outdir, ops.x_history, ops.evals)
+    save_history(ex, outdir, ops)
 
     save_fig_and_artifact(ex, ops.opt_plot.fig, outdir, 'timeline.png')
     # we use the metamate.x here because it was already filtered and projected
