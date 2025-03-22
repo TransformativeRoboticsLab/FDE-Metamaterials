@@ -1,24 +1,7 @@
 import fenics as fe
 import numpy as np
+from loguru import logger
 from scipy.spatial import KDTree
-
-
-# when an epoch changes or we change beta the constraint values can jump
-# and because the constraints can also be clamped by t we need to make sure
-# that we start the epoch in a feasible state.
-# Basically t could be too low for the constraints to be satisfied and the
-# optimizer will spend cycles trying to get t up to a feasible value.
-# We avoid this by jumping t to a feasible value at the start of each epoch
-def update_t(x, gs):
-    print(f"Updating t...\nOld t value {x[-1]:.3e}")
-    new_t = -np.inf
-    x[-1] = 0.
-    for g in gs:
-        results = np.zeros(g.n_constraints)
-        g(results, x, np.array([]), dummy_run=True)
-        new_t = max(new_t, *(results))
-    x[-1] = new_t
-    print(f"New t value: {x[-1]:.3e}")
 
 
 def init_density(density_seed_type, vol_frac, dim):
@@ -62,7 +45,7 @@ def mirror_density(density, fn_space, axis=None):
         def domain(
             x): return x[0] > 0. and x[1] > 0. and x[1]/x[0] < 1./np.sqrt(3)
     elif axis is None:
-        print("Mirror type specified is None. Not applying mirror.")
+        logger.warning("Mirror type specified is None. Not applying mirror.")
         return
     else:
         raise ValueError(
@@ -106,6 +89,7 @@ def mirror_density(density, fn_space, axis=None):
     return mirror_density, (mirror_source, mirror_target)
 
 
+# can be useful if we want to specify a circular domain of high density in the middle of the entire area
 class Ellipse(fe.UserExpression):
 
     def __init__(self, V, a, b):

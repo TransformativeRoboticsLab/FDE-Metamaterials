@@ -1,8 +1,7 @@
-
 import jax
 import nlopt
 import numpy as np
-from loguru import logger
+from loguru import logger as loggeru
 from matplotlib import pyplot as plt
 from sacred import Experiment
 
@@ -13,13 +12,14 @@ from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import MatrixMatchingObjective
 from metatop.profiling import ProfileConfig
+from metatop.utils import mirror_density
 
 jax.config.update("jax_enable_x64", True)
 
 
 file_name = os.path.basename(__file__)
 log_file = f"{file_name}.log"
-logger.configure(
+loggeru.configure(
     handlers=[
         {"sink": f"{file_name}.log",
          "rotation": "500 MB",
@@ -30,7 +30,7 @@ logger.configure(
          "format": "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <white>{message}</white>"}
     ]
 )
-logger.info(f"{file_name} started")
+loggeru.info(f"{file_name} started")
 
 np.set_printoptions(precision=4)
 
@@ -44,14 +44,13 @@ ex = Experiment('extremal')
 def config():
     E_max, E_min, nu = 1., 1/30., 0.4
     start_beta, n_betas = 8, 4
-    n_epochs, epoch_duration, starting_epoch_duration = 4, 50, None
-    starting_epoch_duration = starting_epoch_duration or 2*epoch_duration
+    epoch_duration, warm_start_duration = 200, 100
     extremal_mode = 1
     basis_v = 'BULK'
     nelx = nely = 50
+    mirror_axis = None
     norm_filter_radius = 0.1
-    verbose = False
-    interim_plot = True
+    show_plot = True
     vector_constraint = True
     tighten_vector_constraint = True
     g_vec_eps = 1.
@@ -65,35 +64,94 @@ def startup(config, command_name, logger):
     if config['log_to_db']:
         ex.observers.append(setup_mongo_observer(MONGO_URI, MONGO_DB_NAME))
     else:
-        print("MongoDB logging is diabled for this run")
+        loggeru.info("MongoDB logging is diabled for this run")
 
     ProfileConfig.enabled = config['enable_profiling']
 
     return config
 
 
+def setup_optimizer(objective_function, x_size, opt_type=nlopt.LD_MMA):
+    """Set up the NLOpt optimizer with design variable bounds [0, 1]
+
+    Returns:
+        opt: A minimal NLOpt optimizer object without constraints
+
+    """
+    opt = nlopt.opt(opt_type, x_size)
+    opt.set_min_objective(objective_function)
+    opt.set_lower_bounds(0.)
+    opt.set_upper_bounds(1.)
+    return opt
+
+
+def run_warm_start(opt: nlopt.opt, x: np.ndarray):
+    """Execute the warm start phase of optimization. 
+
+    Returns:
+        x: The numpy array of the optimized result
+
+    We run a warm start because the gradient tends to be small at the very beginning. This means that it may falsely trigger a successful termination based on relative tolerance settings. So we run first without tolerances to force it to find at least some inital design, then turn on the tolerances
+    """
+
+    loggeru.info(
+        f"Starting warm start with {opt.get_maxeval()} iterations")
+    try:
+        x[:] = opt.optimize(x)
+    except nlopt.ForcedStop as e:
+        loggeru.error(f"NLOpt forced stop: {e}")
+        raise
+    except Exception as e:
+        loggeru.error(f"Unexpected error when running warm start: {e}")
+        raise
+    loggeru.info(
+        f"Warm start complete. Now shifting to graduated beta increase.")
+    return x
+
+
+def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: OptimizationState, x_history: list[np.ndarray]):
+    """Run the main optimization loop with graduated beta increases.
+
+    Returns:
+        tuple: (x, x_history, status_code) where status_code is the final NLOpt result code.
+
+    """
+    loggeru.info(
+        f"Running {len(betas)} beta increasing epochs with max {opt.get_maxeval()} iterations per epoch.")
+
+    # default value, means it didn't run because NLOpt doesn't use 0
+    status_code = 0
+
+    for n, beta in enumerate(betas, 1):
+        loggeru.info(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
+        ops.beta, ops.epoch = beta, n
+        try:
+            x[:] = opt.optimize(x)
+        except nlopt.ForcedStop as e:
+            loggeru.error(f"NLOpt forced stop: {e}")
+        except Exception as e:
+            loggeru.error(f"Unexpected error when running optimization: {e}")
+
+        status_code = opt.last_optimize_result()
+        loggeru.info(f"Optimizer exited with code: {status_code}")
+
+        x_history.append(x.copy())
+        ops.epoch_iter_tracker.append(len(ops.evals))
+
+    return x, x_history, status_code
+
+
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starting_epoch_duration, extremal_mode, basis_v, nelx, nely, norm_filter_radius, verbose, interim_plot, vector_constraint, tighten_vector_constraint, g_vec_eps, enable_profiling, log_to_db, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, seed):
 
     run_id, outname = generate_output_filepath(
         ex, extremal_mode, basis_v, seed)
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
-    metamate = setup_metamaterial(E_max,
-                                  E_min,
-                                  nu,
-                                  nelx,
-                                  nely,
-                                  mesh_cell_type='tri',
-                                  domain_shape='square')
+    metamate = setup_metamaterial(E_max, E_min, nu, nelx, nely)
 
     filt, filt_fn = setup_filter(metamate, norm_filter_radius)
-    if metamate.domain_volume > 1.:
-        logger.info("Metamaterial has rectangular domain")
-        img_resolution = (200, int(200*np.sqrt(3)))
-    else:
-        img_resolution = (200, 200)
 
     # global optimization state
     ops = OptimizationState(basis_v=V_DICT[basis_v],
@@ -104,71 +162,58 @@ def main(E_max, E_min, nu, start_beta, n_betas, n_epochs, epoch_duration, starti
                             beta=start_beta,
                             eta=0.5,
                             img_shape=(metamate.width, metamate.height),
-                            img_resolution=img_resolution,
+                            img_resolution=(200, 200),
                             plot_interval=25,
+                            show_plot=show_plot
                             # eval_axis_kwargs=dict(yscale='log')
                             )
 
-    # x = np.random.choice([0, 1], size=metamate.R.dim())
     x = np.random.uniform(0., 1., size=metamate.R.dim())
-    # x = mirror_density(x, metamate.R, axis='x')[0]
+    try:
+        x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
+    except ValueError as e:
+        loggeru.error(
+            f"Issue with applying mirror density. Mirror not applied.")
+        loggeru.error(e)
     x_history = [x.copy()]
 
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
     f = MatrixMatchingObjective(ops, low_val=E_min)
-
-    opt = nlopt.opt(nlopt.LD_MMA, x.size)
-    opt.set_min_objective(f)
-    opt.set_lower_bounds(0.)
-    opt.set_upper_bounds(1.)
+    opt = setup_optimizer(f, x.size)
     # ===== End Optimizer setup ======
 
     # ===== Warm start =====
-    logger.info(
-        f"Starting warm start with {starting_epoch_duration} iterations")
-    opt.set_maxeval(starting_epoch_duration)
-    x[:] = opt.optimize(x)
-    opt.set_maxeval(epoch_duration)
-    opt.set_ftol_rel(1e-7)
-    opt.set_xtol_rel(1e-7)
-    logger.info(
-        "Warm start complete. Now shifting to graduated beta increase with {epoch_duration} iterations per beta.")
+    opt.set_maxeval(warm_start_duration)
+    x = run_warm_start(opt, x)
 
     # ===== Optimization Loop =====
-    for n, beta in enumerate(betas, 1):
-        print(f"===== Beta: {beta} ({n}/{len(betas)}) =====")
-        ops.beta, ops.epoch = beta, n
-        try:
-            x[:] = opt.optimize(x)
-        except nlopt.ForcedStop:
-            print(f"nlopt forced stop: {e}")
-            # sys.exit(-2)
-        except Exception as e:
-            print(f"Optimization stopped: {e}")
-            # sys.exit(-1)
-        logger.info(f"Optimizer exited with code {opt.last_optimize_result()}")
-        x_history.append(x.copy())
-        ops.epoch_iter_tracker.append(len(ops.evals))
-        ops.opt_plot.draw()
+    # Update tolerances and durations after warm start
+    opt.set_maxeval(epoch_duration)
+    opt.set_ftol_rel(1e-6)
+    opt.set_xtol_rel(1e-6)
+    x, x_history, status_code = run_optimization_loop(
+        opt, x, betas, ops, x_history)
 
-    logger.info("Optimization complete")
-    plt.show(block=True)
+    loggeru.info(
+        f"Optimization complete with final NLOpt status code: {status_code}")
 
     # ===== End Optimization Loop =====
 
     # ===== Post-Processing =====
-    save_results(ex,
-                 run_id,
-                 outname,
-                 metamate,
-                 img_rez,
-                 img_shape,
-                 ops,
-                 x,
-                 f,
-                 x_history)
+    Chom = f.forward(x)[1]
+    loggeru.info(calculate_elastic_constants(Chom, input_style='standard'))
+    # save_results(ex,
+    #              run_id, t:
+    #              outname,
+    #              metamate,
+    #              img_rez,
+    #              img_shape,
+    #              ops,
+    #              x,
+    #              f,
+    #              x_history)
 
-    if f.show_plot:
-        plt.close(f.fig)
+    # if f.show_plot:
+    #     plt.close(f.fig)

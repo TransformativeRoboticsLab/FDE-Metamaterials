@@ -26,9 +26,10 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
         P0 = fe.Point(0, 0)
         P1 = fe.Point(1, 1)
         if 'rect' in domain_shape:
+            logger.warning("'rect' domain shape is currently unverified.")
             P1 = fe.Point(np.sqrt(3), 1)
             nelx = int(nelx * np.sqrt(3))
-            logger.info(
+            logger.debug(
                 f"Rectangular domain requested. Adjusting nelx to {nelx:d} cells to better match aspect ratio.")
         metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
