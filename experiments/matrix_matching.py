@@ -157,7 +157,7 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
         ops.epoch_iter_tracker.append(len(ops.evals))
 
         ops.x = x_.copy()
-        save_intermediate_results(ex, ops, n)
+        save_intermediate_results(ex, ops, last_value, n)
 
     return x_, x_history, status_code, last_value
 
@@ -224,7 +224,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     x[:] = run_warm_start(opt, x)
     ops.x_history.append(x.copy())
     ops.x = x.copy()
-    save_intermediate_results(ex, ops, 0)
+    save_intermediate_results(ex, ops, opt.last_optimum_value(), 0)
 
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
@@ -244,7 +244,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== Post-Processing =====
     loggeru.info(calculate_elastic_constants(ops.Chom, input_style='standard'))
     try:
-        save_final_results(ex, ops, f)
+        save_final_results(ex, ops)
     except Exception as e:
         logger.error(f"Error when saving results: {e}")
     # save_results(ex,

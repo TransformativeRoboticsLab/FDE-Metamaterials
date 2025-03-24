@@ -322,7 +322,7 @@ def print_epoch_summary(opt, i):
     logger.info(f"===== End Epoch Summary: {i+1} =====\n")
 
 
-def save_intermediate_results(ex, ops: OptimizationState, i: int):
+def save_intermediate_results(ex, ops: OptimizationState, val: float, i: int):
     ops.draw(update_images=True)
 
     outdir = generate_output_dir(ex, ops)
@@ -333,13 +333,14 @@ def save_intermediate_results(ex, ops: OptimizationState, i: int):
     log_values(ex, M)
 
     ex.log_scalar('volume_fraction', ops.metamaterial.volume_fraction)
+    ex.log_scalar('objective', val)
 
     x_img = bitmapify(ops.metamaterial.x, ops.img_shape,
                       ops.img_resolution, invert=True)
     save_bmp_and_artifact(ex, x_img, outdir, f'cell_e-{i}.png')
 
 
-def save_final_results(ex, ops: OptimizationState, obj: OptimizationComponent):
+def save_final_results(ex, ops: OptimizationState):
     ops.draw(update_images=True)
     outdir = generate_output_dir(ex, ops)
 
