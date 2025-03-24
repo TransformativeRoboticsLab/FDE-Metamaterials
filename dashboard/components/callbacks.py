@@ -25,18 +25,23 @@ def register_callbacks(app):
             Input('E-filter', 'value'),
             Input('basis-filter', 'value'),
             Input('mode-filter', 'value'),
+            Input('dist-filter', 'value')
         ],
     )
-    def update_scatter_plot_cb(x_metric, y_metric, nu_filter, E_filter, basis_filter, mode_filter):
+    def update_scatter_plot_cb(x_metric, y_metric, nu_filter, E_filter, basis_filter, mode_filter, dist_filter):
 
         filters = {
             'nu': nu_filter,
             'E_min': E_filter,
             'basis_v': basis_filter,
             'extremal_mode': mode_filter,
+            'dist_type': dist_filter
         }
+        logger.debug(f"Applied filters: {filters}")
         experiments = get_cached_experiments()
         logger.info(f"{len(experiments)} experiments in update_scatter_plot()")
+        # for e in experiments:
+        #     logger.debug(e.config)
 
         scatter_df = prepare_scatter_data(x_metric,
                                           y_metric,

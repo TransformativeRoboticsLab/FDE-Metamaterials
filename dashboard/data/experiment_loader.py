@@ -18,12 +18,15 @@ MONGO_DB_NAME = os.getenv('LOCAL_MONGO_DB_NAME')
 MONGO_EXP_NAME = os.getenv('LOCAL_MONGO_EXP_NAME')
 
 DEFAULT_FILTER_TAGS = ['BAD', 'DUPE']
+DIST_TYPES = ['fro', 'log_euc']
 DB_QUERY = {"$and": [
     {'experiment.name': MONGO_EXP_NAME},
     {'status': 'COMPLETED'},
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
     {'config.nu': {'$eq': 0.4}},
-    # {'config.single_sim': {'$eq': True}}
+    {'config.objective_type': {'$eq': None}},
+    # {'config.dist_type': {'$ne': 'affine'}},
+
 ]}
 
 try:
@@ -82,7 +85,8 @@ def load_experiments(experiment_name, filter_tags=[], process_exps=True):
 
     try:
         exps = loader.find(DB_QUERY)
-        logger.info(f"{len(exps)} found matching query")
+        logger.info(
+            f"{len(exps)} found matching query for query {format_query(DB_QUERY)}")
         if len(exps) == 0:
             raise ValueError(
                 f"No experiemnts found matching query for experiment '{format_query(DB_QUERY)}'")
@@ -102,6 +106,8 @@ def init_experiments_load(experiment_name=MONGO_EXP_NAME,
     with cache_lock:
         experiments_cache, dropdown_options_cache = load_experiments(
             experiment_name, filter_tags)
+        # for exp in experiments_cache:
+        # logger.info(f"Experiment config: {exp.config}")
     logger.success(f"Done initializing experiments")
 
 

@@ -73,6 +73,14 @@ def filters_div(doc):
     input_div = html.Div(
         [
             html.H2("Input Parameter Filters"),
+            html.Label('Matrix Distance Method'),
+            dcc.Dropdown(
+                id='dist-filter',
+                options=['fro', 'log_euc', 'affine', 'sqrt', 'airm'],
+                value=[],
+                multi=True,
+                clearable=True
+            ),
             html.Label('Basis'),
             dcc.Dropdown(
                 id='basis-filter',

@@ -82,14 +82,19 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
     # helpers
     def last(x): return x.iloc[-1]
 
+    logger.debug(filters)
+
     df = exps.project(on=[{f"metrics.{x_metric}": last},
                           {f"metrics.{y_metric}": last},
                           "id",
                           "config.extremal_mode",
                           "config.basis_v",
                           "config.nu",
-                          "config.E_min"
+                          "config.E_min",
+                          "config.dist_type"
                           ])
+
+    # logger.debug(df)
 
     clean_up_col_names(df)
     # apply filters
