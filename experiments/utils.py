@@ -69,6 +69,11 @@ PARAMETER_SPECS = {
         'type': 'cat',
         'values': ('ray', 'ray_sq', 'ratio')
     },
+    'dist_type': {
+        'type': 'cat',
+        'values': ['fro',]  # 'log_euc', 'airm']
+        # the log euclidean and AIRM metrics are supposed to be better for SPD matrices, but I haven't seen any appreciable effect so I'll stick with Frobenius for now
+    },
     'nelx': {
         'type': 'int',
         'range': (10, 1_000),
