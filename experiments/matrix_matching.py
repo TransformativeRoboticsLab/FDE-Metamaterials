@@ -10,9 +10,10 @@ from metatop import V_DICT
 from metatop.filters import setup_filter
 from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
-from metatop.optimization.scalar import MatrixMatchingObjective
+from metatop.optimization.scalar import (MatrixMatchingObjective,
+                                         VolumeConstraint)
 from metatop.profiling import ProfileConfig
-from metatop.utils import mirror_density
+from metatop.utils import beta_function, mirror_density
 
 jax.config.update("jax_enable_x64", True)
 
@@ -57,7 +58,9 @@ def config():
     g_vec_eps = 1.
     enable_profiling = False
     log_to_db = True
-    verbose = False
+    verbose = True
+    rtol = 1e-6
+    volume_constraint = 0.
 
 
 @ex.config_hook
@@ -146,7 +149,9 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
             loggeru.error(f"Unexpected error when running optimization: {e}")
 
         status_code = opt.last_optimize_result()
+        last_value = opt.last_optimum_value()
         loggeru.info(f"Optimizer exited with code: {status_code}")
+        loggeru.info(f"Final optimized value from this epoch: {last_value}")
 
         x_history.append(x_.copy())
         ops.epoch_iter_tracker.append(len(ops.evals))
@@ -154,11 +159,11 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
         ops.x = x_.copy()
         save_intermediate_results(ex, ops, n)
 
-    return x_, x_history, status_code
+    return x_, x_history, status_code, last_value
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, rtol, volume_constraint, seed):
 
     loggeru.debug(f"Seed: {seed}")
 
@@ -184,20 +189,34 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
                             eval_axis_kwargs=dict(yscale='log')
                             )
 
-    x = np.random.uniform(0., 1., size=metamate.R.dim())
-    try:
-        x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
-    except Exception as e:
-        loggeru.error(
-            f"Issue with applying mirror density. Mirror not applied.")
-        loggeru.error(e)
+    # If we have a volume constriant we apply a beta function to have the mean be approximately that level so we start in a feasible spot
+    if volume_constraint > 0.:
+        x = beta_function(volume_constraint, size=metamate.R.dim())
+    # else we just seed it randomly with approx 0.5 volume fraction
+    else:
+        x = np.random.uniform(0., 1., size=metamate.R.dim())
+
+    if 'NSC' not in basis_v:
+        try:
+            x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
+        except Exception as e:
+            loggeru.error(
+                f"Issue with applying mirror density. Mirror not applied.")
+            loggeru.error(e)
+    else:
+        logger.warning(
+            "NSC asked for in basis_v, but so was mirror. Skipping mirroring step.")
     ops.x_history.append(x.copy())
 
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = MatrixMatchingObjective(ops, low_val=E_min, dist_type=dist_type)
+    f = MatrixMatchingObjective(
+        ops, low_val=E_min, dist_type=dist_type)
     opt = setup_optimizer(f, x.size)
+    if volume_constraint and volume_constraint > 0.:
+        opt.add_inequality_constraint(
+            VolumeConstraint(ops, eps=volume_constraint), 0.)
     # ===== End Optimizer setup ======
 
     # ===== Warm start =====
@@ -210,13 +229,15 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
     opt.set_maxeval(epoch_duration)
-    opt.set_ftol_rel(1e-6)
-    opt.set_xtol_rel(1e-6)
-    x, x_history, status_code = run_optimization_loop(opt, x, betas, ops)
+    opt.set_ftol_rel(rtol)
+    opt.set_xtol_rel(rtol)
+    x, x_history, status_code, final_value = run_optimization_loop(
+        opt, x, betas, ops)
     ops.x_history.extend(x_history)
     ops.x = x.copy()
     loggeru.info(
         f"Optimization complete with final NLOpt status code: {status_code}")
+    loggeru.info(f"Final optimized value: {final_value}")
 
     # ===== End Optimization Loop =====
 
