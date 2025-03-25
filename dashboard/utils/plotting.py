@@ -2,10 +2,23 @@ import re
 
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from loguru import logger
 from utils.utils import log_execution_time
 
 from data import get_cached_experiments
+
+
+# Extract metric types and check if they are the same
+def get_metric_type(metric):
+    """Extract the type of metric (e.g., 'E' from 'E1', 'nu' from 'nu12')."""
+    match = re.match(r'^([a-zA-Z]+)', str(metric))
+    return match.group(1) if match else str(metric)
+
+
+def metrics_match(m1, m2):
+    # If metrics are exactly the same or of the same type (E1 vs E2)
+    return m1 == m2 or get_metric_type(m1) == get_metric_type(m2)
 
 
 @log_execution_time()
@@ -13,6 +26,8 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     logger.info("Building scatter figure")
     logger.debug(f"x_metric: {x_metric}")
     logger.debug(f"y_metric: {y_metric}")
+
+    # Fix: Don't use custom_data parameter directly, use the customdata parameter of px.scatter
     fig = px.scatter(
         df,
         x=x_metric,
@@ -20,6 +35,8 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         hover_name='Run ID',
         symbol='extremal_mode',
         color='basis_v',
+        # line=dict(width=1, color='DarkSlateGrey')
+        # Don't include custom_data here - it's causing dimension mismatch
     )
     fig.update_layout(
         transition=dict(
@@ -28,23 +45,112 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
             ordering='traces first'
         ),
         title=f"{len(df)} Data Points",
+        clickmode='event+select',  # Enable both click events and selection
     )
 
-    # Extract metric types and check if they are the same
-    def get_metric_type(metric):
-        """Extract the type of metric (e.g., 'E' from 'E1', 'nu' from 'nu12')."""
-        match = re.match(r'^([a-zA-Z]+)', str(metric))
-        return match.group(1) if match else str(metric)
-
-    # If metrics are exactly the same or of the same type (E1 vs E2), snap the scales together
-    if x_metric == y_metric or get_metric_type(x_metric) == get_metric_type(y_metric):
+    if metrics_match(x_metric, y_metric):
         fig.update_yaxes(scaleanchor='x', scaleratio=1)
 
+        # Add y=x line without affecting axis limits
+        fig.add_shape(
+            type="line",
+            x0=0, y0=0, x1=1, y1=1,
+            line=dict(
+                color="Black",
+                width=2,
+                dash="dash",
+            ),
+            opacity=0.5,
+            layer="below",
+        )
+
     fig.update_traces(
-        marker=dict(size=12),
+        marker=dict(
+            opacity=0.5,
+            size=12,
+            line=dict(width=1, color='DarkSlateGrey'),
+        ),
+        selected=dict(
+            marker=dict(
+                size=16,
+                opacity=1.0,
+                color='DarkSlateGrey'
+            )
+        ),
+        unselected=dict(
+            marker=dict(opacity=0.2)
+        ),
     )
 
     logger.info("Done building scatter figure")
+    return fig
+
+
+@log_execution_time()
+def build_polar_figure(df, theta_col, r_metrics, colors=[], size=(800, 800), r_limits=None, title=None):
+    """
+    Build a polar plot figure with transition effects.
+
+    Parameters:
+    df (pandas.DataFrame): The dataframe containing the data to plot.
+    r_metric (str): The name of the column to use for the radial dimension.
+    theta_metric (str): The name of the column to use for the angular dimension.
+    size (tuple, optional): The size of the figure (width, height). Defaults to (800, 800).
+    r_limits (tuple, optional): The range limits for the radial axis (min, max). Defaults to None.
+
+    Returns:
+    plotly.graph_objs._figure.Figure: The polar plot figure.
+    """
+    logger.info("Building polar figure")
+
+    if isinstance(r_metrics, str):
+        r_metrics = [r_metrics]
+
+    if not colors:
+        colors = px.colors.qualitative.D3
+
+    logger.debug(f"theta_col: {theta_col}")
+    logger.debug(f"r_metrics: {r_metrics}")
+    logger.debug(f"r_limits: {r_limits}")
+    logger.debug(f"colors: {colors}")
+
+    # Create base figure with first metric
+    fig = px.line_polar(
+        df,
+        r=r_metrics[0],
+        theta=theta_col,
+        color_discrete_sequence=[colors[0]]
+    )
+
+    # Set name and ensure it appears in legend
+    fig.data[0].name = r_metrics[0]
+    fig.data[0].showlegend = True
+
+    # Add additional metrics if there are any
+    for i, metric in enumerate(r_metrics[1:], 1):
+        fig.add_scatterpolar(
+            r=df[metric],
+            theta=df[theta_col],
+            mode='lines',
+            name=metric,
+            line=dict(color=colors[i % len(colors)])
+        )
+
+    # Set radial axis limits if provided
+    if r_limits:
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    range=r_limits
+                )
+            )
+        )
+
+    # Set the title if provided
+    if title:
+        fig.update_layout(title=title)
+
+    logger.info("Done building polar figure")
     return fig
 
 

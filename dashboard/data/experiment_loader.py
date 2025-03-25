@@ -200,18 +200,31 @@ def get_image_from_experiment(id, img_type='array'):
 
 
 def get_matrix_from_experiment(id):
-    try:
-        C = loader.find_by_id(id).info['final_C']
-        return ('C', C)
-    except:
-        logger.error(f"Unable to find a C matrix. Looking for M matrix now")
-    try:
-        M = loader.find_by_id(id).info['final_M']
-        return ('M', M)
-    except:
-        logger.error("Unable to find an M matrix.")
+    """
+    Retrieves a matrix ('final_C' or 'final_M') from an experiment by its ID.
+    Args:
+        id (str or int): The ID of the experiment.
+    Returns:
+        tuple: A tuple containing the matrix type ('C', 'M', or 'I' for identity) and the matrix itself.
+               Returns ('I', np.eye(3)) if neither 'final_C' nor 'final_M' is found.
+    """
+    exp = loader.find_by_id(id)
+    mat_type = 'I'
+    mat = np.eye(3)
 
-    return ('I', np.eye(3))
+    matrix_names = {'C': 'final_C', 'M': 'final_M'}
+
+    for matrix_type, matrix_name in matrix_names.items():
+        try:
+            mat = exp.info[matrix_name]
+            mat_type = matrix_type
+            logger.success(f"Found matrix of type {mat_type}")
+            return (mat_type, mat)
+        except KeyError:
+            logger.warning(f"Unable to find {matrix_name} matrix.")
+
+    logger.error("Unable to find C or M matrix; returning identity matrix.")
+    return (mat_type, mat)
 
 
 def update_dropdown_options(exps):

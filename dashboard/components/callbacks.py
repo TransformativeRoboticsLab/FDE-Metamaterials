@@ -9,7 +9,7 @@ from data.experiment_loader import (get_cached_experiments,
                                     get_matrix_from_experiment)
 from loguru import logger
 from utils.mechanics import generate_planar_values
-from utils.plotting import build_scatter_figure
+from utils.plotting import build_polar_figure, build_scatter_figure
 from utils.utils import encode_image
 
 
@@ -51,6 +51,46 @@ def register_callbacks(app):
         return fig
 
     @app.callback(
+        [Output('EG-polar-plot', 'figure'),
+         Output('Nu-polar-plot', 'figure')],
+        Input('scatter-plot', 'hoverData'),
+        Input('scatter-plot', 'selectedData')
+    )
+    def update_polar_plot(hover_data, selected_data):
+        logger.debug(f"hoverData: {hover_data}")
+        logger.debug(f"selectedData: {selected_data}")
+
+        data = selected_data if selected_data else hover_data
+
+        if data is None:
+            raise PreventUpdate
+
+        title = data['points'][0]['hovertext']
+        df = get_material_properties(data)
+        eg_fig = build_polar_figure(df, 'theta', ['E', 'G'], title=title)
+        nu_fig = build_polar_figure(df, 'theta', 'nu', colors=[
+                                    '#2CA02C'], r_limits=[-1, 1], title=title)
+
+        return eg_fig, nu_fig
+
+    def get_material_properties(data):
+        run_id = get_run_id(data)
+        mat_type, mat = get_matrix_from_experiment(run_id)
+        thetas, Es, Gs, nus = generate_planar_values(
+            mat, input_style='standard' if mat_type == 'C' else 'mandel')
+        df = pd.DataFrame({
+            'theta': thetas*180/np.pi,
+            'E': Es,
+            'G': Gs,
+            'nu': nus
+        })
+
+        return df
+
+    def get_run_id(data):
+        return int(data['points'][0]['hovertext'].split(': ')[1])
+
+    @app.callback(
         Output('hover-image', 'src'),
         #  Output('hover-text', 'children')],
         Input('scatter-plot', 'hoverData')
@@ -81,104 +121,5 @@ def register_callbacks(app):
         if n_clicks is None:
             raise PreventUpdate
         return [], [], [], []
-
-    @app.callback(
-        [Output('EG-polar-plot', 'figure'),
-         Output('Nu-polar-plot', 'figure')],
-        Input('scatter-plot', 'hoverData')
-    )
-    def update_polar_plot(hover_data):
-        if hover_data is None:
-            raise PreventUpdate
-
-        run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
-        logger.debug
-        mat_type, mat = get_matrix_from_experiment(run_id)
-        thetas, Es, Gs, nus = generate_planar_values(
-            mat, input_style='standard' if mat_type == 'C' else 'mandel')
-        df = pd.DataFrame({
-            'theta': thetas*180/np.pi,
-            'E': Es,
-            'G': Gs,
-            'nu': nus
-        })
-
-        # Create the EG polar plot
-        eg_fig = px.line_polar(
-            df,
-            r='E',
-            theta='theta',
-            color_discrete_sequence=['red'],
-        )
-        eg_fig.data[0].name = 'E'
-        eg_fig.data[0].showlegend = True
-        eg_fig.add_scatterpolar(
-            r=df['G'],
-            theta=df['theta'],
-            mode='lines',
-            name='G',
-            line=dict(color='blue')
-        )
-
-        eg_fig.update_layout(
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            transition=dict(
-                duration=500,
-                easing='cubic-in-out',
-                ordering='layout first'
-            ),
-            polar=dict(
-                angularaxis=dict(
-                    direction="counterclockwise",
-                    # Puts 0 degrees at the right (3 o'clock position)
-                    rotation=90
-                )
-            )
-        )
-
-        # Create the Nu polar plot
-        nu_fig = px.line_polar(
-            df,
-            r='nu',
-            theta='theta',
-            color_discrete_sequence=['green'],
-        )
-        nu_fig.data[0].name = 'ν'
-        nu_fig.data[0].showlegend = True
-
-        nu_fig.update_layout(
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            transition=dict(
-                duration=500,
-                easing='cubic-in-out',
-                ordering='layout first'
-            ),
-            polar=dict(
-                radialaxis=dict(
-                    range=[-1, 1]  # Set a fixed range for Poisson's ratio
-                ),
-                angularaxis=dict(
-                    direction="counterclockwise",
-                    # Puts 0 degrees at the right (3 o'clock position)
-                    rotation=90
-                )
-            )
-        )
-
-        return eg_fig, nu_fig
 
     logger.info("CALLBACKS: Finished")
