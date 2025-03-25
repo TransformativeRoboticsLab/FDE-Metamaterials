@@ -247,16 +247,3 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
         save_final_results(ex, ops)
     except Exception as e:
         logger.error(f"Error when saving results: {e}")
-    # save_results(ex,
-    #              run_id, t:
-    #              outname,
-    #              metamate,
-    #              img_rez,
-    #              img_shape,
-    #              ops,
-    #              x,
-    #              f,
-    #              x_history)
-
-    # if f.show_plot:
-    #     plt.close(f.fig)
