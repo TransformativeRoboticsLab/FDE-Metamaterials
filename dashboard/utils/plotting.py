@@ -41,22 +41,22 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         color='basis_v',
     )
 
-    # Calculate min and max for x and y
-    x_min = df[x_metric].min() if not df.empty else 0
-    x_max = df[x_metric].max() if not df.empty else 1
-    y_min = df[y_metric].min() if not df.empty else 0
-    y_max = df[y_metric].max() if not df.empty else 1
+    # # Calculate min and max for x and y
+    # x_min = df[x_metric].min() if not df.empty else 0
+    # x_max = df[x_metric].max() if not df.empty else 1
+    # y_min = df[y_metric].min() if not df.empty else 0
+    # y_max = df[y_metric].max() if not df.empty else 1
 
-    # Set axis ranges based on data and whether negative values are allowed
-    if negative_ok(x_metric):
-        x_range = [x_min - 0.1, x_max + 0.1]
-    else:
-        x_range = [0, x_max + 0.1]
+    # # Set axis ranges based on data and whether negative values are allowed
+    # if negative_ok(x_metric):
+    #     x_range = [x_min - 0.1, x_max + 0.1]
+    # else:
+    #     x_range = [0, x_max + 0.1]
 
-    if negative_ok(y_metric):
-        y_range = [y_min - 0.1, y_max + 0.1]
-    else:
-        y_range = [0, y_max + 0.1]
+    # if negative_ok(y_metric):
+    #     y_range = [y_min - 0.1, y_max + 0.1]
+    # else:
+    #     y_range = [0, y_max + 0.1]
 
     fig.update_layout(
         transition=dict(
@@ -66,8 +66,8 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         ),
         title=f"{len(df)} Data Points",
         clickmode='event+select',
-        xaxis=dict(range=x_range),
-        yaxis=dict(range=y_range)
+        # xaxis=dict(range=x_range),
+        # yaxis=dict(range=y_range)
     )
 
     if metrics_match(x_metric, y_metric):
