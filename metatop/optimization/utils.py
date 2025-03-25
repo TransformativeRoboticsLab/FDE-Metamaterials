@@ -70,14 +70,13 @@ def sqrtm_dist(A, B):
 
 
 @jax.jit
-def eigenpair_dist(A, B):
+def eigenpair_dist(A, B, pen=0.5):
     # This doesn't really work when we're always normalizing the matrices
     wA, vA = jnp.linalg.eigh(A)
     wB, vB = jnp.linalg.eigh(B)
 
     # Calculate similarity matrix between eigenvectors of A and B
     similarity = jnp.abs(vA.T @ vB)
-
     # Find the best match in A for each eigenvector in B
     best_matches = jnp.argmax(similarity, axis=0)
 
@@ -88,7 +87,7 @@ def eigenpair_dist(A, B):
     eigval_pen = jnp.sum(jnp.square(wA_aligned - wB))
     eigvec_pen = jnp.sum(1 - jnp.abs(jnp.diag(vA_aligned.T @ vB)))
 
-    return eigval_pen + eigvec_pen
+    return pen * eigval_pen + (1. - pen) * eigvec_pen, jnp.array([eigval_pen, eigvec_pen])
 
 
 @jax.jit
