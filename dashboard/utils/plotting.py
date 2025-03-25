@@ -21,6 +21,11 @@ def metrics_match(m1, m2):
     return m1 == m2 or get_metric_type(m1) == get_metric_type(m2)
 
 
+def negative_ok(metric_name):
+    negative_metrics = ['nu', 'eta']
+    return any(n in metric_name for n in negative_metrics)
+
+
 @log_execution_time()
 def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     logger.info("Building scatter figure")
@@ -38,6 +43,24 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         # line=dict(width=1, color='DarkSlateGrey')
         # Don't include custom_data here - it's causing dimension mismatch
     )
+
+    # Calculate min and max for x and y
+    x_min = df[x_metric].min() if not df.empty else 0
+    x_max = df[x_metric].max() if not df.empty else 1
+    y_min = df[y_metric].min() if not df.empty else 0
+    y_max = df[y_metric].max() if not df.empty else 1
+
+    # Set axis ranges based on data and whether negative values are allowed
+    if negative_ok(x_metric):
+        x_range = [x_min - 0.1, x_max + 0.1]
+    else:
+        x_range = [0, x_max + 0.1]
+
+    if negative_ok(y_metric):
+        y_range = [y_min - 0.1, y_max + 0.1]
+    else:
+        y_range = [0, y_max + 0.1]
+
     fig.update_layout(
         transition=dict(
             duration=500,
@@ -46,6 +69,8 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         ),
         title=f"{len(df)} Data Points",
         clickmode='event+select',  # Enable both click events and selection
+        xaxis=dict(range=x_range),
+        yaxis=dict(range=y_range)
     )
 
     if metrics_match(x_metric, y_metric):
@@ -72,9 +97,8 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         ),
         selected=dict(
             marker=dict(
-                size=16,
+                size=18,
                 opacity=1.0,
-                color='DarkSlateGrey'
             )
         ),
         unselected=dict(
@@ -119,10 +143,9 @@ def build_polar_figure(df, theta_col, r_metrics, colors=[], size=(800, 800), r_l
         df,
         r=r_metrics[0],
         theta=theta_col,
-        color_discrete_sequence=[colors[0]]
+        color_discrete_sequence=[colors[0]],
     )
 
-    # Set name and ensure it appears in legend
     fig.data[0].name = r_metrics[0]
     fig.data[0].showlegend = True
 
@@ -136,17 +159,20 @@ def build_polar_figure(df, theta_col, r_metrics, colors=[], size=(800, 800), r_l
             line=dict(color=colors[i % len(colors)])
         )
 
-    # Set radial axis limits if provided
-    if r_limits:
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    range=r_limits
-                )
-            )
-        )
+    # Create unified polar configuration so that it is aligned how we want
+    polar_config = {
+        "angularaxis": {
+            "rotation": 0,  # Rotate by 90 degrees
+            "direction": "counterclockwise",
+            "thetaunit": "radians"
+        }
+    }
 
-    # Set the title if provided
+    if r_limits:
+        polar_config["radialaxis"] = {"range": r_limits}
+
+    fig.update_layout(polar=polar_config)
+
     if title:
         fig.update_layout(title=title)
 

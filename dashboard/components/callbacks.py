@@ -13,6 +13,25 @@ from utils.plotting import build_polar_figure, build_scatter_figure
 from utils.utils import encode_image
 
 
+def get_material_properties(data):
+    run_id = get_run_id(data)
+    mat_type, mat = get_matrix_from_experiment(run_id)
+    thetas, Es, Gs, nus = generate_planar_values(
+        mat, input_style='standard' if mat_type == 'C' else 'mandel')
+    df = pd.DataFrame({
+        'theta': thetas*180/np.pi,
+        'E': Es,
+        'G': Gs,
+        'nu': nus
+    })
+
+    return df
+
+
+def get_run_id(data):
+    return int(data['points'][0]['hovertext'].split(': ')[1])
+
+
 def register_callbacks(app):
     logger.info('CALLBACKS: Registering')
 
@@ -56,7 +75,7 @@ def register_callbacks(app):
         Input('scatter-plot', 'hoverData'),
         Input('scatter-plot', 'selectedData')
     )
-    def update_polar_plot(hover_data, selected_data):
+    def update_polar_plot_cb(hover_data, selected_data):
         logger.debug(f"hoverData: {hover_data}")
         logger.debug(f"selectedData: {selected_data}")
 
@@ -66,29 +85,14 @@ def register_callbacks(app):
             raise PreventUpdate
 
         title = data['points'][0]['hovertext']
+        colors = px.colors.qualitative.D3
         df = get_material_properties(data)
-        eg_fig = build_polar_figure(df, 'theta', ['E', 'G'], title=title)
-        nu_fig = build_polar_figure(df, 'theta', 'nu', colors=[
-                                    '#2CA02C'], r_limits=[-1, 1], title=title)
+        eg_fig = build_polar_figure(
+            df, 'theta', ['E', 'G'], r_limits=[0, 0.55], colors=colors, title=title)
+        nu_fig = build_polar_figure(
+            df, 'theta', 'nu', [colors[2]], r_limits=[-1, 1.05], title=title)
 
         return eg_fig, nu_fig
-
-    def get_material_properties(data):
-        run_id = get_run_id(data)
-        mat_type, mat = get_matrix_from_experiment(run_id)
-        thetas, Es, Gs, nus = generate_planar_values(
-            mat, input_style='standard' if mat_type == 'C' else 'mandel')
-        df = pd.DataFrame({
-            'theta': thetas*180/np.pi,
-            'E': Es,
-            'G': Gs,
-            'nu': nus
-        })
-
-        return df
-
-    def get_run_id(data):
-        return int(data['points'][0]['hovertext'].split(': ')[1])
 
     @app.callback(
         Output('hover-image', 'src'),
@@ -120,7 +124,7 @@ def register_callbacks(app):
         ],
         [Input('clear-button', 'n_clicks')]
     )
-    def clear_dropdowns(n_clicks):
+    def clear_dropdowns_cb(n_clicks):
         if n_clicks is None:
             raise PreventUpdate
         return [], [], [], []
