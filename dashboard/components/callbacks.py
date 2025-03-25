@@ -93,11 +93,14 @@ def register_callbacks(app):
     @app.callback(
         Output('hover-image', 'src'),
         #  Output('hover-text', 'children')],
-        Input('scatter-plot', 'hoverData')
+        Input('scatter-plot', 'hoverData'),
+        Input('scatter-plot', 'selectedData')
     )
-    def update_array_img_cb(hover_data):
-        if hover_data:
-            run_id = int(hover_data['points'][0]['hovertext'].split(': ')[1])
+    def update_array_img_cb(hover_data, selected_data):
+        data = selected_data if selected_data else hover_data
+        if data:
+            # run_id = int(data['points'][0]['hovertext'].split(': ')[1])
+            run_id = get_run_id(data)
             try:
                 exp_img = get_image_from_experiment(run_id)
                 img_src = f"data:image/png;base64,{encode_image(exp_img)}"
@@ -105,7 +108,7 @@ def register_callbacks(app):
             except Exception as e:
                 logger.error(
                     f"Exception occured while loading image for run {run_id}: {e}")
-        logger.debug("No hover_data for datapoint")
+        logger.debug("No data for datapoint")
         return ''
 
     @app.callback(
