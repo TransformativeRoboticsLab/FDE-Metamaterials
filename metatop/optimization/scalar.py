@@ -46,7 +46,7 @@ class ScalarObjective(ScalarOptimizationComponent):
             logger.info(f"{self.ops.obj_n_calls}:")
             logger.info(f"{self.__class__.__name__} f(x): {c:.4f}")
             if self.verbose:
-                logger.info(f"Raw values:\n{cs}")
+                logger.info(f"Raw values: {cs}")
 
         stop_on_nan(c)
         return float(c)
@@ -94,20 +94,11 @@ class MatrixMatchingObjective(ScalarObjective):
     def __init__(self, *args, low_val: float = 0.01, dist_type: str = 'fro', **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.dist_type = dist_type
-        if 'fro' == dist_type:
-            self.dist_fn = frobenius_dist
-        # elif 'airm' == dist_type:
-        #     self.dist_fn = airm_dist
-        # elif 'log_euc' == dist_type:
-        #     self.dist_fn = log_euclidean_dist
-        # elif 'sqrt' == dist_type:
-        #     self.dist_fn = sqrtm_dist
-        # elif 'eig' == dist_type:
-        #     self.dist_fn = eigenpair_dist
-        else:
+        if dist_type not in self._dist_types:
             raise NotImplementedError(
                 f"Distance metric {dist_type} not implemented.")
+        self.dist_type = dist_type
+        self.dist_fn = self._dist_types[self.dist_type]['fn']
 
         logger.debug(f"Using {dist_type} distance metric")
 
@@ -130,7 +121,17 @@ class MatrixMatchingObjective(ScalarObjective):
 
     @property
     def _label(self):
-        return r"$\|M-M^*\|_F^2$"
+        return self._dist_types[self.dist_type]['label']
+
+    @property
+    def _dist_types(self):
+        d = {}
+        d['fro'] = dict(fn=frobenius_dist, label=r"$\|M-M^*\|_F$")
+        d['airm'] = dict(fn=airm_dist,
+                         label=r"$\|\text{log}(M^{-1/2} M^* M^{-1/2})\|_F$")
+        d['log_euc'] = dict(fn=log_euclidean_dist,
+                            label=r"$\|\text{log}(M) - \text{log}(M^*)\|_F$")
+        return d
 
 
 # class MatrixMatchingConstraint(ScalarOptimizationComponent):
