@@ -32,7 +32,6 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     logger.debug(f"x_metric: {x_metric}")
     logger.debug(f"y_metric: {y_metric}")
 
-    # Fix: Don't use custom_data parameter directly, use the customdata parameter of px.scatter
     fig = px.scatter(
         df,
         x=x_metric,
@@ -40,8 +39,6 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         hover_name='Run ID',
         symbol='extremal_mode',
         color='basis_v',
-        # line=dict(width=1, color='DarkSlateGrey')
-        # Don't include custom_data here - it's causing dimension mismatch
     )
 
     # Calculate min and max for x and y
@@ -68,7 +65,7 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
             ordering='traces first'
         ),
         title=f"{len(df)} Data Points",
-        clickmode='event+select',  # Enable both click events and selection
+        clickmode='event+select',
         xaxis=dict(range=x_range),
         yaxis=dict(range=y_range)
     )
