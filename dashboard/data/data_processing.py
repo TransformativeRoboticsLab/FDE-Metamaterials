@@ -5,6 +5,7 @@ import pandas as pd
 from loguru import logger
 from PIL import Image
 from utils.mechanics import generate_planar_values, isotropic_elasticity_matrix
+from utils.utils import log_execution_time
 
 
 def compute_volume_fraction(e):
@@ -76,7 +77,9 @@ def process_experiments(experiments):
     return experiments
 
 
+@log_execution_time()
 def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
+    # TODO: First run takes a long time. Low pri, but it'd be nice to figure out why
     logger.info("Preparing scatter plot data")
 
     # helpers
@@ -93,8 +96,6 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
                           "config.E_min",
                           "config.dist_type"
                           ])
-
-    # logger.debug(df)
 
     clean_up_col_names(df)
     # apply filters

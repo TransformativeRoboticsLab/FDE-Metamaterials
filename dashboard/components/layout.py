@@ -20,34 +20,73 @@ def create_layout():
 
 def main_content():
     main_content = dbc.Col(
-        dbc.Row(
-            [
-                dbc.Col(
-                    dcc.Graph(
-                        id='scatter-plot',
-                        config={'displayModeBar': False}
+        [
+            # First row: Scatter plot (left) and Image (right)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Graph(
+                            id='scatter-plot',
+                            config={'displayModeBar': False},
+                            style={
+                                'height': '400px',
+                                'width': '100%'
+                            }
+                        ),
+                        width=6
                     ),
-                    width=6  # Allocates more space for the scatter plot
-                ),
-                dbc.Col(
-                    html.Img(
-                        id='hover-image',
-                        src='assets/placeholder.jpg',
-                        style={'max-width': '100%', 'height': 'auto'}
+                    dbc.Col(
+                        html.Div(
+                            html.Img(
+                                id='hover-image',
+                                src='assets/placeholder.jpg',
+                                style={
+                                    'max-width': '100%',
+                                    'max-height': '400px',
+                                    'display': 'block',
+                                    'margin': 'auto'
+                                }
+                            ),
+                            style={
+                                'height': '400px',
+                                'display': 'flex',
+                                'align-items': 'center',
+                                'justify-content': 'center'
+                            }
+                        ),
+                        width=6
                     ),
-                    width=3
-                ),
-                dbc.Col(
-                    dcc.Graph(
-                        id='EG-polar-plot',
-                        config={'displayModeBar': False}
+                ],
+                className="mb-4"  # Add margin at the bottom
+            ),
+            # Second row: EG polar plot (left) and Nu polar plot (right)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dcc.Graph(
+                            id='EG-polar-plot',
+                            config={'displayModeBar': False},
+                            style={
+                                'height': '400px',
+                                'width': '100%'
+                            }
+                        ),
+                        width=6
                     ),
-                    width=3
-                )
-            ],
-            align="center",
-            justify="around"
-        ),
+                    dbc.Col(
+                        dcc.Graph(
+                            id='Nu-polar-plot',
+                            config={'displayModeBar': False},
+                            style={
+                                'height': '400px',
+                                'width': '100%'
+                            }
+                        ),
+                        width=6
+                    )
+                ]
+            )
+        ],
         width=9,
         style={'border': '1px solid #ddd', 'margin': '15px'}
     )
@@ -133,7 +172,7 @@ def metrics_div(doc):
                     dcc.Dropdown(
                         id='x-axis-dropdown',
                         options=doc['x-axis'],
-                        value='E1',
+                        value='E2',
                         clearable=False,
                         # optionHeight can be set if you have many options
                     )

@@ -1,4 +1,3 @@
-# data/experiment_loader.py
 import os
 import threading
 import time
@@ -10,6 +9,7 @@ from dotenv import load_dotenv
 from incense import ExperimentLoader
 from loguru import logger
 from utils.mechanics import generate_planar_values
+from utils.utils import log_execution_time
 
 load_dotenv()
 
@@ -25,7 +25,7 @@ DB_QUERY = {"$and": [
     {'omniboard.tags': {'$nin': DEFAULT_FILTER_TAGS}},
     {'config.nu': {'$eq': 0.4}},
     {'config.objective_type': {'$eq': None}},
-    # {'config.dist_type': {'$ne': 'affine'}},
+    {'config.dist_type': {'$eq': 'fro'}},
 
 ]}
 
@@ -70,6 +70,7 @@ def format_query(query, indent=0):
     return "\n".join(result)
 
 
+@log_execution_time()
 def load_experiments(experiment_name, filter_tags=[], process_exps=True):
     """
     Load and filter experiments based on the given experiment name and tags.
@@ -83,16 +84,17 @@ def load_experiments(experiment_name, filter_tags=[], process_exps=True):
         list: A list of filtered and processed experiments. If an error occurs, an empty list is returned.
     """
 
+    logger.info("Loading experiments...")
     try:
         exps = loader.find(DB_QUERY)
         logger.info(
-            f"{len(exps)} found matching query for query {format_query(DB_QUERY)}")
+            f"{len(exps)} found matching query for query\n{format_query(DB_QUERY)}")
         if len(exps) == 0:
             raise ValueError(
                 f"No experiemnts found matching query for experiment '{format_query(DB_QUERY)}'")
         logger.info(f"Loaded {len(exps)} experiments")
         ddos = update_dropdown_options(exps)
-        logger.success(f"Updated experiments cache at {time.ctime()}")
+        logger.success(f"Updated experiments cache")
         return exps, ddos
     except Exception as e:
         logger.exception(f"Error loading experiments: {e}")
@@ -197,8 +199,19 @@ def get_image_from_experiment(id, img_type='array'):
     return img
 
 
-def get_C_from_experiment(id):
-    return loader.find_by_id(id).info['final_C']
+def get_matrix_from_experiment(id):
+    try:
+        C = loader.find_by_id(id).info['final_C']
+        return ('C', C)
+    except:
+        logger.error(f"Unable to find a C matrix. Looking for M matrix now")
+    try:
+        M = loader.find_by_id(id).info['final_M']
+        return ('M', M)
+    except:
+        logger.error("Unable to find an M matrix.")
+
+    return ('I', np.eye(3))
 
 
 def update_dropdown_options(exps):

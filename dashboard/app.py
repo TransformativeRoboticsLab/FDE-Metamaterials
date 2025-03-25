@@ -1,8 +1,14 @@
+import os
+from pathlib import Path
+
 import dash
 from components import create_layout, register_callbacks
 from data.experiment_loader import (init_experiments_load,
                                     start_experiment_loader_thread)
 from loguru import logger
+
+log_file_path = Path(__file__).parent / "dashboard.log"
+logger.add(log_file_path, format="{time} {level} {message}", level="DEBUG")
 
 
 def main():

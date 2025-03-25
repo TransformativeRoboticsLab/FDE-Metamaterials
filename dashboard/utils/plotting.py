@@ -1,10 +1,14 @@
+import re
+
 import numpy as np
 import plotly.express as px
 from loguru import logger
+from utils.utils import log_execution_time
 
 from data import get_cached_experiments
 
 
+@log_execution_time()
 def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
     logger.info("Building scatter figure")
     logger.debug(f"x_metric: {x_metric}")
@@ -26,7 +30,15 @@ def build_scatter_figure(df, x_metric, y_metric, size=(800, 800)):
         title=f"{len(df)} Data Points",
     )
 
-    # fig.update_yaxes(scaleanchor='x', scaleratio=1)
+    # Extract metric types and check if they are the same
+    def get_metric_type(metric):
+        """Extract the type of metric (e.g., 'E' from 'E1', 'nu' from 'nu12')."""
+        match = re.match(r'^([a-zA-Z]+)', str(metric))
+        return match.group(1) if match else str(metric)
+
+    # If metrics are exactly the same or of the same type (E1 vs E2), snap the scales together
+    if x_metric == y_metric or get_metric_type(x_metric) == get_metric_type(y_metric):
+        fig.update_yaxes(scaleanchor='x', scaleratio=1)
 
     fig.update_traces(
         marker=dict(size=12),
