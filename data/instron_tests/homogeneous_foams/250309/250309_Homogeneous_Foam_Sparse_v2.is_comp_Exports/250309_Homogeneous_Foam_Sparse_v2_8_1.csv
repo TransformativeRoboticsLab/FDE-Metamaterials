@@ -1,10 +1,10 @@
 Results Table 1
-,Compresson Axis,H*,V*,Height,Thickness,Width,Area,Fixture separation,Specimen label
+,Compression Axis,H*,V*,Height,Thickness,Width,Area,Fixture separation,Specimen label
 ,,,,(mm),(mm),(mm),(mm^2),(mm),
 "8","X","14.81","0.40","40.00","40.00","40.00","1600.00","43.00","Homogeneous Foam"
 
 Results Table 2
-,Modulus (Segment 0 % - 10 %),Compresson Axis
+,Modulus (Segment 0 % - 10 %),Compression Axis
 ,(kPa),
 "8","113.17","X"
 
