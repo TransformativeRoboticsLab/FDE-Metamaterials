@@ -41,7 +41,8 @@ def airm_dist(A, B):
     """ Affine Invariant Riemannian Metric Distance """
     A_sqrt_inv = sqrtm(jnp.linalg.inv(A))
     C = A_sqrt_inv @ B @ A_sqrt_inv
-    return jnp.linalg.norm(logm(C), ord='fro')
+    return jnp.sum(jnp.square(logm(C)))
+    # return jnp.linalg.norm(logm(C), ord='fro')
 
 
 @jax.jit
@@ -49,15 +50,15 @@ def log_euclidean_dist(A, B):
     logA = logm(A)
     logB = logm(B)
     diff = logA - logB
-    # return jnp.sum(jnp.square(diff))
-    return jnp.linalg.norm(diff, ord='fro')
+    return jnp.sum(jnp.square(diff))
+    # return jnp.linalg.norm(diff, ord='fro')
 
 
 @jax.jit
 def frobenius_dist(A, B):
     diff = A - B
-    # return jnp.sum(jnp.square(diff))
-    return jnp.linalg.norm(diff, ord='fro')
+    return jnp.sum(jnp.square(diff))
+    # return jnp.linalg.norm(diff, ord='fro')
 
 
 @jax.jit
@@ -65,8 +66,8 @@ def sqrtm_dist(A, B):
     Asqrt = sqrtm(A)
     Bsqrt = sqrtm(B)
     diff = Asqrt - Bsqrt
-    # return jnp.sum(jnp.square(Asqrt-Bsqrt))
-    return jnp.linalg.norm(diff, ord='fro')
+    return jnp.sum(jnp.square(Asqrt-Bsqrt))
+    # return jnp.linalg.norm(diff, ord='fro')
 
 
 @jax.jit
@@ -99,9 +100,9 @@ def outer_product_cols(A):
 
 
 @jax.jit
-def commutation_distance_sq(A, B):
+def commutation_dist(A, B):
     diff = A @ B - B @ A
-    return jnp.sum(jnp.square(diff))
+    return jnp.linalg.norm(diff, ord='fro')
 
 
 @jax.jit

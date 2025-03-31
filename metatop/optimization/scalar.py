@@ -16,7 +16,7 @@ from metatop.mechanics import mandelize, ray_q
 from metatop.optimization import OptimizationState
 
 from .OptimizationComponents import *
-from .utils import (airm_dist, commutation_distance_sq, eigenpair_dist,
+from .utils import (airm_dist, commutation_dist, eigenpair_dist,
                     frobenius_dist, log_euclidean_dist, principal_angle_loss,
                     process_C_bimode, process_C_unimode, sqrtm_dist,
                     stop_on_nan)
@@ -108,8 +108,8 @@ class MatrixMatchingObjective(ScalarObjective):
             self.process_C = process_C_bimode
 
         V = self.ops.basis_v
-        desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
-        self.Mstar = V @ desired_eigenvalues @ V.T
+        self.desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
+        self.Mstar = V @ self.desired_eigenvalues @ V.T
         logger.info(f"Extremal mode: {self.ops.extremal_mode}")
         logger.info(f"Desired M:\n{self.Mstar}")
 
@@ -117,6 +117,7 @@ class MatrixMatchingObjective(ScalarObjective):
         M = self.process_C(C)
         Mstar = self.Mstar
         dist = self.dist_fn(M, Mstar)
+        # comm = commutation_dist(M, Mstar)
         return dist, dist
 
     @property
@@ -126,81 +127,59 @@ class MatrixMatchingObjective(ScalarObjective):
     @property
     def _dist_types(self):
         d = {}
-        d['fro'] = dict(fn=frobenius_dist, label=r"$\|M-M^*\|_F$")
+        d['fro'] = dict(fn=frobenius_dist, label=r"$\|M-M^*\|_F^2$")
         d['airm'] = dict(fn=airm_dist,
-                         label=r"$\|\text{log}(M^{-1/2} M^* M^{-1/2})\|_F$")
+                         label=r"$\|\text{log}(M^{-1/2} M^* M^{-1/2})\|_F^2$")
         d['log_euc'] = dict(fn=log_euclidean_dist,
-                            label=r"$\|\text{log}(M) - \text{log}(M^*)\|_F$")
+                            label=r"$\|\text{log}(M) - \text{log}(M^*)\|_F^2$")
         return d
 
 
-# class MatrixMatchingConstraint(ScalarOptimizationComponent):
+class MatrixMatchingConstraint(ScalarConstraint):
 
-#     def __call__(self, x, grad):
+    def __init__(self, *args, low_val: float = 0.01, dist_type: str = 'fro', **kwargs):
+        super().__init__(*args, **kwargs)
 
-#         sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
+        self.dist_type = dist_type
+        if 'fro' == dist_type:
+            self.dist_fn = frobenius_dist
+        elif 'airm' == dist_type:
+            self.dist_fn = airm_dist
+        # elif 'log_euc' == dist_type:
+        #     self.dist_fn = log_euclidean_dist
+        # elif 'sqrt' == dist_type:
+        #     self.dist_fn = sqrtm_dist
+        # elif 'eig' == dist_type:
+        #     self.dist_fn = eigenpair_dist
+        else:
+            raise NotImplementedError(
+                f"Distance metric {dist_type} not implemented.")
 
-#         (c, cs), dc_dChom = jax.value_and_grad(self.eval, has_aux=True)(Chom)
+        logger.debug(f"Using {dist_type} distance metric")
 
-#         self.ops.update_state(sols, Chom, dChom_dxfem,
-#                               dxfem_dx_vjp, x, increment_obj_n_calls=False)
+        if self.ops.extremal_mode == 1:
+            self.process_C = process_C_unimode
+        elif self.ops.extremal_mode == 2:
+            self.process_C = process_C_bimode
 
-#         if grad.size > 0:
-#             grad[:] = self.adjoint(dc_dChom, dChom_dxfem, dxfem_dx_vjp)
+        V = self.ops.basis_v
+        desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
+        self.Mstar = V @ desired_eigenvalues @ V.T
+        logger.info(f"Extremal mode: {self.ops.extremal_mode}")
+        logger.info(f"Desired M:\n{self.Mstar}")
 
-#         self.ops.update_evals_and_plot(self._label, c)
+    def eval(self, C):
+        M = self.process_C(C)
+        Mstar = self.Mstar
+        dist = self.dist_fn(M, Mstar)
+        return dist/self.eps - 1., dist
 
-#         if not self.silent and self.ops.print_now():
-#             logger.info(f"{self.__class__.__name__} g(x): {c:.4f}")
-#             if self.verbose and cs:
-#                 logger.info(f"{cs}")
+    def __str__(self):
+        return self.__class__.__name__
 
-#         stop_on_nan(c)
-#         return float(c)
-
-#     def __init__(self, *args, low_val: float = 0.01, dist_type: str = 'fro', **kwargs):
-#         super().__init__(*args, **kwargs)
-
-#         self.dist_type = dist_type
-#         if 'fro' == dist_type:
-#             self.dist_fn = frobenius_dist
-#         # elif 'airm' == dist_type:
-#         #     self.dist_fn = airm_dist
-#         # elif 'log_euc' == dist_type:
-#         #     self.dist_fn = log_euclidean_dist
-#         # elif 'sqrt' == dist_type:
-#         #     self.dist_fn = sqrtm_dist
-#         # elif 'eig' == dist_type:
-#         #     self.dist_fn = eigenpair_dist
-#         else:
-#             raise NotImplementedError(
-#                 f"Distance metric {dist_type} not implemented.")
-
-#         logger.debug(f"Using {dist_type} distance metric")
-
-#         if self.ops.extremal_mode == 1:
-#             self.process_C = process_C_unimode
-#         elif self.ops.extremal_mode == 2:
-#             self.process_C = process_C_bimode
-
-#         V = self.ops.basis_v
-#         desired_eigenvalues = jnp.diag(jnp.array([low_val, 1., 1.]))
-#         self.Mstar = V @ desired_eigenvalues @ V.T
-#         logger.info(f"Extremal mode: {self.ops.extremal_mode}")
-#         logger.info(f"Desired M:\n{self.Mstar}")
-
-#     def eval(self, C):
-#         M = self.process_C(C)
-#         Mstar = self.Mstar
-#         dist = self.dist_fn(M, Mstar)
-#         return dist - self.eps, dist
-
-#     def __str__(self):
-#         return self.__class__.__name__
-
-#     # @property
-#     # def _label(self):
-#     #     return r"$\|M-M^*\|_F^2$"
+    # @property
+    # def _label(self):
+    #     return r"$\|M-M^*\|_F^2$"
 
 
 class EigenPenalty(ScalarObjective):
@@ -481,38 +460,48 @@ class UnimodeErrConstraint(ScalarConstraint):
         return norm_sq - self.eps, norm_sq
 
 #
-# class VolumeObjective(ScalarOptimizationComponent):
 
-#     def __call__(self, x, grad):
 
-#         # grad is actually just the cell volume so calculating it is unnecessary
-#         (c, cs), dc_dx = jax.value_and_grad(self.eval, has_aux=True)(x)
+class VolumeObjective(ScalarOptimizationComponent):
 
-#         if grad.size > 0:
-#             grad[:] = dc_dx
+    def __call__(self, x, grad):
 
-#         self.ops.x = x.copy()
-#         self.ops.obj_n_calls += 1
-#         self.ops.update_evals_and_plot(self._label, c)
+        sols, Chom, dChom_dxfem, dxfem_dx_vjp = self.forward(x)
 
-#         if not self.silent and self.ops.print_now():
-#             logger.info(f"{self.ops.obj_n_calls}:")
-#             logger.info(f"{self.__class__.__name__} f(x): {c:.4f}")
-#             if self.verbose and cs:
-#                 logger.info(f"{cs}")
+        try:
+            (c, cs), dV_dx = jax.value_and_grad(
+                self.eval, has_aux=True)(x)
+        except Exception as e:
+            logger.error(
+                f"Error in calculating value and grad in {self.__str__()}: {e}")
+            raise e
+        self.ops.update_state(sols, Chom, dChom_dxfem, dxfem_dx_vjp, x)
 
-#         stop_on_nan(c)
-#         return float(c)
+        if grad.size > 0:
+            grad[:] = dV_dx
 
-#     def eval(self, x):
-#         x_fem = self.filter_and_project(x)
-#         V = jnp.mean(x_fem)
-#         return V, None
+        self.ops.update_evals_and_plot(self._label, cs)
 
-#     @property
-#     def _label(self):
-#         return "Volume"
-#
+        if not self.silent and self.ops.print_now():
+            logger.info(f"{self.ops.obj_n_calls}:")
+            logger.info(f"{self.__class__.__name__} f(x): {c:.4f}")
+            if self.verbose:
+                logger.info(f"Raw values: {cs}")
+
+        stop_on_nan(c)
+        return float(c)
+
+    def eval(self, x):
+        x_fem = self.filter_and_project(x)
+        V = jnp.mean(x_fem)
+        return V, V
+
+    def adjoint(self):
+        pass
+
+    @property
+    def _label(self):
+        return "Volume"
 
 
 class VolumeConstraint(ScalarOptimizationComponent):

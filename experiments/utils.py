@@ -221,15 +221,16 @@ def log_values(experiment, M):
     try:
         for i in range(3):
             for j in range(3):
-                experiment.log_scalar(f"C_{i}{j}", M[i, j])
-        logger.info(f'C:\n{M}',)
-        w = np.linalg.eigvalsh(M)
-        for i, v in enumerate(w):
+                experiment.log_scalar(f"M_{i}{j}", M[i, j])
+        logger.info(f'M:\n{M}',)
+        eig_vals, eig_vecs = np.linalg.eigh(M)
+        for i, v in enumerate(eig_vals):
             experiment.log_scalar(f"Eigenvalue_{i}", v)
             logger.info(f"Eigenvalue_{i}: {v}")
-        for i, v in enumerate(w / np.max(w)):
+        for i, v in enumerate(eig_vals / np.max(eig_vals)):
             experiment.log_scalar(f"Normed_Eigenvalue_{i}", v)
             logger.info(f"Normed_Eigenvalue_{i}: {v}")
+        logger.info(f"Eigenvectors:\n{eig_vecs}")
         ASU = anisotropy_index(M, input_style='mandel')
         for k, v in ASU.items():
             experiment.log_scalar(k, v)

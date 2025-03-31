@@ -23,9 +23,9 @@ class OptimizationComponent(abc.ABC):
         self.verbose = verbose or self.ops.verbose
         self.eps = eps
 
-        if self.verbose:
-            logger.info(f"Initializing {self.__class__.__name__}")
-            logger.debug(self.ops)
+        # if self.verbose:
+        #     logger.info(f"Initializing {self.__class__.__name__}")
+        #     logger.debug(self.ops)
 
     @abc.abstractmethod
     def eval(self, C: jnp.ndarray):

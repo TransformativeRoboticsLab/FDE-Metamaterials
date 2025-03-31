@@ -153,6 +153,8 @@ def create_constraint(cname, config):
         'RayleighScalarObjective': sca.RayleighRatioObjective,
         'EigenvectorConstraint': sca.EigenvectorConstraint,
         'SameLargeValueConstraint': sca.SameLargeValueConstraint,
+        'VolumeObjective': sca.VolumeObjective,
+        'MatrixMatchingConstraint': sca.MatrixMatchingConstraint,
     }
     if cname not in constraint_list:
         s = f"{cname} not a valid constraint name. List is [{constraint_list.keys()}]"
@@ -310,7 +312,8 @@ def main():
     check_metamaterial = False
     check_filter = False
     check_scalars = False
-    check_epigraphs = True
+    check_epigraphs = False
+    check_volume = True
     if basis_v:
         V = V_DICT[basis_v]
     else:
@@ -334,7 +337,7 @@ def main():
                             filt_fn=filt_fn,
                             beta=beta,
                             eta=eta,
-                            show_plot=False,
+                            show_plot=True,
                             verbose=False,
                             silent=True)
 
@@ -385,6 +388,12 @@ def main():
             'EigenvectorEpigraphConstraint', **config, con_type='vector', eps=eps, obj=pec)
     else:
         logger.warning("Skipping epigraph component checks")
+
+    if check_volume:
+        logger.info("Checking volume constraint")
+        obj = handle_optimization_component('VolumeObjective', **config)
+        handle_optimization_component(
+            'MatrixMatchingConstraint', obj=obj, **config)
 
 
 if __name__ == "__main__":

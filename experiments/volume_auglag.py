@@ -11,9 +11,7 @@ from metatop.filters import setup_filter
 from metatop.Metamaterial import setup_metamaterial
 from metatop.optimization import OptimizationState
 from metatop.optimization.scalar import (MatrixMatchingConstraint,
-                                         MatrixMatchingObjective,
-                                         TraceConstraint, VolumeConstraint,
-                                         VolumeObjective)
+                                         TraceConstraint, VolumeObjective)
 from metatop.profiling import ProfileConfig
 from metatop.utils import beta_function, mirror_density
 
@@ -63,7 +61,6 @@ def config():
     verbose = True
     rtol = 1e-4
     volume_constraint = 0.
-    post_reduce_volume = False
 
 
 @ex.config_hook
@@ -166,7 +163,7 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, rtol, volume_constraint, post_reduce_volume, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, rtol, volume_constraint, seed):
 
     loggeru.debug(f"Seed: {seed}")
 
@@ -189,7 +186,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
                             plot_interval=25,
                             show_plot=show_plot,
                             verbose=verbose,
-                            eval_axis_kwargs=dict(yscale='log')
+                            # eval_axis_kwargs=dict(yscale='log')
                             )
 
     # If we have a volume constriant we apply a beta function to have the mean be approximately that level so we start in a feasible spot
@@ -209,19 +206,19 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     else:
         logger.warning(
             "NSC asked for in basis_v, but so was mirror. Skipping mirroring step.")
+    x = np.clip(x, a_min=1e-3, a_max=None)
     ops.x_history.append(x.copy())
 
     # ===== End Component Setup =====
 
     # ===== Optimizer setup ======
-    f = MatrixMatchingObjective(
-        ops, low_val=E_min, dist_type=dist_type, verbose=False)
-    opt = setup_optimizer(f, x.size)
-    if volume_constraint and volume_constraint > 0.:
-        opt.add_inequality_constraint(
-            VolumeConstraint(ops, eps=volume_constraint, verbose=False), 0.)
+    f = VolumeObjective(ops, verbose=True)
+    opt = setup_optimizer(f, x.size, opt_type=nlopt.LD_AUGLAG)
     opt.add_inequality_constraint(
-        TraceConstraint(ops, eps=1., verbose=False), 1e-2)
+        MatrixMatchingConstraint(ops, low_val=E_min, eps=1e-4, dist_type=dist_type), 0.)
+    local_opt = nlopt.opt(nlopt.LD_MMA, x.size)
+    opt.set_local_optimizer(local_opt)
+    opt.set_xtol_rel(rtol)
     # ===== End Optimizer setup ======
 
     # ===== Warm start =====
@@ -234,7 +231,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
     opt.set_maxeval(epoch_duration)
-    opt.set_ftol_rel(rtol**2)
+    opt.set_ftol_rel(rtol)
     opt.set_xtol_rel(rtol)
     x, x_history, status_code, final_value = run_optimization_loop(
         opt, x, betas, ops)
@@ -243,26 +240,6 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     loggeru.info(
         f"Optimization complete with final NLOpt status code: {status_code}")
     loggeru.info(f"Final optimized value: {final_value}")
-    if post_reduce_volume:
-        loggeru.info(
-            "Request to minimize volume now. Resetting optimizer to minimize volume s.t. MatrixMatchingConstraints.")
-        opt = setup_optimizer(VolumeObjective(ops, verbose=False), x.size)
-        opt.set_maxeval(500)
-        opt.set_xtol_rel(rtol)
-        opt.add_inequality_constraint(
-            TraceConstraint(ops,
-                            eps=1.,
-                            verbose=False),
-            1e-2)
-        opt.add_inequality_constraint(
-            MatrixMatchingConstraint(ops,
-                                     dist_type=dist_type,
-                                     low_val=E_min,
-                                     eps=final_value,
-                                     verbose=False),
-            1e-3)
-        # x[:] = opt.optimize(x)
-        run_optimization_loop(opt, x, betas, ops)
 
     # ===== End Optimization Loop =====
 
@@ -271,4 +248,4 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     try:
         save_final_results(ex, ops)
     except Exception as e:
-        loggeru.error(f"Error when saving results: {e}")
+        logger.error(f"Error when saving results: {e}")

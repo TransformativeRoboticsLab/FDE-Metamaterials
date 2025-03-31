@@ -303,6 +303,67 @@ def convert_isotropic_properties(input_props: dict[str, float]):
     return dict(E=E, G=G, K=K, nu=nu)
 
 
+def isotropic_elasticity_matrix(E, nu, plane='stress', output_style='mandel'):
+    """
+    Compute the elasticity matrix for isotropic materials under plane stress or strain conditions.
+
+    This function calculates the elasticity matrix based on the provided Young's modulus,
+    Poisson's ratio, and the given condition of plane stress or strain. The output matrix
+    can be in either 'mandel' or 'standard' format.
+
+    Parameters
+    ----------
+    E : float
+        Young's modulus of the material.
+    nu : float
+        Poisson's ratio of the material.
+    plane : str, optional
+        Condition of the material. It can be either 'stress' or 'strain'.
+        Default is 'stress'.
+    output_style : str, optional
+        Output format of the elasticity matrix. It can be either 'mandel' or 'standard'.
+        Default is 'mandel'.
+
+    Returns
+    -------
+    C : numpy.ndarray
+        The calculated elasticity matrix of the material under given conditions.
+
+    Raises
+    ------
+    ValueError
+        If the output_style is neither 'mandel' nor 'standard'.
+
+    References
+    ----------
+    - https://www.wikiwand.com/en/Hooke%27s_law#Linear_elasticity_theory_for_continuous_media
+    - https://www.wikiwand.com/en/Plane_stress
+    - https://www.wikiwand.com/en/Hooke%27s_law#Isotropic_materials
+    """
+    if (plane == 'stress'):
+        alpha = E / (1 - nu**2)
+        C = np.array([[1, nu, 0],
+                      [nu, 1, 0],
+                      [0, 0, (1 - nu)/2]])
+        C *= alpha
+    elif (plane == 'strain'):
+        alpha = E / (1 + nu) / (1 - 2 * nu)
+        C = np.array([[1 - nu, nu, 0],
+                      [nu, 1 - nu, 0],
+                      [0, 0, (1-2*nu)/2]])
+        C *= alpha
+
+    if output_style == 'mandel':
+        s = np.diag(np.array([1, 1, np.sqrt(2)]))
+        C = s@C@s
+    elif output_style == 'standard':
+        pass
+    else:
+        raise ValueError('Incorrect output style')
+
+    return C
+
+
 if __name__ == "__main__":
 
     E0 = 1
