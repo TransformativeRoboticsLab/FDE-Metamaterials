@@ -18,7 +18,7 @@ from .profiling import ProfileConfig, profile_block, profile_function
 fe.set_log_level(40)
 
 
-def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', domain_shape='square'):
+def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', domain_shape='square', elem_degree=1):
     metamaterial = Metamaterial(
         E_max, E_min, nu, nelx, nely, domain_shape=domain_shape)
     if 'tri' in mesh_cell_type:
@@ -34,13 +34,13 @@ def setup_metamaterial(E_max, E_min, nu, nelx, nely, mesh_cell_type='triangle', 
         metamaterial.mesh = fe.RectangleMesh(P0, P1, nelx, nely, 'crossed')
         metamaterial.domain_shape = domain_shape
     elif 'quad' in mesh_cell_type:
-        logger.info("Creating mesh with quadrilateral cells")
+        logger.debug("Creating mesh with quadrilateral cells")
         metamaterial.mesh = fe.RectangleMesh.create([fe.Point(0, 0), fe.Point(1, 1)],
                                                     [nelx, nely],
                                                     fe.CellType.Type.quadrilateral)
     else:
         raise ValueError(f"Invalid cell_type: {mesh_cell_type}")
-    metamaterial.create_function_spaces()
+    metamaterial.create_function_spaces(elem_degree=elem_degree)
     metamaterial.initialize_variational_forms()
     return metamaterial
 
@@ -127,6 +127,7 @@ class Metamaterial:
         self.x = fe.Function(R)
         self.PBC = PBC
         self.W = W
+        self.V = W.sub(0).collapse()
         self.R, self.R_cg, self.R_grad = R, R_cg, R_grad
         self.R_tri = R_tri
 
@@ -179,12 +180,14 @@ class Metamaterial:
         E_max, E_min, nu = self.prop.E_max, self.prop.E_min, self.prop.nu
         return self.homogenized_C(sols, E_max - E_min, nu)[1]
 
-    def solve(self):
+    def solve(self, debug=False):
         with profile_fem_solution(enabled=self.enable_profiling):
-            return self._solve_impl()
+            return self._solve_impl(debug)
 
-    def _solve_impl(self):
+    def _solve_impl(self, debug=False):
         """Implementation of the solve method that can be called with or without profiling"""
+        if debug:
+            self.plot_density()
         self.E.vector()[:] = self.prop.E_min + \
             (self.prop.E_max - self.prop.E_min) * self.x.vector()[:]
 

@@ -161,12 +161,17 @@ def calculate_elastic_constants(M, input_style='mandel'):
               it was just based on intuition and confirming agains the 2*22 case,
               but it may be wrong for an oblique matrix???
     '''
+
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
     S = matrix2tensor(np.linalg.inv(M), input_style=input_style)
 
     e1 = np.array([1, 0])
     e2 = np.array([0, 1])
 
-    # all of this einstein summation is basically selecting components out of the S tensor
+    # all of this einstein summation is selecting components out of the S tensor
     E1 = 1/np.einsum('ijkl,i,j,k,l', S, e1, e1, e1, e1)  # 1/S_1111
     E2 = 1/np.einsum('ijkl,i,j,k,l', S, e2, e2, e2, e2)  # 1/S_2222
     G12 = 1/np.einsum('ijkl,i,j,k,l', S, e1, e2, e1, e2)  # 1/S_1212

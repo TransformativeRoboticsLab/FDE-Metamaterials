@@ -1,5 +1,6 @@
 import fenics as fe
 import numpy as np
+from loguru import logger
 
 
 class Boundary(fe.SubDomain):
@@ -113,7 +114,44 @@ class PeriodicDomain(Boundary):
             y[0] = x[0]
             y[1] = x[1] - dy
 
-# For Dirichlet BC in top and right
+# https://github.com/XuanQuangPham91/20200918_Homo_Composite/blob/2605d958c54202bec1bd5d8db3525b40433424cc/Periodic_Boundary_conditions_References/periodic_homog_elas/periodic_homog_elas.py
+# class PeriodicDomain(fe.SubDomain):
+#     def __init__(self, vertices=None, tolerance=fe.DOLFIN_EPS):
+#         """ vertices stores the coordinates of the 4 unit cell corners"""
+#         super().__init__(tolerance)
+#         self.tol = tolerance
+#         self.vv = vertices
+
+#         # first vector generating periodicity
+#         self.a1 = self.vv[1, :]-self.vv[0, :]
+#         # second vector generating periodicity
+#         self.a2 = self.vv[3, :]-self.vv[0, :]
+#         # check if UC vertices form indeed a parallelogram
+#         assert np.linalg.norm(
+#             self.vv[2, :]-self.vv[3, :] - self.a1) <= self.tol
+#         assert np.linalg.norm(
+#             self.vv[2, :]-self.vv[1, :] - self.a2) <= self.tol
+
+#     def inside(self, x, on_boundary):
+#         # return True if on left or bottom boundary AND NOT on one of the
+#         # bottom-right or top-left vertices
+#         return bool((fe.near(x[0], self.vv[0, 0] + x[1]*self.a2[0]/self.vv[3, 1], self.tol) or
+#                      fe.near(x[1], self.vv[0, 1] + x[0]*self.a1[1]/self.vv[1, 0], self.tol)) and
+#                     (not ((fe.near(x[0], self.vv[1, 0], self.tol) and fe.near(x[1], self.vv[1, 1], self.tol)) or
+#                           (fe.near(x[0], self.vv[3, 0], self.tol) and fe.near(x[1], self.vv[3, 1], self.tol)))) and on_boundary)
+
+#     def map(self, x, y):
+#         # if on top-right corner
+#         if fe.near(x[0], self.vv[2, 0], self.tol) and fe.near(x[1], self.vv[2, 1], self.tol):
+#             y[0] = x[0] - (self.a1[0]+self.a2[0])
+#             y[1] = x[1] - (self.a1[1]+self.a2[1])
+#         # if on right boundary
+#         elif fe.near(x[0], self.vv[1, 0] + x[1]*self.a2[0]/self.vv[2, 1], self.tol):
+#             y[0] = x[0] - self.a1[0]
+#             y[1] = x[1] - self.a1[1]
+#         else:   # should be on top boundary
+#             y[0] = x[0] - self.a2[0]
+#             y[1] = x[1] - self.a2[1]
 
 
 class QuarterDomain(Boundary):
