@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 from . import Q_, ureg
 
@@ -185,6 +186,52 @@ class InstronData:
         self.data[y + ' (Line Fit)'] = m*x_ + b
 
         return m, b
+
+    def plot(self, x, y, ax=None, x_min=None, x_max=None, **kwargs):
+        """
+        Plot data from the dataframe with flexibility for multiple x and y columns.
+
+        Parameters:
+        -----------
+        x : str or list of str
+            Column name(s) to use for the x-axis.
+        y : str or list of str
+            Column name(s) to use for the y-axis.
+        ax : matplotlib.axes.Axes, optional
+            Matplotlib Axes object to plot on. If None, a new figure and axes are created.
+        x_min : float, optional
+            Minimum x-value to restrict the data plotted.
+        x_max : float, optional
+            Maximum x-value to restrict the data plotted.
+        **kwargs : dict
+            Additional keyword arguments passed to the pandas plot function.
+
+        Returns:
+        --------
+        matplotlib.axes.Axes
+            The matplotlib Axes object with the plot.
+        """
+        if not ax:
+            fig, ax = plt.subplots()
+
+        # Apply x_min and x_max if provided
+        filtered_data = self.data
+        if x_min is not None:
+            filtered_data = filtered_data[filtered_data[x] >= x_min]
+        if x_max is not None:
+            filtered_data = filtered_data[filtered_data[x] <= x_max]
+
+        # Ensure x and y are lists for iteration
+        if isinstance(x, str):
+            x = [x]
+        if isinstance(y, str):
+            y = [y]
+
+        for x_col in x:
+            for y_col in y:
+                filtered_data.plot(x=x_col, y=y_col, ax=ax, **kwargs)
+
+        return ax
 
 
 # def shift_strain(df, strain_threshold):
