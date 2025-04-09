@@ -4,6 +4,7 @@ import fenics as fe
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 import sympy
 from loguru import logger
 from sympy.core.symbol import symbols
@@ -137,59 +138,224 @@ def tensor2matrix(C, output_style='mandel'):
     return V
 
 
-def calculate_elastic_constants(M, input_style='mandel'):
-    '''
-    Calculate the 2D elastic material properties of a 3x3 elasticity matrix
-
-    in: M, a 3x3 elastic matrix
-        input_style, input style of matrix, 'mandel' or 'standard'
-
-    out: E1, Young's modulus in the direction of strain 1
-         E2, Young's modulus in the direction of strain 2
-         G12, Shear modulus of face 1 in the direction of strain 2
-         nu12, Poisson ratio of transverse strain 2 direction when applying axial strain 1
-         nu21, Poisson ratio of transverse strain 1 direction when applying axial strain 2
-         eta121, Shear-normal coupling extension in strain 1 coupling applying shear strain
-         eta122, Shear extension in strain 2 coupling applying shear strain
-
-    Reference:
-      1. "Extreme values of Young’s modulus and Poisson’s ratio of hexagonal crystals" by Gorodstov
-      2. "Fundamentals of crystal physics" by Sirotin, p654
-
-    Note: Ref 1 is where I found the equation, but they cite Ref 2 for the equations
-          I also don't have validation for my equation for shear modulus,
-              it was just based on intuition and confirming agains the 2*22 case,
-              but it may be wrong for an oblique matrix???
-    '''
-
+# 1. Original NumPy matrix2tensor (loop version)
+def matrix2tensor(V, input_style='mandel'):
+    """
+    Original version using loops.
+    Converts a 3x3 elasticity matrix into a 2x2x2x2 elasticity tensor.
+    """
+    if V.shape != (3, 3):
+        raise ValueError("Input matrix V must be 3x3")
     if input_style not in ('standard', 'mandel'):
         raise ValueError(
             f"input_style must be 'mandel' or 'standard', not {input_style}")
 
-    S = matrix2tensor(np.linalg.inv(M), input_style=input_style)
+    lookup = {(0, 0): 0, (1, 1): 1, (0, 1): 2, (1, 0): 2}
+    # Ensure output dtype is float64 for calculations
+    C = np.zeros((2, 2, 2, 2), dtype=np.float64)
+    # Work with floats, copy to avoid modifying original V
+    V_processed = V.astype(np.float64)
 
-    e1 = np.array([1, 0])
-    e2 = np.array([0, 1])
-
-    # all of this einstein summation is selecting components out of the S tensor
-    E1 = 1/np.einsum('ijkl,i,j,k,l', S, e1, e1, e1, e1)  # 1/S_1111
-    E2 = 1/np.einsum('ijkl,i,j,k,l', S, e2, e2, e2, e2)  # 1/S_2222
-    G12 = 1/np.einsum('ijkl,i,j,k,l', S, e1, e2, e1, e2)  # 1/S_1212
     if input_style == 'mandel':
-        G12 /= 4
-    nu12 = -E1 * np.einsum('ijkl,i,j,k,l', S, e1, e1, e2, e2)
-    nu21 = -E2 * np.einsum('ijkl,i,j,k,l', S, e2, e2, e1, e1)
-    eta121 = E1 * np.einsum('ijkl,i,j,k,l', S, e1, e2, e1, e1)
-    eta122 = E2 * np.einsum('ijkl,i,j,k,l', S, e1, e2, e2, e2)
+        a = np.diag(np.array([1.0, 1.0, 1.0/np.sqrt(2.0)], dtype=np.float64))
+        V_processed = np.matmul(a, np.matmul(V_processed, a))
+    elif input_style == 'standard':
+        pass  # No scaling needed
+
+    for i in range(C.shape[0]):
+        for j in range(C.shape[1]):
+            for k in range(C.shape[2]):
+                for l in range(C.shape[3]):
+                    p = lookup[(i, j)]
+                    q = lookup[(k, l)]
+                    C[i, j, k, l] = V_processed[p, q]
+    return C
+
+# 2. Vectorized NumPy matrix2tensor
+
+
+def matrix2tensor_vectorized(V, input_style='mandel'):
+    """
+    Vectorized version using advanced indexing (NumPy).
+    Converts a 3x3 elasticity matrix into a 2x2x2x2 elasticity tensor.
+    """
+    if V.shape != (3, 3):
+        raise ValueError("Input matrix V must be 3x3")
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
+    # Work with floats, ensure input V's dtype is preserved if float
+    dtype_to_use = V.dtype if np.issubdtype(
+        V.dtype, np.floating) else np.float64
+    V_float = V.astype(dtype_to_use)
+
+    if input_style == 'mandel':
+        a = np.diag(np.array([1.0, 1.0, 1.0/np.sqrt(2.0)], dtype=dtype_to_use))
+        V_scaled = np.matmul(a, np.matmul(V_float, a))
+    else:
+        V_scaled = V_float  # No scaling for 'standard'
+
+    P = np.array([[0, 2],
+                  [2, 1]], dtype=int)
+    ii, jj, kk, ll = np.indices((2, 2, 2, 2))
+    p_indices = P[ii, jj]
+    q_indices = P[kk, ll]
+    C = V_scaled[p_indices, q_indices]
+    return C
+
+# 3. Vectorized JAX matrix2tensor
+
+
+def matrix2tensor_vectorized_jnp(V, input_style='mandel'):
+    """
+    Vectorized version using advanced indexing (JAX).
+    Converts a 3x3 elasticity matrix into a 2x2x2x2 elasticity tensor.
+    """
+    if V.shape != (3, 3):
+        raise ValueError("Input matrix V must be 3x3")
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
+    # JAX handles dtype promotion, ensure input is JAX array
+    V_jnp = jnp.asarray(V)
+    dtype_to_use = V_jnp.dtype
+
+    if input_style == 'mandel':
+        a = jnp.diag(
+            jnp.array([1.0, 1.0, 1.0/jnp.sqrt(2.0)], dtype=dtype_to_use))
+        # Use jnp.matmul or @
+        V_scaled = a @ V_jnp @ a
+    else:
+        V_scaled = V_jnp  # No scaling for 'standard'
+
+    P = jnp.array([[0, 2],
+                   [2, 1]], dtype=int)
+    ii, jj, kk, ll = jnp.indices((2, 2, 2, 2))
+    p_indices = P[ii, jj]
+    q_indices = P[kk, ll]
+    C = V_scaled[p_indices, q_indices]
+    return C
+
+# 4. Original NumPy calculate_elastic_constants (uses original matrix2tensor)
+
+
+def calculate_elastic_constants(M, input_style='mandel'):
+    """
+    Original NumPy calculation using the loop-based matrix2tensor.
+    """
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
+    # Uses original loop-based numpy version
+    S_tensor = matrix2tensor(np.linalg.inv(M), input_style=input_style)
+
+    # Ensure vectors are float64 to match S_tensor
+    e1 = np.array([1.0, 0.0], dtype=np.float64)
+    e2 = np.array([0.0, 1.0], dtype=np.float64)
+
+    # Use np.einsum
+    E1 = 1.0 / np.einsum('ijkl,i,j,k,l', S_tensor, e1, e1, e1, e1)
+    E2 = 1.0 / np.einsum('ijkl,i,j,k,l', S_tensor, e2, e2, e2, e2)
+    G12_denom = np.einsum('ijkl,i,j,k,l', S_tensor, e1, e2, e1, e2)
+    G12 = 1.0 / G12_denom
+    if input_style == 'mandel':
+        G12 /= 4.0
+
+    nu12 = -E1 * np.einsum('ijkl,i,j,k,l', S_tensor, e1, e1, e2, e2)
+    nu21 = -E2 * np.einsum('ijkl,i,j,k,l', S_tensor, e2, e2, e1, e1)
+    eta121 = E1 * np.einsum('ijkl,i,j,k,l', S_tensor, e1, e2, e1, e1)
+    eta122 = E2 * np.einsum('ijkl,i,j,k,l', S_tensor, e1, e2, e2, e2)
 
     return {
-        'E1': E1,
-        'E2': E2,
-        'G12': G12,
-        'nu12': nu12,
-        'nu21': nu21,
-        'eta121': eta121,
-        'eta122': eta122
+        'E1': E1, 'E2': E2, 'G12': G12, 'nu12': nu12,
+        'nu21': nu21, 'eta121': eta121, 'eta122': eta122
+    }
+
+# 5. JAX calculate_elastic_constants (einsum version, uses vectorized JAX helper)
+
+
+def calculate_elastic_constants_jnp_einsum(M, input_style='mandel'):
+    """
+    JAX calculation using einsum and the vectorized JAX matrix2tensor.
+    """
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
+    # Uses vectorized JAX version and jnp.linalg.inv
+    S = matrix2tensor_vectorized_jnp(
+        jnp.linalg.inv(M), input_style=input_style)
+
+    e1 = jnp.array([1., 0.], dtype=S.dtype)
+    e2 = jnp.array([0., 1.], dtype=S.dtype)
+
+    E1 = 1.0 / jnp.einsum('ijkl,i,j,k,l', S, e1, e1,
+                          e1, e1, optimize='optimal')
+    E2 = 1.0 / jnp.einsum('ijkl,i,j,k,l', S, e2, e2,
+                          e2, e2, optimize='optimal')
+    G12_denom = jnp.einsum('ijkl,i,j,k,l', S, e1, e2,
+                           e1, e2, optimize='optimal')
+    G12 = 1.0 / G12_denom
+    if input_style == 'mandel':
+        G12 /= 4.0
+
+    nu12 = -E1 * jnp.einsum('ijkl,i,j,k,l', S, e1, e1,
+                            e2, e2, optimize='optimal')
+    nu21 = -E2 * jnp.einsum('ijkl,i,j,k,l', S, e2, e2,
+                            e1, e1, optimize='optimal')
+    eta121 = E1 * jnp.einsum('ijkl,i,j,k,l', S, e1, e2,
+                             e1, e1, optimize='optimal')
+    eta122 = E2 * jnp.einsum('ijkl,i,j,k,l', S, e1, e2,
+                             e2, e2, optimize='optimal')
+
+    return {
+        'E1': E1, 'E2': E2, 'G12': G12, 'nu12': nu12,
+        'nu21': nu21, 'eta121': eta121, 'eta122': eta122
+    }
+
+# 6. JAX calculate_elastic_constants (no einsum version, uses vectorized JAX helper)
+
+
+def calculate_elastic_constants_jnp_no_einsum(M, input_style='mandel'):
+    """
+    JAX calculation using manual indexing and the vectorized JAX matrix2tensor.
+    """
+    if input_style not in ('standard', 'mandel'):
+        raise ValueError(
+            f"input_style must be 'mandel' or 'standard', not {input_style}")
+
+    # Uses vectorized JAX version and jnp.linalg.inv
+    S = matrix2tensor_vectorized_jnp(
+        jnp.linalg.inv(M), input_style=input_style)
+
+    # Manual indexing
+    E1 = 1.0 / S[0, 0, 0, 0]
+    E2 = 1.0 / S[1, 1, 1, 1]
+    # Assuming minor symmetries S_ijlk = S_ijkl and S_klij = S_ijkl for G12
+    # S_1212 corresponds to i=0, j=1, k=0, l=1
+    G12_denom = S[0, 1, 0, 1]
+    G12 = 1.0 / G12_denom
+    if input_style == 'mandel':
+        G12 /= 4.0
+
+    # Assuming major symmetry S_ijkl = S_klij for nu
+    # nu12 is -E1 * S_1122 (i=0, j=0, k=1, l=1)
+    nu12 = -E1 * S[0, 0, 1, 1]
+    # nu21 is -E2 * S_2211 (i=1, j=1, k=0, l=0)
+    nu21 = -E2 * S[1, 1, 0, 0]
+
+    # eta are less standard, deriving indices from einsum version:
+    # eta121 = E1 * S_1211 (i=0, j=1, k=0, l=0)
+    eta121 = E1 * S[0, 1, 0, 0]
+    # eta122 = E2 * S_1222 (i=0, j=1, k=1, l=1) - Wait, einsum was e1,e2,e2,e2 => S_1222
+    eta122 = E2 * S[0, 1, 1, 1]  # Index corrected based on einsum
+
+    return {
+        'E1': E1, 'E2': E2, 'G12': G12, 'nu12': nu12,
+        'nu21': nu21, 'eta121': eta121, 'eta122': eta122
     }
 
 
@@ -369,7 +535,7 @@ def isotropic_elasticity_matrix(E, nu, plane='stress', output_style='mandel'):
     return C
 
 
-if __name__ == "__main__":
+def conversion_check():
 
     E0 = 1
     G0 = 0.384615
@@ -388,3 +554,7 @@ if __name__ == "__main__":
                 raise ValueError(
                     f"Mismatch of calculated and input properties for {k}: input={v:.3f}, calcualted={calculated_props[k]}")
     logger.info("Passed property check")
+
+
+if __name__ == "__main__":
+    conversion_check()

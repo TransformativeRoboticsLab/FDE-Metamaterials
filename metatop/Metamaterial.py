@@ -76,7 +76,7 @@ class Metamaterial:
 
         plt.show(block=True)
 
-    def plot_density(self, ax=None, cmap='gray'):
+    def plot_density(self, ax=None, cmap='gray', block=True):
         r = fe.Function(self.R)
         r.vector()[:] = self.x.vector()[:]
         if cmap == 'gray':
@@ -103,7 +103,8 @@ class Metamaterial:
             return
 
         fe.plot(r, cmap=cmap, vmin=0, vmax=1, title=title)
-        plt.show(block=True)
+        if block:
+            plt.show(block=block)
 
     def create_function_spaces(self, elem_degree=1):
         assert elem_degree >= 1, "Element degree must be at least 1"

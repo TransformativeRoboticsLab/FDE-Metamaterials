@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 import metatop.optimization.epigraph as epi
 import metatop.optimization.scalar as sca
+from data.post_hoc_opt import PropertyMatchObjective, load_exps
 from metatop import V_DICT
 from metatop.filters import (DensityFilter, HelmholtzFilter,
                              jax_density_filter, jax_helmholtz_filter)
@@ -155,6 +156,7 @@ def create_constraint(cname, config):
         'SameLargeValueConstraint': sca.SameLargeValueConstraint,
         'VolumeObjective': sca.VolumeObjective,
         'MatrixMatchingConstraint': sca.MatrixMatchingConstraint,
+        'PropertyMatchObjective': PropertyMatchObjective,
     }
     if cname not in constraint_list:
         s = f"{cname} not a valid constraint name. List is [{constraint_list.keys()}]"
@@ -313,7 +315,8 @@ def main():
     check_filter = False
     check_scalars = False
     check_epigraphs = False
-    check_volume = True
+    check_volume = False
+    check_post_hoc = True
     if basis_v:
         V = V_DICT[basis_v]
     else:
@@ -364,7 +367,30 @@ def main():
     else:
         logger.warning("Skipping filter gradient check")
 
-    # ===== SCALAR CONSTRAINTS =====
+    if check_post_hoc:
+        logger.info("Checking post hoc analysis optimization check")
+        ids = [1467, 2246, 1049]
+        exp_dict = load_exps(ids)
+        measured_data = {1049:
+                         {'E1': 1.85, 'E2': 0.99, 'nu21': 0.154, 'nu12': 0.275},
+                         2246:
+                         {'E1': 2.10, 'E2': 1.62, 'nu21': 0.058, 'nu12': 0.063},
+                         1467:
+                         {'E1': 0.86, 'E2': 0.84, 'nu21': 0.378, 'nu12': 0.404}
+                         }
+        for k, v in exp_dict.items():
+            if k in measured_data:
+                v |= measured_data[k]
+            else:
+                logger.error(f"{k} id not in measured data")
+        this_config = config.copy()
+        this_config['x'] = np.concatenate(len(ids) * [config['x']])
+        handle_optimization_component(
+            'PropertyMatchObjective', exp_dict=exp_dict, **this_config)
+    else:
+        logger.warning('Skipping post hoc analysis optimization check')
+
+        # ===== SCALAR CONSTRAINTS =====
     if check_scalars:
         logger.info("Checking scalar components")
         rsc = handle_optimization_component(
