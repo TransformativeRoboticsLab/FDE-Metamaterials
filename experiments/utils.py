@@ -385,7 +385,7 @@ def get_basis_str_from_array(ops):
     return basis_v_str[0]
 
 
-def seed_density(init_run_idx, size):
+def seed_density(init_run_idx, size, epigraph=False):
     '''
     Seed the initial density, either with the final output density from another run, or with random distribution
     '''
@@ -393,7 +393,16 @@ def seed_density(init_run_idx, size):
         pickle_artifact = extract_pickle_artifact(init_run_idx)
         if pickle_artifact is not None:
             # Use the final output density from another run, dropping the final t value
-            x = pickle_artifact.as_type(PA).render()['x'][:-1]
+            pickle = pickle_artifact.as_type(PA).render()
+            try:
+                x = pickle['x']
+                logger.warning(
+                    f"I think this final density was generated using the epigraph form, the size is {x.size:d}")
+            except:
+                x = pickle['x_history'][-1]
+                logger.warning(
+                    f"I think this final density was not generated using the epigraph form, the size is {x.size:d}")
+
             if not isinstance(x, np.ndarray):
                 logger.info(
                     f"It looks like 'x' from the pickle artifact from run {init_run_idx} was not a numpy array.")
@@ -418,8 +427,6 @@ def seed_density(init_run_idx, size):
         logger.info("Seeding with random density")
         x = np.random.uniform(0., 1., size)
 
-    # Append 1 for t value
-    x = np.append(x, 1.)
     return x
 
 

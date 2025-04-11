@@ -47,6 +47,7 @@ ex = Experiment('extremal')
 def config():
     E_max, E_min, nu = 1., 1./30., 0.4
     start_beta, n_betas = 1, 7
+    eta = 0.5
     epoch_duration, warm_start_duration = 200, 50
     extremal_mode = 1
     basis_v = 'BULK'
@@ -64,6 +65,7 @@ def config():
     rtol = 1e-4
     volume_constraint = 0.
     post_reduce_volume = False
+    init_run_idx = None
 
 
 @ex.config_hook
@@ -166,9 +168,11 @@ def run_optimization_loop(opt: nlopt.opt, x: np.ndarray, betas: list[int], ops: 
 
 
 @ex.automain
-def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, rtol, volume_constraint, post_reduce_volume, seed):
+def main(E_max, E_min, nu, start_beta, n_betas, eta, epoch_duration, warm_start_duration, extremal_mode, basis_v, dist_type, nelx, nely, mirror_axis, norm_filter_radius, show_plot, enable_profiling, log_to_db, verbose, rtol, volume_constraint, post_reduce_volume, init_run_idx, seed):
 
     loggeru.debug(f"Seed: {seed}")
+    if init_run_idx is not None:
+        loggeru.info(f"This is a rerun of ID {init_run_idx:d}")
 
     betas = [start_beta * 2 ** i for i in range(n_betas)]
     # ===== Component Setup =====
@@ -183,7 +187,7 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
                             filt=filt,
                             filt_fn=filt_fn,
                             beta=start_beta,
-                            eta=0.5,
+                            eta=eta,
                             img_shape=(metamate.width, metamate.height),
                             img_resolution=(200, 200),
                             plot_interval=25,
@@ -197,15 +201,21 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
         x = beta_function(volume_constraint, size=metamate.R.dim())
     # else we just seed it randomly with approx 0.5 volume fraction
     else:
-        x = np.random.uniform(0., 1., size=metamate.R.dim())
+        # x = np.random.uniform(0., 1., size=metamate.R.dim())
+        x = seed_density(init_run_idx, metamate.R.dim())
 
     if 'NSC' not in basis_v:
-        try:
-            x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
-        except Exception as e:
-            loggeru.error(
-                f"Issue with applying mirror density. Mirror not applied.")
-            loggeru.error(e)
+        if init_run_idx is None:
+            try:
+                logger.info(
+                    f"Applying {mirror_axis}-axis mirror to density field.")
+                x = mirror_density(x, metamate.R, axis=mirror_axis)[0]
+            except Exception as e:
+                loggeru.error(
+                    f"Issue with applying mirror density. Mirror not applied.")
+                loggeru.error(e)
+        else:
+            logger.info("Not applying mirror because this is a rerun")
     else:
         logger.warning(
             "NSC asked for in basis_v, but so was mirror. Skipping mirroring step.")
@@ -225,11 +235,14 @@ def main(E_max, E_min, nu, start_beta, n_betas, epoch_duration, warm_start_durat
     # ===== End Optimizer setup ======
 
     # ===== Warm start =====
-    opt.set_maxeval(warm_start_duration)
-    x[:] = run_warm_start(opt, x)
-    ops.x_history.append(x.copy())
-    ops.x = x.copy()
-    save_intermediate_results(ex, ops, opt.last_optimum_value(), 0)
+    if warm_start_duration > 0:
+        opt.set_maxeval(warm_start_duration)
+        x[:] = run_warm_start(opt, x)
+        ops.x_history.append(x.copy())
+        ops.x = x.copy()
+        save_intermediate_results(ex, ops, opt.last_optimum_value(), 0)
+    else:
+        logger.info("Skipping warm start")
 
     # ===== Optimization Loop =====
     # Update tolerances and durations after warm start
