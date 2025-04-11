@@ -94,7 +94,7 @@ def prepare_scatter_data(x_metric, y_metric, exps, filters={}):
                           "config.basis_v",
                           "config.nu",
                           "config.E_min",
-                          "config.dist_type"
+                          "config.dist_type",
                           ])
 
     clean_up_col_names(df)

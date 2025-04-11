@@ -3,14 +3,15 @@ import pandas as pd
 import plotly.express as px
 from dash import Input, Output
 from dash.exceptions import PreventUpdate
-from data.data_processing import prepare_scatter_data
-from data.experiment_loader import (get_cached_experiments,
-                                    get_image_from_experiment,
-                                    get_matrix_from_experiment)
 from loguru import logger
 from utils.mechanics import generate_planar_values
 from utils.plotting import build_polar_figure, build_scatter_figure
 from utils.utils import encode_image
+
+from data.data_processing import prepare_scatter_data
+from data.experiment_loader import (get_cached_experiments,
+                                    get_image_from_experiment,
+                                    get_matrix_from_experiment)
 
 
 def get_material_properties(data):
@@ -44,7 +45,8 @@ def register_callbacks(app):
             Input('E-filter', 'value'),
             Input('basis-filter', 'value'),
             Input('mode-filter', 'value'),
-            Input('dist-filter', 'value')
+            Input('dist-filter', 'value'),
+            # Input('rerun-filter', 'value'),
         ],
     )
     def update_scatter_plot_cb(x_metric, y_metric, nu_filter, E_filter, basis_filter, mode_filter, dist_filter):
@@ -54,8 +56,9 @@ def register_callbacks(app):
             'E_min': E_filter,
             'basis_v': basis_filter,
             'extremal_mode': mode_filter,
-            'dist_type': dist_filter
+            # 'dist_type': bool(rerun_filter)
         }
+        # print(bool(rerun_filter))
         logger.debug(f"Applied filters: {filters}")
         experiments = get_cached_experiments()
         logger.info(f"{len(experiments)} experiments in update_scatter_plot()")

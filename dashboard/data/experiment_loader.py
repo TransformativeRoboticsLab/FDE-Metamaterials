@@ -4,12 +4,13 @@ import time
 from io import StringIO
 
 import numpy as np
-from data.data_processing import process_experiments
 from dotenv import load_dotenv
 from incense import ExperimentLoader
 from loguru import logger
 from utils.mechanics import generate_planar_values
 from utils.utils import log_execution_time
+
+from data.data_processing import process_experiments
 
 load_dotenv()
 
@@ -18,7 +19,7 @@ MONGO_DB_NAME = os.getenv('LOCAL_MONGO_DB_NAME')
 MONGO_EXP_NAME = os.getenv('LOCAL_MONGO_EXP_NAME')
 
 DEFAULT_FILTER_TAGS = ['BAD', 'DUPE']
-DIST_TYPES = ['fro', 'log_euc']
+DIST_TYPES = ['fro']
 DB_QUERY = {"$and": [
     {'experiment.name': MONGO_EXP_NAME},
     {'status': 'COMPLETED'},
@@ -26,7 +27,7 @@ DB_QUERY = {"$and": [
     {'config.nu': {'$eq': 0.4}},
     {'config.objective_type': {'$eq': None}},
     {'config.dist_type': {'$eq': 'fro'}},
-
+    {'config.init_run_idx': {'$exists': True}}
 ]}
 
 try:

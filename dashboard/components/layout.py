@@ -1,7 +1,8 @@
 import dash_bootstrap_components as dbc
 from dash import dcc, html
-from data.experiment_loader import get_cached_dropdown_options
 from loguru import logger
+
+from data.experiment_loader import get_cached_dropdown_options
 
 
 def create_layout():
@@ -152,6 +153,15 @@ def filters_div(doc):
                 multi=True,
                 clearable=True
             ),
+            # dcc.Checklist(
+            #     options=[
+            #         {'label': 'Show only reruns', 'value': 'rerun'},
+            #     ],
+            #     value=[],
+            #     id='rerun-filter',
+            #     inline=True,
+            # ),
+
             html.Button('Clear All Filters', id='clear-button',
                         style={'margin-top': '10px'})
         ],
