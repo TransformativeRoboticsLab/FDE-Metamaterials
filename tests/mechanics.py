@@ -160,3 +160,52 @@ def test_calculate_elastic_constants_jax_consistency(input_style):
             f"Test failed for key '{key if 'key' in locals() else 'N/A'}' or dict structure")
         pytest.fail(
             f"JAX einsum vs JAX no_einsum calculate_elastic_constants mismatch or error: {e}")
+
+
+@pytest.mark.parametrize("input_style", ['standard', 'mandel'])
+def test_calculate_elastic_constants_isotropic_values(input_style):
+    """Checks calculate_elastic_constants output against known isotropic values."""
+    logger.info(
+        f"Test: Isotropic Validation | style='{input_style}' | E={E_iso}, nu={nu_iso}")
+
+    # Expected results for the isotropic case defined at top of file
+    expected_results = {
+        'E1': E_iso,
+        'E2': E_iso,
+        'G12': G_iso,  # Expected G = E / (2*(1+nu)) approx 26.3158
+        'nu12': nu_iso,
+        'nu21': nu_iso,
+        'eta121': 0.0,
+        'eta122': 0.0
+    }
+
+    try:
+        # Use the M_test_np stiffness matrix already defined in the file
+        # Assumes calculate_elastic_constants takes stiffness matrix M
+        results_numpy = calculate_elastic_constants(
+            M_test_np, input_style=input_style
+        )
+
+        assert results_numpy.keys() == expected_results.keys(), \
+            f"Output keys mismatch for style='{input_style}'"
+
+        mismatches = []
+        for key in expected_results:
+            expected = expected_results[key]
+            actual = results_numpy[key]
+            logger.debug(
+                f"Comparing key: {key} | Expected: {expected:.6f} | Actual: {actual:.6f}")
+            if not np.isclose(actual, expected, rtol=RTOL, atol=ATOL):
+                mismatches.append(
+                    f"{key} (Exp: {expected:.6f}, Got: {actual:.6f})")
+
+        if mismatches:
+            pytest.fail(
+                f"Isotropic test mismatch for style='{input_style}': {'; '.join(mismatches)}")
+        else:
+            logger.success(f"Isotropic test PASSED for style='{input_style}'")
+
+    except Exception as e:
+        logger.exception(f"Test failed for style='{input_style}'")
+        pytest.fail(
+            f"Isotropic test failed for style='{input_style}': {e}")

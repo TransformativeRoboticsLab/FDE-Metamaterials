@@ -76,40 +76,6 @@ def linear_stress(eps, E, nu):
     return lambda_*fe.tr(eps)*fe.Identity(2) + 2.0*mu_*eps
 
 
-def matrix2tensor(V, input_style='mandel'):
-    '''
-    Converts a 3x3 elasticity matrix into a 2x2x2x2 elasticity tensor
-
-    in: V, a 3x3 elasticity matrix
-        input_style, proper scaling for different matrix notation styles, e.g. Mandel or Voigt
-
-    out: C, a 2x2x2x2 elasticity tensor
-
-    Reference for indexing: https://www.wikiwand.com/en/Linear_elasticity#Anisotropic_homogeneous_media
-    '''
-    lookup = {(0, 0): 0, (1, 1): 1, (0, 1): 2, (1, 0): 2}
-    # lookup3D = {(0,0): 0, (1,1): 1, (2,2): 2, (1,2): 3, (2,1): 3, (2,0): 4, (0,2): 4, (0,1): 5, (1,0): 5}
-    C = np.zeros((2, 2, 2, 2), dtype=np.float64)
-
-    if input_style == 'mandel':
-        a = np.diag(np.array([1, 1, 1/np.sqrt(2)], dtype=np.double))
-        V = a@V@a
-    elif input_style == 'standard':
-        pass
-    else:
-        raise ValueError('Incorrect input style')
-
-    for i in range(C.shape[0]):
-        for j in range(C.shape[1]):
-            for k in range(C.shape[2]):
-                for l in range(C.shape[3]):
-                    p = lookup[(i, j)]
-                    q = lookup[(k, l)]
-                    C[i, j, k, l] = V[p, q]
-
-    return C
-
-
 def tensor2matrix(C, output_style='mandel'):
     '''
     Converts a 2x2x2x2 elasticity tensor into a 3x3 elasticity matrix
@@ -138,7 +104,6 @@ def tensor2matrix(C, output_style='mandel'):
     return V
 
 
-# 1. Original NumPy matrix2tensor (loop version)
 def matrix2tensor(V, input_style='mandel'):
     """
     Original version using loops.
@@ -171,8 +136,6 @@ def matrix2tensor(V, input_style='mandel'):
                     C[i, j, k, l] = V_processed[p, q]
     return C
 
-# 2. Vectorized NumPy matrix2tensor
-
 
 def matrix2tensor_vectorized(V, input_style='mandel'):
     """
@@ -203,8 +166,6 @@ def matrix2tensor_vectorized(V, input_style='mandel'):
     q_indices = P[kk, ll]
     C = V_scaled[p_indices, q_indices]
     return C
-
-# 3. Vectorized JAX matrix2tensor
 
 
 def matrix2tensor_vectorized_jnp(V, input_style='mandel'):
@@ -238,7 +199,23 @@ def matrix2tensor_vectorized_jnp(V, input_style='mandel'):
     C = V_scaled[p_indices, q_indices]
     return C
 
-# 4. Original NumPy calculate_elastic_constants (uses original matrix2tensor)
+
+'''
+So there's actually this weird bug in the matrix2tensor and calculate elastic constants functions. Originally I wrote matrix2tensor to handle elasticity matrices, specifically the C from \sigma = C \epsilon.
+
+When C is in Voigt notation it is simply just a repackaging of the matrix values into the tensor locations.
+However, this is not the case for S=C^-1 as seen on Hooke's Law wikipedia page
+https://www.wikiwand.com/en/articles/Hooke's_law#Matrix_representation_(stiffness_tensor)
+So in calculate elastic constants I invert C to S and then repackage it into a tensor, but not accounting for the scaling factors. 
+
+This ended up hiding because it doesn't affect the Young's modulus but does affect the shear modulus.
+Here I calculate G = 1 / S_1212, but that's not the usually equation. It is usually G = 1 / (2 * S_1212).
+But because I don't account for the scaling factors when moving from S-matrix to S-tensor, then my calculation of G = 1 / S_1212 is actually correct.
+
+Consequently, this is why I think I needed the Mandel fudge factor. Mandel notation is only a matrix thing, not a tensor thing so G = 1 / (2 * S_1212) should work whether we put in Mandel or Voigt; however, because I do the Mandel->Voigt conversion inside matrix2tensor I introduce a factor of 2 that needs to be pulled out.
+
+So right now this is super cursed, but it's also super not worth rewriting. However, because I previously had a factor of 4 for my Mandel divisor, any G calculation I did with a mandel matrix is half of what it should be. 
+'''
 
 
 def calculate_elastic_constants(M, input_style='mandel'):
@@ -262,7 +239,7 @@ def calculate_elastic_constants(M, input_style='mandel'):
     G12_denom = np.einsum('ijkl,i,j,k,l', S_tensor, e1, e2, e1, e2)
     G12 = 1.0 / G12_denom
     if input_style == 'mandel':
-        G12 /= 4.0
+        G12 /= 2.0
 
     nu12 = -E1 * np.einsum('ijkl,i,j,k,l', S_tensor, e1, e1, e2, e2)
     nu21 = -E2 * np.einsum('ijkl,i,j,k,l', S_tensor, e2, e2, e1, e1)
@@ -300,7 +277,7 @@ def calculate_elastic_constants_jnp_einsum(M, input_style='mandel'):
                            e1, e2, optimize='optimal')
     G12 = 1.0 / G12_denom
     if input_style == 'mandel':
-        G12 /= 4.0
+        G12 /= 2.0
 
     nu12 = -E1 * jnp.einsum('ijkl,i,j,k,l', S, e1, e1,
                             e2, e2, optimize='optimal')
@@ -339,7 +316,7 @@ def calculate_elastic_constants_jnp_no_einsum(M, input_style='mandel'):
     G12_denom = S[0, 1, 0, 1]
     G12 = 1.0 / G12_denom
     if input_style == 'mandel':
-        G12 /= 4.0
+        G12 /= 2.0
 
     # Assuming major symmetry S_ijkl = S_klij for nu
     # nu12 is -E1 * S_1122 (i=0, j=0, k=1, l=1)
