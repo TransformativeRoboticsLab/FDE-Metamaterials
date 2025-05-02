@@ -1,4 +1,4 @@
-# MetaTop for Fabrication-Directed Entanglement for Designing Chiral and Anisotropic Metamaterial Foams
+# Fabrication-Directed Entanglement for Designing Chiral and Anisotropic Metamaterial Foams
 
 MetaTop is a computational framework for topology optimization of mechanical metamaterials with extreme or targeted properties.
 
