@@ -4,7 +4,9 @@ MetaTop is a computational framework for topology optimization of mechanical met
 
 ## Overview
 
-This project implements optimization techniques for designing metamaterial structures with custom properties. It uses finite element analysis, gradient-based optimization, and various constraints to design microstructures that achieve target mechanical behaviors.
+This project implements optimization techniques for designing metamaterial structures with custom properties. Specifically it is configured for use with a viscous thread printing (VTP) fabrication process.
+
+It uses finite element analysis, gradient-based optimization, and various constraints to design microstructures that achieve target mechanical behaviors.
 
 ## Key Features
 
